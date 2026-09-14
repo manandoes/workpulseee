@@ -20,6 +20,10 @@ import { canManageTask } from "@/lib/permissions";
 import { updateTaskSchema } from "@/lib/validations/tasks";
 import { safeRecalcEmployeeWorkload } from "@/lib/workload-data";
 import { safeRecalcEmployeePerformance } from "@/lib/performance-data";
+import {
+  notifyTaskAssigned,
+  notifyTaskCompleted,
+} from "@/lib/notification-data";
 
 /**
  * PATCH /api/tasks/[id] — edit a task.
@@ -95,7 +99,15 @@ export async function PATCH(
     const updated = await db.task.update({
       where: { id: task.id },
       data: resolved.data,
-      select: { id: true, title: true, status: true, projectId: true },
+      select: {
+        id: true,
+        title: true,
+        status: true,
+        projectId: true,
+        // Read for the Phase 13 notifications below, not for the response.
+        dueDate: true,
+        assignee: { select: { fullName: true } },
+      },
     });
 
     /**
@@ -117,8 +129,49 @@ export async function PATCH(
       await safeRecalcEmployeePerformance(actor.companyId, task.assigneeId);
     }
 
+    /**
+     * Phase 13 — the two things about a task other people need telling about.
+     *
+     * Assignment fires only when the task actually changed hands, so saving an
+     * unrelated field does not re-announce work somebody already has. The
+     * previous assignee is deliberately not told they lost it: that is a
+     * conversation, not a notification.
+     */
+    if (newAssigneeId && newAssigneeId !== task.assigneeId) {
+      await notifyTaskAssigned({
+        id: updated.id,
+        companyId: actor.companyId,
+        title: updated.title,
+        dueDate: updated.dueDate,
+        assigneeId: newAssigneeId,
+        assignedById: actor.id,
+      });
+    }
+
+    /**
+     * Completion fires on the transition into Done, never on a save of a task
+     * that was already there — `completionFor` draws the same line for the
+     * timestamp.
+     */
+    if (task.status !== "Done" && updated.status === "Done") {
+      await notifyTaskCompleted({
+        id: updated.id,
+        companyId: actor.companyId,
+        title: updated.title,
+        assigneeName: updated.assignee?.fullName ?? null,
+        projectLeadAccountId: project?.leadAccountId ?? null,
+        createdById: task.createdById,
+        completedByAccountId: actor.accountType === "company" ? actor.id : null,
+      });
+    }
+
     return NextResponse.json({
-      task: updated,
+      task: {
+        id: updated.id,
+        title: updated.title,
+        status: updated.status,
+        projectId: updated.projectId,
+      },
       /**
        * Handing a task to a project somebody else leads — or detaching it
        * into a standalone task somebody else raised — gives away the right to

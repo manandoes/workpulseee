@@ -6,12 +6,17 @@ import {
   TaskPriorityBadge,
 } from "@/components/tasks/status-badge";
 import { TaskStatusSelect } from "@/components/tasks/task-status-select";
+import { TaskTimer } from "@/components/tasks/task-timer";
 import { EmptyState } from "@/components/dashboard/page-header";
 import { Card, CardContent } from "@/components/ui/card";
 
 /**
  * "My Work"'s task list (Phases.md Phase 10 — PRD.md section 6.9's "today's
  * tasks, upcoming deadlines").
+ *
+ * Each card carries its own timer (Phase 12 — task time tracking). Several can run at
+ * once — they are independent clocks, and stopping one is deliberately not the
+ * same action as starting another.
  *
  * Deliberately not `components/tasks/task-views.tsx`'s `TaskList`/`TaskBoard`:
  * both link task titles and project names into `/tasks/[id]`/`/projects/[id]`,
@@ -101,6 +106,16 @@ function TaskGroup({
                   label={`Move ${task.title}`}
                   hideLabel
                   className="w-40"
+                />
+
+                <TaskTimer
+                  taskId={task.id}
+                  closedMs={task.timer.closedMs}
+                  runningSince={
+                    task.timer.runningSince
+                      ? task.timer.runningSince.toISOString()
+                      : null
+                  }
                 />
               </CardContent>
             </Card>

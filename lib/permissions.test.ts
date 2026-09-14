@@ -32,6 +32,7 @@ const companyActor = (role: AppRole): SessionActor => ({
   companyId: "company_a",
   role,
   accountType: "company",
+  grants: [],
 });
 
 const employeeActor: SessionActor = {
@@ -39,6 +40,7 @@ const employeeActor: SessionActor = {
   companyId: "company_a",
   role: "Employee",
   accountType: "employee",
+  grants: [],
 };
 
 describe("canManageEmployees", () => {
@@ -132,9 +134,15 @@ describe("landingPathFor", () => {
 });
 
 describe("navigationFor", () => {
-  it("gives employees only their personal sections", () => {
+  it("gives employees their personal sections, plus Squad and Chat (Phase 11 — both shared, reachable by any account type)", () => {
     const hrefs = navigationFor(employeeActor).map((item) => item.href);
-    expect(hrefs.every((href) => href.startsWith("/my-space"))).toBe(true);
+    const sharedHrefs = ["/squad", "/chat"];
+    expect(
+      hrefs.every(
+        (href) => href.startsWith("/my-space") || sharedHrefs.includes(href)
+      )
+    ).toBe(true);
+    expect(hrefs).toEqual(expect.arrayContaining(sharedHrefs));
   });
 
   it("gives HR people, performance and requests, but not delivery work", () => {
@@ -157,6 +165,8 @@ describe("navigationFor", () => {
       "/tasks",
       "/performance",
       "/requests",
+      "/squad",
+      "/chat",
       "/settings",
     ]);
   });
@@ -609,5 +619,60 @@ describe("navigationFor", () => {
     expect(
       navigationFor(companyActor("HR")).map((item) => item.href)
     ).not.toContain("/tasks");
+  });
+});
+
+/**
+ * Phase 11 — an Employee holding a `PermissionGrant` gets the matching power
+ * on top of their role, additive-OR with the existing role logic. A plain
+ * Employee (no grants) or a CompanyAccount (grants always `[]`) is
+ * unaffected either way.
+ */
+describe("grant-aware permissions", () => {
+  const subject = { id: "emp_2", managerId: null, managerAccountId: null };
+
+  it("ViewPersonalDetails grant lets an employee see personal details, but not edit the record", () => {
+    const granted: SessionActor = {
+      ...employeeActor,
+      grants: ["ViewPersonalDetails"],
+    };
+    expect(canViewPersonalDetails(granted, subject)).toBe(true);
+    expect(canEditEmployee(granted, subject)).toBe(false);
+    expect(canViewPersonalDetails(employeeActor, subject)).toBe(false);
+  });
+
+  it("ManageEmployees grant lets an employee edit the record and see personal details", () => {
+    const granted: SessionActor = {
+      ...employeeActor,
+      grants: ["ManageEmployees"],
+    };
+    expect(canManageEmployees(granted)).toBe(true);
+    expect(canEditEmployee(granted, subject)).toBe(true);
+    expect(canViewPersonalDetails(granted, subject)).toBe(true);
+  });
+
+  it("ManageProjects grant lets an employee open Projects/Tasks", () => {
+    const granted: SessionActor = {
+      ...employeeActor,
+      grants: ["ManageProjects"],
+    };
+    expect(canViewProjects(granted)).toBe(true);
+    expect(canViewTasks(granted)).toBe(true);
+    expect(canViewProjects(employeeActor)).toBe(false);
+  });
+
+  it("DecideRequests grant lets an employee decide on any request, company-wide", () => {
+    const granted: SessionActor = {
+      ...employeeActor,
+      grants: ["DecideRequests"],
+    };
+    expect(canApproveRequests(granted)).toBe(true);
+    expect(canDecideOnRequest(granted, { employee: subject })).toBe(true);
+    expect(canApproveRequests(employeeActor)).toBe(false);
+  });
+
+  it("a CompanyAccount is never affected by grants (accountType gate)", () => {
+    const owner = companyActor("Owner");
+    expect(owner.grants).toEqual([]);
   });
 });

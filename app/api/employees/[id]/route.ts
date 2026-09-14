@@ -31,7 +31,6 @@ export async function PATCH(
 ) {
   const actor = await getActor();
   if (!actor) return unauthorized();
-  if (actor.accountType !== "company") return forbidden();
 
   const { id } = await context.params;
 

@@ -12,7 +12,11 @@
 //   Phase 6 - Company.weeklyCapacityHours, Employee.workloadPercent
 //   Phase 7 - Request, Notification, Attachment widened to cover requests
 //   Phase 8 - PerformanceRecord, Goal, Feedback
-//   Phase 9 - Alert  <- current
+//   Phase 9 - Alert
+//   Phase 10 - AttendanceRecord
+//   Phase 11 - Conversation, ConversationParticipant, ChatMessage,
+//              PermissionGrant
+//   Phase 12 - TaskTimeEntry  <- current
 
 generator client {
   provider = "prisma-client"
@@ -112,6 +116,24 @@ enum TaskPriority {
   Urgent
 }
 
+/// Why a task's timer stopped running (Phase 12 — task time tracking).
+///
+/// Every stop closes the same interval, so this is not a state machine - it is
+/// the one thing the four buttons genuinely differ by, and the only part of
+/// "why did you put this down" that cannot be recovered from the timestamps
+/// afterwards.
+///
+/// `Break` is a pause the employee means to come back from; `Stopped` is
+/// putting the task down to pick up something more urgent; `Done` is finishing
+/// it; `SignedOut` is the automatic close when they sign out, so time is never
+/// billed to a task nobody is sitting at.
+enum TimeEntryEndReason {
+  Break
+  Stopped
+  Done
+  SignedOut
+}
+
 /// Where a goal stands (Phases.md Phase 8). Deliberately terminal once decided,
 /// the same shape as `RequestStatus` - a goal that changes scope is a new goal,
 /// not a reopened one.
@@ -137,6 +159,29 @@ enum AlertType {
 enum AlertSeverity {
   Warning
   Critical
+}
+
+/// A power the Owner has temporarily handed an Employee, on top of their role
+/// (Phase 11 — see `lib/permissions.ts`'s `hasGrant`).
+enum GrantedPermission {
+  ViewPersonalDetails
+  ManageEmployees
+  ManageProjects
+  DecideRequests
+}
+
+/// What a notification is about.
+///
+/// Unlike `AlertType`, this is not only a label: it is half of the dedupe key
+/// that stops the nightly deadline sweep re-sending the same warning every
+/// night, and it is what `lib/notifications.ts` reads to decide which channels
+/// a notification is worth spending.
+enum NotificationType {
+  TaskAssigned
+  TaskCompleted
+  DeadlineApproaching
+  RequestSubmitted
+  RequestDecided
 }
 
 /// Tenant root. Every other model in the schema hangs off this.
@@ -184,6 +229,15 @@ model Company {
   goals              Goal[]
   feedback           Feedback[]
   performanceRecords PerformanceRecord[]
+  attendanceRecords  AttendanceRecord[]
+  breakRecords       BreakRecord[]
+  conversations      Conversation[]
+  chatParticipants   ConversationParticipant[]
+  chatMessages       ChatMessage[]
+  permissionGrants   PermissionGrant[]
+  taskTimeEntries    TaskTimeEntry[]
+  notificationPrefs  NotificationPreference[]
+  pushSubscriptions  PushSubscription[]
 
   @@index([deletedAt])
 }
@@ -201,6 +255,13 @@ model CompanyAccount {
 
   fullName  String
   workEmail String
+
+  /// Mobile number in E.164 form (for example "+919876543210"), used for
+  /// WhatsApp notifications and nothing else. Nullable because an account only
+  /// has one once its holder enters it — `lib/notifications.ts` simply skips
+  /// the WhatsApp channel for an account without one. Employees keep their
+  /// equivalent in `Employee.phone`, which already existed as an HR field.
+  phone String?
 
   /// Profile photo as a data URL, resized and compressed client-side before
   /// upload (`app/api/profile/avatar/route.ts`). No object storage exists in
@@ -248,11 +309,25 @@ model CompanyAccount {
   decidedRequests Request[]      @relation("RequestApprover")
   notifications   Notification[] @relation("NotificationAccount")
 
+  /// Delivery channel toggles and browsers signed up for push. Both carry the
+  /// same two-nullable-FK recipient shape as `Notification` itself.
+  notificationPrefs NotificationPreference? @relation("NotificationPrefAccount")
+  pushSubscriptions PushSubscription[]      @relation("PushSubscriptionAccount")
+
   /// Goals this account has set and feedback it has given (Phases.md Phase 8).
   /// Both are `canEditEmployee`'s scope: Owner/Admin/HR for anyone, a Manager
   /// only for their own direct reports.
   goalsSet      Goal[]     @relation("GoalSetBy")
   feedbackGiven Feedback[] @relation("FeedbackGivenBy")
+
+  /// Chat (Phase 11). A company account is a `ConversationParticipant` the
+  /// same way it is a `Notification` recipient — the two-nullable-FK shape.
+  chatParticipations ConversationParticipant[]
+  chatMessagesSent   ChatMessage[]
+
+  /// Permission grants this account has handed out (Owner only —
+  /// `canManagePermissionGrants` in lib/permissions.ts).
+  permissionGrantsGiven PermissionGrant[] @relation("PermissionGrantGivenBy")
 
   /// Architecture.md section 4: work email is unique *per company*, not
   /// globally, so the same person can hold accounts in two tenants. The login
@@ -368,9 +443,14 @@ model Employee {
   assignedTasks Task[] @relation("TaskAssignee")
 
   /// Requests this employee has submitted (Phases.md Phase 7).
-  requests         Request[]
-  notifications    Notification[] @relation("NotificationEmployee")
-  attachmentsAdded Attachment[]   @relation("AttachmentAddedByEmployee")
+  requests          Request[]
+  /// Requests this employee has decided, holding a `DecideRequests` grant
+  /// (Phase 11).
+  requestsDecided   Request[]               @relation("RequestApproverEmployee")
+  notifications     Notification[]          @relation("NotificationEmployee")
+  notificationPrefs NotificationPreference? @relation("NotificationPrefEmployee")
+  pushSubscriptions PushSubscription[]      @relation("PushSubscriptionEmployee")
+  attachmentsAdded  Attachment[]            @relation("AttachmentAddedByEmployee")
 
   /// Goals, feedback and score history (Phases.md Phase 8). Goals and feedback
   /// are manager-owned - an employee reads both on My Growth but never writes
@@ -381,6 +461,27 @@ model Employee {
   goals              Goal[]
   feedbackReceived   Feedback[]
   performanceRecords PerformanceRecord[]
+
+  /// Clock-in/clock-out sessions (attendance). At most one open row
+  /// (`clockOutAt: null`) at a time, enforced in `lib/attendance-data.ts`.
+  attendanceRecords AttendanceRecord[]
+
+  /// Breaks taken during an open attendance session (Plan.md Phase 15). At
+  /// most one open row (`endedAt: null`) at a time, enforced in
+  /// `lib/attendance-data.ts` — the same invariant `attendanceRecords` holds.
+  breakRecords BreakRecord[]
+
+  /// Time tracked against tasks (Phase 12). At most one open row per task,
+  /// enforced in `lib/task-timer-data.ts`.
+  taskTimeEntries TaskTimeEntry[]
+
+  /// Chat (Phase 11) — this employee's conversations and sent messages.
+  chatParticipations ConversationParticipant[]
+  chatMessagesSent   ChatMessage[]
+
+  /// Powers the Owner has handed this employee on top of their role
+  /// (Phase 11 — `hasGrant` in lib/permissions.ts).
+  permissionGrants PermissionGrant[]
 
   /// Alerts about this employee - an overload, or an aging request they
   /// submitted (Phases.md Phase 9). Lets a Manager's dashboard filter to
@@ -579,6 +680,9 @@ model Task {
   comments    Comment[]
   attachments Attachment[]
 
+  /// Stretches of work timed against this task (Phase 12).
+  timeEntries TaskTimeEntry[]
+
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
   deletedAt DateTime?
@@ -588,6 +692,55 @@ model Task {
   @@index([assigneeId])
   /// The board and the overdue sweep both read "open tasks by deadline".
   @@index([companyId, status, dueDate])
+}
+
+/// One continuous stretch of an employee working on a task (Phases.md
+/// Phase 12 - start / break / stop / done with a running timer).
+///
+/// An interval, not a stopwatch: the row is created open (`endedAt` null) when
+/// the timer starts and closed when it stops, so elapsed time is always
+/// derived from the two timestamps rather than from a counter that would have
+/// to be kept ticking by a job and would lose everything on a crash. The same
+/// shape as `AttendanceRecord`, one level down - a session is to a working day
+/// what one of these is to a task.
+///
+/// At most one open row per (employee, task), enforced in
+/// `lib/task-timer-data.ts`. Deliberately *not* one per employee: a person may
+/// legitimately have several tasks running at once, and the whole point of the
+/// stop action is that putting one task down is a separate decision from
+/// picking another up.
+///
+/// Rows are never edited or deleted, so there is no `deletedAt` - every row is
+/// history (the same reasoning `AttendanceRecord` carries).
+model TaskTimeEntry {
+  id String @id @default(cuid())
+
+  companyId String
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  taskId String
+  task   Task   @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  /// Who was working. Only ever the task's assignee - a manager does not run
+  /// someone else's timer (`canTrackTaskTime` in lib/permissions.ts).
+  employeeId String
+  employee   Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  startedAt DateTime  @default(now())
+  /// Null while the timer is running.
+  endedAt   DateTime?
+
+  /// Null exactly while `endedAt` is null - the two are written together.
+  endReason TimeEntryEndReason?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([companyId])
+  /// The task detail page reads "this task's entries, newest first".
+  @@index([taskId, startedAt])
+  /// Sign-out and "what am I running right now" both read open rows by person.
+  @@index([employeeId, endedAt])
 }
 
 /// A message on a task (Architecture.md section 4).
@@ -714,10 +867,17 @@ model Request {
   /// A decision is one-time (`lib/request-data.ts` refuses to re-decide an
   /// already-decided request) - a changed mind is a fresh request, not a
   /// reopened one.
-  approverId   String?
-  approver     CompanyAccount? @relation("RequestApprover", fields: [approverId], references: [id], onDelete: SetNull)
-  decisionNote String?
-  decidedAt    DateTime?
+  ///
+  /// Two nullable FKs (Phase 11 adds the second): a decider is usually a
+  /// `CompanyAccount`, but an Employee holding a `DecideRequests` grant
+  /// (`lib/permissions.ts`'s `hasGrant`) can decide too - the same
+  /// "Employee or CompanyAccount" shape as everywhere else in this schema.
+  approverId         String?
+  approver           CompanyAccount? @relation("RequestApprover", fields: [approverId], references: [id], onDelete: SetNull)
+  approverEmployeeId String?
+  approverEmployee   Employee?       @relation("RequestApproverEmployee", fields: [approverEmployeeId], references: [id], onDelete: SetNull)
+  decisionNote       String?
+  decidedAt          DateTime?
 
   attachments Attachment[]
 
@@ -749,16 +909,104 @@ model Notification {
   recipientAccountId String?
   recipientAccount   CompanyAccount? @relation("NotificationAccount", fields: [recipientAccountId], references: [id], onDelete: Cascade)
 
+  /// What happened. Drives which channels `lib/notifications.ts` spends on
+  /// this one, and forms half of `dedupeKey` below.
+  type NotificationType
+
   message String
   /// Where clicking the notification should go, e.g. `/requests/[id]`.
   link    String?
 
+  /// Idempotency key for notifications a *sweep* produces rather than a user
+  /// action (currently `DeadlineApproaching`, from `jobs/notifyDeadlines.ts`).
+  ///
+  /// The sweep runs daily and would otherwise re-warn about the same task
+  /// every night, so it writes a key naming the task and the day it is warning
+  /// about; the unique index below turns the second write into a no-op rather
+  /// than a duplicate message. Null for event-driven notifications, which
+  /// cannot repeat because the event cannot — and Postgres treats each NULL as
+  /// distinct, so any number of them coexist under this constraint.
+  dedupeKey String?
+
   readAt    DateTime?
   createdAt DateTime  @default(now())
 
+  @@unique([companyId, dedupeKey])
   @@index([companyId])
   @@index([recipientEmployeeId])
   @@index([recipientAccountId])
+}
+
+/// Which channels one person wants notifications on, beyond the bell.
+///
+/// A row exists only once someone has changed something: no row means every
+/// channel is on, which is the product default the Owner chose. That keeps the
+/// table empty for the overwhelming majority of people and needs no backfill
+/// for anyone who already exists. `resolveChannels` in `lib/notifications.ts`
+/// is the single place that turns "row or no row" into a channel list.
+///
+/// There is no `inApp` column: the bell is the permanent record of what
+/// happened and is not a channel anyone may switch off.
+model NotificationPreference {
+  id String @id @default(cuid())
+
+  companyId String
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  /// The same "exactly one of these" recipient shape as `Notification`, here
+  /// additionally unique so one person cannot hold two conflicting rows.
+  employeeId String?   @unique
+  employee   Employee? @relation("NotificationPrefEmployee", fields: [employeeId], references: [id], onDelete: Cascade)
+
+  accountId String?         @unique
+  account   CompanyAccount? @relation("NotificationPrefAccount", fields: [accountId], references: [id], onDelete: Cascade)
+
+  emailEnabled    Boolean @default(true)
+  whatsappEnabled Boolean @default(true)
+  pushEnabled     Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([companyId])
+}
+
+/// One browser that has agreed to receive Web Push, as returned by the
+/// browser's own `PushManager.subscribe()` (Architecture.md section 7's
+/// delivery half).
+///
+/// One person can hold several: work laptop, home laptop, phone. `endpoint` is
+/// the push service's URL for that browser and is globally unique by
+/// construction, so it — not the person — is the natural key, and re-subscribing
+/// the same browser updates the existing row instead of piling up dead ones.
+///
+/// Rows are deleted rather than soft-deleted: a subscription the push service
+/// has rejected with 404/410 is not history worth keeping, it is a dead address
+/// that would be retried forever. `lib/push.ts` prunes them on that response.
+model PushSubscription {
+  id String @id @default(cuid())
+
+  companyId String
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  employeeId String?
+  employee   Employee? @relation("PushSubscriptionEmployee", fields: [employeeId], references: [id], onDelete: Cascade)
+
+  accountId String?
+  account   CompanyAccount? @relation("PushSubscriptionAccount", fields: [accountId], references: [id], onDelete: Cascade)
+
+  /// The push service URL this browser listens on.
+  endpoint String @unique
+  /// The browser's public key and auth secret, used to encrypt the payload so
+  /// the push service relaying it cannot read the message.
+  p256dh   String
+  auth     String
+
+  createdAt DateTime @default(now())
+
+  @@index([companyId])
+  @@index([employeeId])
+  @@index([accountId])
 }
 
 /// A goal set for an employee (PRD.md section 6.5 - "OKR-style, simple").
@@ -853,6 +1101,71 @@ model PerformanceRecord {
   @@index([employeeId, computedAt])
 }
 
+/// One clock-in/clock-out session for an employee - a "Login"/"Logout" pair,
+/// no approval workflow. `clockOutAt: null` means the employee is currently
+/// clocked in. At most one such row per employee at a time - enforced in
+/// `lib/attendance-data.ts`, not the database, the same way other "exactly
+/// one of these" invariants in this schema are enforced in lib/*.ts rather
+/// than a DB constraint.
+///
+/// Breaks (Plan.md Phase 15) belong to the session, not to one task -
+/// starting one pauses every task timer running for this employee, so the
+/// worked total can honestly exclude lunch without also losing the timers.
+model AttendanceRecord {
+  id String @id @default(cuid())
+
+  companyId String
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  employeeId String
+  employee   Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  clockInAt  DateTime  @default(now())
+  clockOutAt DateTime?
+
+  breaks BreakRecord[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([companyId])
+  @@index([employeeId, clockInAt])
+}
+
+/// One break taken during an open attendance session (Plan.md Phase 15). A
+/// break outside a working day is not a thing, so `attendanceRecordId` is
+/// required, not nullable - unlike `AttendanceRecord` itself, which stands on
+/// its own.
+///
+/// `endedAt: null` means the break is open; at most one such row per employee
+/// at a time, enforced in `lib/attendance-data.ts` the same way the single
+/// open `AttendanceRecord` is.
+model BreakRecord {
+  id String @id @default(cuid())
+
+  companyId String
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  employeeId String
+  employee   Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  attendanceRecordId String
+  attendanceRecord   AttendanceRecord @relation(fields: [attendanceRecordId], references: [id], onDelete: Cascade)
+
+  startedAt DateTime  @default(now())
+  endedAt   DateTime?
+
+  /// Tasks whose running timer this break paused, so ending it can resume
+  /// exactly those and nothing else.
+  pausedTaskIds String[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([companyId])
+  @@index([employeeId, startedAt])
+}
+
 /// A system-generated exception (PRD.md section 6.8, Phases.md Phase 9's
 /// early-warning engine): an overdue task, an overloaded employee, a stalled
 /// project, or a pending request aging past the company's threshold.
@@ -895,4 +1208,108 @@ model Alert {
   @@index([companyId, type])
   @@index([employeeId])
   @@index([projectId])
+}
+
+/// A 1:1 chat between any two members of a company (either an Employee or a
+/// CompanyAccount) - Phase 11. No group chat: the join-table shape (like
+/// `ProjectMember`) is what keeps "find the conversation between X and Y" a
+/// plain query instead of four nullable FK columns directly on this row.
+model Conversation {
+  id String @id @default(cuid())
+
+  companyId String
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  participants ConversationParticipant[]
+  messages     ChatMessage[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([companyId])
+}
+
+/// One side of a conversation. Same two-nullable-FK shape as `Notification`'s
+/// recipient columns - exactly one of `employeeId`/`accountId` is set,
+/// enforced in `lib/chat-data.ts`, not the database. `lastReadAt` is what the
+/// unread badge/count is computed from, so no separate read-receipt table is
+/// needed.
+model ConversationParticipant {
+  id String @id @default(cuid())
+
+  companyId String
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  conversationId String
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  employeeId String?
+  employee   Employee? @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  accountId String?
+  account   CompanyAccount? @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  lastReadAt DateTime?
+
+  @@unique([conversationId, employeeId])
+  @@unique([conversationId, accountId])
+  @@index([companyId])
+  @@index([employeeId])
+  @@index([accountId])
+}
+
+/// A chat message, hard-deleted 3 days after `createdAt`
+/// (`lib/chat-data.ts`'s lazy cleanup plus the
+/// `/api/jobs/cleanup-chat-messages` sweep). Unlike every other "history"
+/// table in this schema, this one is genuinely temporary by design, so there
+/// is no `deletedAt` soft-delete - a message that ages out is actually gone.
+model ChatMessage {
+  id String @id @default(cuid())
+
+  companyId String
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  conversationId String
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  senderEmployeeId String?
+  senderEmployee   Employee? @relation(fields: [senderEmployeeId], references: [id], onDelete: SetNull)
+
+  senderAccountId String?
+  senderAccount   CompanyAccount? @relation(fields: [senderAccountId], references: [id], onDelete: SetNull)
+
+  body String
+
+  createdAt DateTime @default(now())
+
+  @@index([conversationId, createdAt])
+  @@index([companyId])
+}
+
+/// A power the Owner has temporarily handed an Employee, on top of their role
+/// (Phase 11 - see `hasGrant` in lib/permissions.ts, which is the single
+/// source of truth these grants feed into rather than bypass). Employee-only
+/// by design: a CompanyAccount already gets these powers through
+/// `CompanyRole` (Admin/Manager/HR), so unlike every other "Employee or
+/// CompanyAccount" table in this schema, this one only ever targets an
+/// Employee - no `accountId` column.
+model PermissionGrant {
+  id String @id @default(cuid())
+
+  companyId String
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  employeeId String
+  employee   Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  permission GrantedPermission
+
+  grantedById String
+  grantedBy   CompanyAccount @relation("PermissionGrantGivenBy", fields: [grantedById], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@unique([companyId, employeeId, permission])
+  @@index([companyId])
+  @@index([employeeId])
 }

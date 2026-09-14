@@ -29,6 +29,7 @@ const requestDetailSelect = {
     },
   },
   approver: { select: { id: true, fullName: true } },
+  approverEmployee: { select: { id: true, fullName: true } },
   attachments: {
     orderBy: { createdAt: "asc" },
     select: {

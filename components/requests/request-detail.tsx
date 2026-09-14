@@ -110,7 +110,13 @@ export function RequestDetail({
                 label="Decided"
                 value={formatDateTime(request.decidedAt)}
               />
-              <Detail label="Decided by" value={request.approver?.fullName} />
+              <Detail
+                label="Decided by"
+                value={
+                  request.approver?.fullName ??
+                  request.approverEmployee?.fullName
+                }
+              />
             </>
           ) : null}
         </Panel>

@@ -8,6 +8,7 @@ import { scopedWhere } from "@/lib/tenant";
 import { formatDate, formatDateTime } from "@/lib/format";
 import { isOverdue, taskVisibilityFilter } from "@/lib/tasks";
 import { canManageTask, canViewTasks, isCompanyAdmin } from "@/lib/permissions";
+import { loadTaskTimeEntries } from "@/lib/task-timer-data";
 import { PageHeader } from "@/components/dashboard/page-header";
 import {
   OverdueBadge,
@@ -17,6 +18,7 @@ import {
 import { TaskStatusSelect } from "@/components/tasks/task-status-select";
 import { TaskComments } from "@/components/tasks/task-comments";
 import { TaskAttachments } from "@/components/tasks/task-attachments";
+import { TaskTimeLog } from "@/components/tasks/task-time-log";
 import { DeleteTaskButton } from "@/components/tasks/delete-task-button";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -26,8 +28,8 @@ export const metadata: Metadata = { title: "Task — Talking Lens Media" };
 /**
  * Task detail (Phases.md Phase 5).
  *
- * Shows the task, moves it through the flow, and is where its conversation and
- * its attachments live.
+ * Shows the task, moves it through the flow, and is where its conversation,
+ * its attachments and its time record live.
  */
 export default async function TaskPage({ params }: PageProps<"/tasks/[id]">) {
   const actor = await getActor();
@@ -89,6 +91,10 @@ export default async function TaskPage({ params }: PageProps<"/tasks/[id]">) {
   });
 
   if (!task) notFound();
+
+  // Read after the task, not alongside it: an id that named nothing this
+  // viewer can see must not reach a second query at all.
+  const timeEntries = await loadTaskTimeEntries(actor, task.id);
 
   const now = new Date();
   const mayManage = canManageTask(actor, task);
@@ -227,6 +233,15 @@ export default async function TaskPage({ params }: PageProps<"/tasks/[id]">) {
               canDelete: attachment.addedById === actor.id || mayManage,
             }))}
           />
+        </Panel>
+
+        <Panel
+          title="Time tracked"
+          note="Logged by the assignee from My Work, one stretch per row."
+          plain
+          className="lg:col-span-2"
+        >
+          <TaskTimeLog entries={timeEntries} now={now} />
         </Panel>
 
         <Panel title="Comments" plain className="lg:col-span-2">

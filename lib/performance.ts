@@ -171,6 +171,181 @@ export function calculatePerformanceScore(
   return Math.round((weighted / totalWeight) * 100) / 100;
 }
 
+// ---------------------------------------------------------------------------
+// Periods (Phase 13 — performance for a date range, weekly or monthly)
+// ---------------------------------------------------------------------------
+
+/**
+ * The windows a score can be asked for. `all` is the whole record — the score
+ * this module computed before periods existed, and still the default.
+ */
+export const PERFORMANCE_PERIODS = ["all", "week", "month", "custom"] as const;
+export type PerformancePeriodPreset = (typeof PERFORMANCE_PERIODS)[number];
+
+/** An inclusive window. `null` anywhere below means "all time". */
+export type Period = { from: Date; to: Date };
+
+const PERIOD_LABELS: Record<PerformancePeriodPreset, string> = {
+  all: "All time",
+  week: "This week",
+  month: "This month",
+  custom: "Custom range",
+};
+
+export function performancePeriodLabel(
+  preset: PerformancePeriodPreset
+): string {
+  return PERIOD_LABELS[preset];
+}
+
+/** Monday, 00:00:00.000 UTC, of the week containing `now`. */
+function startOfWeek(now: Date): Date {
+  const daysSinceMonday = (now.getUTCDay() + 6) % 7;
+  return new Date(
+    Date.UTC(
+      now.getUTCFullYear(),
+      now.getUTCMonth(),
+      now.getUTCDate() - daysSinceMonday
+    )
+  );
+}
+
+/** The last instant of the day `YYYY-MM-DD` names, so a range includes its end date. */
+function endOfDay(day: Date): Date {
+  return new Date(day.getTime() + 24 * 60 * 60 * 1000 - 1);
+}
+
+const DAY_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+
+function parseDay(value: string | undefined): Date | null {
+  if (!value || !DAY_PATTERN.test(value)) return null;
+  const parsed = new Date(`${value}T00:00:00.000Z`);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+/**
+ * Turn what the URL carries into a window, or `null` for all time.
+ *
+ * Boundaries are UTC midnight and inclusive at both ends, matching how every
+ * date-only field in this schema is stored (`Task.dueDate`, `Goal.targetDate`)
+ * — "1 to 31 March" must include everything that happened on the 31st.
+ *
+ * A `custom` range missing or misordering its dates resolves to `null` rather
+ * than erroring: these values come from a URL anyone can edit, and falling back
+ * to the full record is the reading that cannot mislead.
+ */
+export function resolvePeriod(
+  preset: PerformancePeriodPreset,
+  from: string | undefined,
+  to: string | undefined,
+  now: Date
+): Period | null {
+  if (preset === "week") {
+    const start = startOfWeek(now);
+    return {
+      from: start,
+      to: endOfDay(new Date(start.getTime() + 6 * 24 * 60 * 60 * 1000)),
+    };
+  }
+
+  if (preset === "month") {
+    const start = new Date(
+      Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)
+    );
+    return {
+      from: start,
+      to: new Date(
+        Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1) - 1
+      ),
+    };
+  }
+
+  if (preset === "custom") {
+    const start = parseDay(from);
+    const end = parseDay(to);
+    if (!start || !end || end.getTime() < start.getTime()) return null;
+    return { from: start, to: endOfDay(end) };
+  }
+
+  return null;
+}
+
+function withinPeriod(value: Date | string | null, period: Period): boolean {
+  const date = toDate(value);
+  if (!date) return false;
+  return (
+    date.getTime() >= period.from.getTime() &&
+    date.getTime() <= period.to.getTime()
+  );
+}
+
+export type FeedbackSignal = { rating: number; createdAt: Date | string };
+export type GoalSignal = { status: GoalStatus; decidedAt: Date | string };
+
+/**
+ * The same inputs as `PerformanceInput`, but each carrying the timestamp that
+ * places it in time — which is the only thing a period needs and the reason
+ * this is a separate type rather than a widened one. `PerformanceInput` stays
+ * exactly what the score is computed from.
+ */
+export type PeriodPerformanceInput = {
+  tasks: readonly TaskSignal[];
+  workloadPercent: number | null;
+  feedback: readonly FeedbackSignal[];
+  goals: readonly GoalSignal[];
+};
+
+/**
+ * Narrow a full record down to one window, ready for
+ * `calculatePerformanceScore`.
+ *
+ * What counts as "a task in this period" is a judgment call — a task spans
+ * time, so no timestamp is the obviously right one. The rule here is the work
+ * that *landed or came due* in the window: a task completed inside it counts
+ * (as a completion, and on time or not against its own deadline), and a task
+ * that came due inside it and is still unfinished counts against completion.
+ * Work neither finished nor due in the window is somebody else's month. This
+ * is the one line to retune if the numbers read wrong.
+ *
+ * A `Done` task with no `completedAt` is excluded rather than guessed at: the
+ * timestamp is what places it in a period, and `completionFor` in
+ * `lib/tasks.ts` writes one for every task that reaches Done.
+ *
+ * Workload drops out of any bounded period. It is a live snapshot with no
+ * history (`Employee.workloadPercent`, overwritten in place), so it cannot
+ * describe a past March honestly. `calculatePerformanceScore` already
+ * renormalizes around a `null` component, so nothing else has to change.
+ */
+export function scopeInputsToPeriod(
+  input: PeriodPerformanceInput,
+  period: Period | null
+): PerformanceInput {
+  if (!period) {
+    return {
+      tasks: input.tasks,
+      workloadPercent: input.workloadPercent,
+      feedbackRatings: input.feedback.map((entry) => entry.rating),
+      goals: input.goals,
+    };
+  }
+
+  return {
+    tasks: input.tasks.filter((task) =>
+      task.status === "Done"
+        ? withinPeriod(task.completedAt, period)
+        : withinPeriod(task.dueDate, period)
+    ),
+    workloadPercent: null,
+    feedbackRatings: input.feedback
+      .filter((entry) => withinPeriod(entry.createdAt, period))
+      .map((entry) => entry.rating),
+    goals: input.goals.filter(
+      (goal) =>
+        goal.status !== "Active" && withinPeriod(goal.decidedAt, period)
+    ),
+  };
+}
+
 /** A performance band for display, reusing Design.md's success/warning/danger
  * status palette (Design.md § 10 — color never carries meaning alone). */
 export type PerformanceBand = "success" | "warning" | "danger";

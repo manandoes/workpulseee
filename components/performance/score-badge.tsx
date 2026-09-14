@@ -10,15 +10,22 @@ import { performanceBand, performanceBandLabel } from "@/lib/performance";
 export function PerformanceScoreBadge({
   score,
   className,
+  emptyLabel = "Not yet scored",
 }: {
   /** `null` means no `PerformanceRecord` exists yet — not enough data to score. */
   score: number | null;
   className?: string;
+  /**
+   * What `null` reads as. Defaults to "never scored"; a period view says so in
+   * its own terms instead, since nothing in *that window* is a different fact
+   * from nothing ever (Phase 13).
+   */
+  emptyLabel?: string;
 }) {
   if (score === null) {
     return (
       <p className={cn("text-text-secondary text-meta", className)}>
-        Not yet scored
+        {emptyLabel}
       </p>
     );
   }

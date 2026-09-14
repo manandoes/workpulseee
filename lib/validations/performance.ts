@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { PERFORMANCE_PERIODS } from "@/lib/performance";
 
 /**
  * Validation for goals, feedback and the performance queue (Rules.md
@@ -50,7 +51,31 @@ export const performanceFiltersSchema = z.object({
   departmentId: z.string().trim().max(40).optional().catch(undefined),
 });
 
+/**
+ * The period control on an employee's performance page (Phase 13).
+ *
+ * Every field is `.catch(undefined)` for the same reason the queue filters
+ * are: a hand-edited URL should quietly fall back to all time, which
+ * `resolvePeriod` treats as the whole record, rather than erroring the page.
+ */
+export const performancePeriodSchema = z.object({
+  period: z.enum(PERFORMANCE_PERIODS).optional().catch(undefined),
+  from: z
+    .string()
+    .trim()
+    .regex(/^\d{4}-\d{2}-\d{2}$/)
+    .optional()
+    .catch(undefined),
+  to: z
+    .string()
+    .trim()
+    .regex(/^\d{4}-\d{2}-\d{2}$/)
+    .optional()
+    .catch(undefined),
+});
+
 export type CreateGoalInput = z.infer<typeof createGoalSchema>;
 export type GoalDecisionInput = z.infer<typeof goalDecisionSchema>;
 export type CreateFeedbackInput = z.infer<typeof createFeedbackSchema>;
 export type PerformanceFiltersInput = z.infer<typeof performanceFiltersSchema>;
+export type PerformancePeriodInput = z.infer<typeof performancePeriodSchema>;

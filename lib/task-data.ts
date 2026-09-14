@@ -3,7 +3,7 @@ import { db } from "@/lib/db";
 import { scopedWhere } from "@/lib/tenant";
 import type { SessionActor } from "@/lib/permissions";
 import { canJoinTeam, isClosed } from "@/lib/projects";
-import { completionFor } from "@/lib/tasks";
+import { completionFor, isOpen } from "@/lib/tasks";
 import { formatPercent } from "@/lib/format";
 import type { SelectOption } from "@/components/forms/fields";
 import type { TaskPriority, TaskStatus } from "@/lib/generated/prisma/enums";
@@ -416,4 +416,30 @@ export function findTask(
       project: { select: { id: true, name: true, leadAccountId: true } },
     },
   });
+}
+
+/**
+ * How many of an employee's assigned tasks are done vs. still open — the
+ * Squad detail page's "tasks done/pending" figure (Phase 11). Scoped by
+ * company only, the same way `lib/performance-data.ts`'s `scoreInputsFor`
+ * reads this employee's tasks: the caller has already confirmed the id
+ * belongs to this company.
+ */
+export async function countTasksByStatus(
+  companyId: string,
+  employeeId: string
+): Promise<{ done: number; pending: number }> {
+  const tasks = await db.task.findMany({
+    where: { companyId, assigneeId: employeeId, deletedAt: null },
+    select: { status: true },
+  });
+
+  return tasks.reduce(
+    (counts, task) => {
+      if (isOpen(task.status)) counts.pending += 1;
+      else counts.done += 1;
+      return counts;
+    },
+    { done: 0, pending: 0 }
+  );
 }

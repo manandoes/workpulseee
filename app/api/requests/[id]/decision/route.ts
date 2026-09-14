@@ -32,9 +32,7 @@ export async function PATCH(
 ) {
   const actor = await getActor();
   if (!actor) return unauthorized();
-  if (actor.accountType !== "company" || !canApproveRequests(actor)) {
-    return forbidden();
-  }
+  if (!canApproveRequests(actor)) return forbidden();
 
   const { id } = await context.params;
 
@@ -70,7 +68,11 @@ export async function PATCH(
       where: { id: existing.id },
       data: {
         status: parsed.data.status,
-        approverId: actor.id,
+        // Two-nullable-FK: a company account fills `approverId`, an Employee
+        // deciding via a `DecideRequests` grant fills `approverEmployeeId`.
+        ...(actor.accountType === "company"
+          ? { approverId: actor.id }
+          : { approverEmployeeId: actor.id }),
         decisionNote: parsed.data.decisionNote || null,
         decidedAt,
       },

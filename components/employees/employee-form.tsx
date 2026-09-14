@@ -46,6 +46,14 @@ export function EmployeeForm({
   managerGroups,
   canEditPersonal,
   cancelHref,
+  /**
+   * Where a successful edit routes to. Defaults to the Employees directory
+   * profile — `squad/[memberKind]/[memberId]/edit/page.tsx` passes its own
+   * Squad detail path instead, so a granted employee editing a colleague
+   * from Squad lands back on Squad rather than `/employees/[id]`, a page
+   * they cannot open.
+   */
+  editRedirectHref,
 }: {
   mode: "create" | "edit";
   employeeId?: string;
@@ -55,6 +63,7 @@ export function EmployeeForm({
   managerGroups: SelectGroup[];
   canEditPersonal: boolean;
   cancelHref: string;
+  editRedirectHref?: string;
 }) {
   const router = useRouter();
   const [formError, setFormError] = useState<string | null>(null);
@@ -104,7 +113,7 @@ export function EmployeeForm({
 
     if (mode === "edit") {
       toast.success("Profile updated");
-      router.push(`/employees/${employeeId}`);
+      router.push(editRedirectHref ?? `/employees/${employeeId}`);
       router.refresh();
       return;
     }

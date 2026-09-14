@@ -2,7 +2,13 @@ import { db } from "@/lib/db";
 import { scopedWhere } from "@/lib/tenant";
 import type { EmployeeSubject, SessionActor } from "@/lib/permissions";
 import { paginationMeta, type PaginationMeta } from "@/lib/pagination";
-import { calculatePerformanceScore, type TaskSignal } from "@/lib/performance";
+import {
+  calculatePerformanceScore,
+  scopeInputsToPeriod,
+  type Period,
+  type PeriodPerformanceInput,
+  type TaskSignal,
+} from "@/lib/performance";
 import type { GoalStatus } from "@/lib/generated/prisma/enums";
 import type {
   CreateFeedbackInput,
@@ -43,7 +49,21 @@ const taskSignalSelect = {
   completedAt: true,
 } as const;
 
-async function scoreInputsFor(companyId: string, employeeId: string) {
+/**
+ * Everything an employee's score is computed from, each signal carrying the
+ * timestamp that places it in time so a period can narrow it
+ * (`scopeInputsToPeriod`). Always the full record — the window is applied
+ * afterwards, in memory, because these are per-employee lists a page already
+ * loads in full.
+ *
+ * `Goal` has no `decidedAt` column and does not need one: `decideGoal` only
+ * ever writes `status`, so a decided goal's `updatedAt` *is* when it was
+ * decided.
+ */
+async function scoreInputsFor(
+  companyId: string,
+  employeeId: string
+): Promise<PeriodPerformanceInput> {
   const [employee, tasks, feedback, goals] = await Promise.all([
     db.employee.findUniqueOrThrow({
       where: { id: employeeId },
@@ -55,11 +75,11 @@ async function scoreInputsFor(companyId: string, employeeId: string) {
     }),
     db.feedback.findMany({
       where: { companyId, employeeId },
-      select: { rating: true },
+      select: { rating: true, createdAt: true },
     }),
     db.goal.findMany({
       where: { companyId, employeeId, deletedAt: null },
-      select: { status: true },
+      select: { status: true, updatedAt: true },
     }),
   ]);
 
@@ -68,9 +88,31 @@ async function scoreInputsFor(companyId: string, employeeId: string) {
     workloadPercent: employee.workloadPercent
       ? Number(employee.workloadPercent)
       : null,
-    feedbackRatings: feedback.map((entry) => entry.rating),
-    goals: goals as { status: GoalStatus }[],
+    feedback,
+    goals: goals.map((goal) => ({
+      status: goal.status as GoalStatus,
+      decidedAt: goal.updatedAt,
+    })),
   };
+}
+
+/**
+ * One employee's score over a window, or over their whole record when
+ * `period` is `null` (Phase 13).
+ *
+ * Computed on read and never stored: `PerformanceRecord` is the all-time
+ * timeline, and a period score is a question asked of the same data rather
+ * than a second thing to keep fresh. Returns `null` when nothing in the window
+ * can be scored, which the pages render as "no data for this period" rather
+ * than as a zero.
+ */
+export async function loadPeriodScore(
+  companyId: string,
+  employeeId: string,
+  period: Period | null
+): Promise<number | null> {
+  const input = await scoreInputsFor(companyId, employeeId);
+  return calculatePerformanceScore(scopeInputsToPeriod(input, period));
 }
 
 /**
@@ -85,7 +127,8 @@ export async function recalcEmployeePerformance(
   now: Date = new Date()
 ): Promise<number | null> {
   const input = await scoreInputsFor(companyId, employeeId);
-  const score = calculatePerformanceScore(input);
+  // The stored timeline is an all-time score, unchanged by Phase 13's periods.
+  const score = calculatePerformanceScore(scopeInputsToPeriod(input, null));
   if (score === null) return null;
 
   await db.performanceRecord.create({
@@ -165,14 +208,23 @@ export async function recalcAllCompaniesPerformance(
 
 export type PerformanceHistoryPoint = { score: unknown; computedAt: Date };
 
-/** An employee's score history, newest first — the timeline PRD.md section 6.5 asks for. */
+/**
+ * An employee's score history, newest first — the timeline PRD.md section 6.5
+ * asks for, narrowed to `period` when one is given (Phase 13) so the chart
+ * covers the same window as the score above it.
+ */
 export function loadPerformanceHistory(
   companyId: string,
   employeeId: string,
+  period: Period | null = null,
   limit = 30
 ): Promise<PerformanceHistoryPoint[]> {
   return db.performanceRecord.findMany({
-    where: { companyId, employeeId },
+    where: {
+      companyId,
+      employeeId,
+      ...(period ? { computedAt: { gte: period.from, lte: period.to } } : {}),
+    },
     orderBy: { computedAt: "desc" },
     take: limit,
     select: { score: true, computedAt: true },

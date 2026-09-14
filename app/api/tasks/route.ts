@@ -21,6 +21,7 @@ import { canManageTask, canViewTasks } from "@/lib/permissions";
 import { createTaskSchema, taskFiltersSchema } from "@/lib/validations/tasks";
 import { safeRecalcEmployeeWorkload } from "@/lib/workload-data";
 import { safeRecalcEmployeePerformance } from "@/lib/performance-data";
+import { notifyTaskAssigned } from "@/lib/notification-data";
 
 /**
  * GET /api/tasks — the task list for the caller's company.
@@ -130,6 +131,22 @@ export async function POST(request: NextRequest) {
       actor.companyId,
       resolved.data.assigneeId ?? null
     );
+
+    /**
+     * Phase 13 — work that lands on someone should say so. Raising a task
+     * already unassigned is the backlog, not an event anyone needs telling
+     * about, so only an assignee notifies.
+     */
+    if (resolved.data.assigneeId) {
+      await notifyTaskAssigned({
+        id: task.id,
+        companyId: actor.companyId,
+        title: task.title,
+        dueDate: resolved.data.dueDate ?? null,
+        assigneeId: resolved.data.assigneeId,
+        assignedById: actor.id,
+      });
+    }
 
     return NextResponse.json({ task }, { status: 201 });
   } catch (cause) {

@@ -3,6 +3,8 @@ import { scopedWhere } from "@/lib/tenant";
 import type { SessionActor } from "@/lib/permissions";
 import { TASK_ORDER } from "@/lib/tasks";
 import { isClosed } from "@/lib/projects";
+import { loadMyTimerSummaries } from "@/lib/task-timer-data";
+import type { TimerSummary } from "@/lib/task-timer";
 import type {
   ProjectStatus,
   TaskPriority,
@@ -32,6 +34,9 @@ export type MyWorkTask = {
   dueDate: Date | null;
   /** `null` for a standalone task — a quick personal to-do with no project. */
   project: { id: string; name: string } | null;
+  /** This employee's own timer on this task (Phase 12 — task time tracking): what they
+   * have already banked, and whether a stretch is running right now. */
+  timer: TimerSummary;
 };
 
 export type MyWorkProject = {
@@ -84,12 +89,26 @@ export async function loadMyWork(actor: SessionActor): Promise<MyWork> {
     }),
   ]);
 
+  // Second query rather than an `include` on the first: the timer read is
+  // per-employee (`employeeId: actor.id`), which a relation filter on the task
+  // rows cannot express as cheaply, and one `IN` over a short list of open
+  // tasks is a single round trip either way.
+  const timers = await loadMyTimerSummaries(
+    actor,
+    tasks.map((task) => task.id)
+  );
+
   return {
     workloadPercent:
       employee?.workloadPercent == null
         ? null
         : Number(employee.workloadPercent),
-    tasks,
+    // A task never timed has no rows, which is the same thing as a stopped
+    // timer at zero — the caller should not have to tell the two apart.
+    tasks: tasks.map((task) => ({
+      ...task,
+      timer: timers[task.id] ?? { closedMs: 0, runningSince: null },
+    })),
     projects: allProjects.filter((project) => !isClosed(project.status)),
   };
 }

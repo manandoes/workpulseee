@@ -4,6 +4,8 @@ import { authConfig } from "@/lib/auth.config";
 import { db } from "@/lib/db";
 import { equalizeTiming, verifyPassword } from "@/lib/passwords";
 import type { SessionActor } from "@/lib/permissions";
+import { stopRunningEntries } from "@/lib/task-timer-data";
+import { closeOpenBreakOnSignOut } from "@/lib/attendance-data";
 import {
   companyLoginSchema,
   employeeLoginSchema,
@@ -184,6 +186,53 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       },
     }),
   ],
+
+  events: {
+    /**
+     * Signing out closes every task timer the employee still had running
+     * (Phase 12 — task time tracking).
+     *
+     * Here rather than in the sign-out button, because a timer that keeps
+     * ticking overnight is a data problem, not a UI one: the client can be
+     * closed, blocked or simply crash mid-request, and anything that only ran
+     * in the browser would leave the clock going. This is the one hook that
+     * fires for every sign-out path the app has.
+     *
+     * It cannot cover a session that merely expires unattended — there is no
+     * event for that — so the timer is deliberately an interval with a
+     * recorded reason rather than a running total: an entry closed at
+     * sign-out is marked `SignedOut` and is visible as such in the log.
+     *
+     * Failure is swallowed for the same reason `safeRecalcEmployeeWorkload`
+     * swallows its own: nobody should be held signed in because a follow-up
+     * write failed.
+     */
+    async signOut(message) {
+      const token = "token" in message ? message.token : null;
+      if (!token?.sub || token.accountType !== "employee") return;
+
+      try {
+        await stopRunningEntries(token.companyId as string, token.sub);
+      } catch (cause) {
+        console.error("[auth] failed to stop task timers on sign-out", {
+          employeeId: token.sub,
+          cause,
+        });
+      }
+
+      // Plan.md Phase 15: signing out ends the working day, so an open break
+      // cannot be left dangling either — same "the one hook that always
+      // fires" reasoning as the task-timer close above.
+      try {
+        await closeOpenBreakOnSignOut(token.companyId as string, token.sub);
+      } catch (cause) {
+        console.error("[auth] failed to close open break on sign-out", {
+          employeeId: token.sub,
+          cause,
+        });
+      }
+    },
+  },
 });
 
 /**
@@ -205,10 +254,27 @@ export async function getActor(): Promise<SessionActor | null> {
   });
   if (!company) return null;
 
+  // Grants (Phase 11) only ever apply to an Employee actor — a CompanyAccount
+  // already has its powers through `CompanyRole`. Read fresh on every call,
+  // the same "no client can go stale" guarantee every other field here has.
+  const grants =
+    session.user.accountType === "employee"
+      ? (
+          await db.permissionGrant.findMany({
+            where: {
+              companyId: session.user.companyId,
+              employeeId: session.user.id,
+            },
+            select: { permission: true },
+          })
+        ).map((grant) => grant.permission)
+      : [];
+
   return {
     id: session.user.id,
     companyId: session.user.companyId,
     role: session.user.role,
     accountType: session.user.accountType,
+    grants,
   };
 }

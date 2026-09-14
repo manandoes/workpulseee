@@ -5,6 +5,7 @@ import {
   TASK_PRIORITIES,
   TASK_STATUSES,
 } from "@/lib/tasks";
+import { TIMER_ACTIONS } from "@/lib/task-timer";
 
 /**
  * Validation for tasks, comments and attachments (Rules.md section 4 — every
@@ -64,6 +65,16 @@ export const taskStatusSchema = z.object({
   status: z.enum(TASK_STATUSES),
 });
 
+/**
+ * Running a task's timer (Phase 12 — task time tracking). One action per request, the
+ * same shape as the status route — what the timer does to the task's status
+ * follows from the action (`statusAfter` in lib/task-timer.ts) rather than
+ * being sent alongside it, so the two can never disagree.
+ */
+export const taskTimerSchema = z.object({
+  action: z.enum(TIMER_ACTIONS),
+});
+
 export const commentSchema = z.object({
   body: z.string().trim().min(1, "Write a comment").max(5000),
 });
@@ -101,6 +112,7 @@ export const taskViewSchema = z
 export type CreateTaskInput = z.infer<typeof createTaskSchema>;
 export type UpdateTaskInput = z.infer<typeof updateTaskSchema>;
 export type TaskStatusInput = z.infer<typeof taskStatusSchema>;
+export type TaskTimerInput = z.infer<typeof taskTimerSchema>;
 export type CommentInput = z.infer<typeof commentSchema>;
 export type AttachmentInput = z.infer<typeof attachmentSchema>;
 export type TaskFiltersInput = z.infer<typeof taskFiltersSchema>;

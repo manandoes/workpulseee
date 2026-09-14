@@ -13,14 +13,16 @@ import {
   canViewPersonalDetails,
   canViewProjects,
 } from "@/lib/permissions";
+import { loadEmployeeAttendance } from "@/lib/attendance-data";
 import { PageHeader } from "@/components/dashboard/page-header";
 import { EmployeeStatusBadge } from "@/components/employees/status-badge";
 import { EmployeeStatusActions } from "@/components/employees/employee-status-actions";
 import { EmployeeDeleteButton } from "@/components/employees/employee-delete-button";
 import { ProjectStatusBadge } from "@/components/projects/status-badge";
 import { WorkloadBar } from "@/components/dashboard/workload-bar";
+import { AttendanceTable } from "@/components/attendance/attendance-table";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
+import { Panel, Detail } from "@/components/dashboard/detail-panel";
 
 export const metadata: Metadata = { title: "Employee — Talking Lens Media" };
 
@@ -104,6 +106,14 @@ export default async function EmployeeProfilePage({
   const mayEdit = canEditEmployee(actor, employee);
   const maySeePersonal = canViewPersonalDetails(actor, employee);
   const mayChangeStatus = canManageEmployees(actor);
+
+  // Attendance is as sensitive as the rest of the Personal panel, so it
+  // follows the same visibility rule and is only loaded when it will
+  // actually be rendered.
+  const attendance = maySeePersonal
+    ? await loadEmployeeAttendance(actor, employee.id)
+    : null;
+  const now = new Date();
 
   const manager = employee.manager
     ? employee.manager.fullName
@@ -221,6 +231,23 @@ export default async function EmployeeProfilePage({
           </Panel>
         )}
 
+        {attendance ? (
+          <Panel
+            title="Attendance"
+            note="Visible to owners, admins, HR and this person's manager only."
+            plain
+          >
+            <AttendanceTable records={attendance} now={now} />
+          </Panel>
+        ) : (
+          <Panel title="Attendance" plain>
+            <p className="text-text-secondary">
+              Attendance is limited to owners, admins, HR and this person&apos;s
+              own manager.
+            </p>
+          </Panel>
+        )}
+
         <Panel title="Account">
           <Detail label="Status" value={employee.status} />
           <Detail label="Added" value={formatDate(employee.createdAt)} />
@@ -303,51 +330,5 @@ export default async function EmployeeProfilePage({
         is built.
       </div>
     </>
-  );
-}
-
-function Panel({
-  title,
-  note,
-  /** Render the body as prose or a list rather than a definition list. */
-  plain,
-  children,
-}: {
-  title: string;
-  note?: string;
-  plain?: boolean;
-  children: React.ReactNode;
-}) {
-  return (
-    <Card>
-      <CardContent className="flex flex-col gap-4 py-2">
-        <div className="flex flex-col gap-1">
-          <h2 className="text-h3 text-brand-brown font-semibold">{title}</h2>
-          {note ? (
-            <p className="text-text-secondary text-meta">{note}</p>
-          ) : null}
-        </div>
-        {plain ? (
-          children
-        ) : (
-          <dl className="grid gap-x-6 gap-y-3 sm:grid-cols-2">{children}</dl>
-        )}
-      </CardContent>
-    </Card>
-  );
-}
-
-function Detail({
-  label,
-  value,
-}: {
-  label: string;
-  value: string | null | undefined;
-}) {
-  return (
-    <div className="flex flex-col gap-0.5">
-      <dt className="text-text-secondary text-meta">{label}</dt>
-      <dd className="text-foreground break-words">{value || "—"}</dd>
-    </div>
   );
 }

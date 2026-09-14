@@ -1,4 +1,9 @@
-import type { CompanyRole } from "@/lib/generated/prisma/enums";
+import type {
+  CompanyRole,
+  GrantedPermission,
+} from "@/lib/generated/prisma/enums";
+
+export type { GrantedPermission };
 
 /**
  * Role-based access rules (PRD.md section 9).
@@ -22,7 +27,28 @@ export type SessionActor = {
   companyId: string;
   role: AppRole;
   accountType: AccountType;
+  /**
+   * Powers the Owner has temporarily handed this actor on top of their role
+   * (Phase 11 — `lib/permission-grants-data.ts`). Always empty for a company
+   * account: `CompanyRole` already gives Admin/Manager/HR their powers, so
+   * only an Employee actor ever carries grants. Loaded once, in `getActor()`
+   * (`lib/auth.ts`), so every check below can read it with no extra
+   * plumbing at the call site.
+   */
+  grants: GrantedPermission[];
 };
+
+/**
+ * Does this actor hold a specific granted permission? Employee-only by
+ * construction — see `SessionActor.grants`.
+ *
+ * Every check below that consults this is additive-OR with the existing
+ * role logic, never a replacement for it — a grant only ever adds a power an
+ * Employee didn't already have.
+ */
+function hasGrant(actor: SessionActor, permission: GrantedPermission): boolean {
+  return actor.accountType === "employee" && actor.grants.includes(permission);
+}
 
 const COMPANY_ROLES: readonly AppRole[] = ["Owner", "Admin", "Manager", "HR"];
 
@@ -50,7 +76,8 @@ export function isCompanyAdmin(actor: SessionActor): boolean {
 export function canManageEmployees(actor: SessionActor): boolean {
   return (
     isCompanyAdmin(actor) ||
-    (actor.accountType === "company" && actor.role === "HR")
+    (actor.accountType === "company" && actor.role === "HR") ||
+    hasGrant(actor, "ManageEmployees")
   );
 }
 
@@ -114,7 +141,8 @@ export function canViewPersonalDetails(
   actor: SessionActor,
   employee: EmployeeSubject
 ): boolean {
-  return canEditEmployee(actor, employee);
+  if (canEditEmployee(actor, employee)) return true;
+  return hasGrant(actor, "ViewPersonalDetails");
 }
 
 /**
@@ -128,7 +156,8 @@ export function canViewPersonalDetails(
 function isDeliveryRole(actor: SessionActor): boolean {
   return (
     isCompanyAdmin(actor) ||
-    (actor.accountType === "company" && actor.role === "Manager")
+    (actor.accountType === "company" && actor.role === "Manager") ||
+    hasGrant(actor, "ManageProjects")
   );
 }
 
@@ -241,6 +270,22 @@ export function canUpdateTaskStatus(
 }
 
 /**
+ * Who may run *this* task's timer (Phase 12 — task time tracking).
+ *
+ * Deliberately narrower than `canUpdateTaskStatus`: a time entry is a claim
+ * about who sat and did the work, so only the assignee can make one. A manager
+ * with authority over the task can still move its status and read the log, but
+ * cannot start a clock in somebody else's name — the same reasoning attendance
+ * uses for "only an employee can clock themselves in".
+ */
+export function canTrackTaskTime(
+  actor: SessionActor,
+  task: AssignableTask
+): boolean {
+  return actor.accountType === "employee" && actor.id === task.assigneeId;
+}
+
+/**
  * Who may invite and list the Owner/Admin/Manager/HR logins themselves.
  *
  * Architecture.md section 4: those accounts are "invited by an Owner/Admin".
@@ -261,11 +306,12 @@ export type InvitableRole = (typeof INVITABLE_ROLES)[number];
 /** Who may approve leave, reimbursements and other employee requests. */
 export function canApproveRequests(actor: SessionActor): boolean {
   return (
-    actor.accountType === "company" &&
-    (actor.role === "Owner" ||
-      actor.role === "Admin" ||
-      actor.role === "Manager" ||
-      actor.role === "HR")
+    (actor.accountType === "company" &&
+      (actor.role === "Owner" ||
+        actor.role === "Admin" ||
+        actor.role === "Manager" ||
+        actor.role === "HR")) ||
+    hasGrant(actor, "DecideRequests")
   );
 }
 
@@ -283,6 +329,10 @@ export function canDecideOnRequest(
 ): boolean {
   if (!canApproveRequests(actor)) return false;
   if (isCompanyAdmin(actor) || actor.role === "HR") return true;
+  // A `DecideRequests` grant is company-wide, the same tier as Owner/Admin/HR
+  // above — an Employee grantee has no "own direct reports" the way a
+  // Manager does, so there is nothing narrower to scope it to.
+  if (hasGrant(actor, "DecideRequests")) return true;
   return actor.role === "Manager" && isDirectReport(actor, request.employee);
 }
 
@@ -307,6 +357,17 @@ export function canViewPerformance(
 /** Only company accounts may change company-wide settings. */
 export function canManageCompanySettings(actor: SessionActor): boolean {
   return isCompanyAdmin(actor);
+}
+
+/**
+ * Who may grant or revoke an employee's `PermissionGrant`s (Phase 11).
+ *
+ * Owner only, not Admin — "founder/owner-controlled" is the literal ask this
+ * answers, narrower than `isCompanyAdmin`'s Owner-or-Admin group used
+ * everywhere else in this file.
+ */
+export function canManagePermissionGrants(actor: SessionActor): boolean {
+  return actor.accountType === "company" && actor.role === "Owner";
 }
 
 /**
@@ -367,6 +428,8 @@ export function navigationFor(actor: SessionActor): NavItem[] {
         label: "My Requests",
         icon: "ClipboardCheck",
       },
+      { href: "/squad", label: "Squad", icon: "Contact" },
+      { href: "/chat", label: "Chat", icon: "MessageCircle" },
     ];
   }
 
@@ -396,6 +459,8 @@ export function navigationFor(actor: SessionActor): NavItem[] {
     label: "Performance",
     icon: "TrendingUp",
   };
+  const squad: NavItem = { href: "/squad", label: "Squad", icon: "Contact" };
+  const chat: NavItem = { href: "/chat", label: "Chat", icon: "MessageCircle" };
   const settings: NavItem = {
     href: "/settings",
     label: "Settings",
@@ -406,7 +471,7 @@ export function navigationFor(actor: SessionActor): NavItem[] {
     // Phase 8 gives HR real work on this page (setting goals, giving
     // feedback — both inside `canEditEmployee`'s scope), so it joins the
     // people-and-requests slice HR already had.
-    return [dashboard, employees, performance, requests];
+    return [dashboard, employees, performance, requests, squad, chat];
   }
 
   return [
@@ -418,6 +483,8 @@ export function navigationFor(actor: SessionActor): NavItem[] {
     ...(canViewTasks(actor) ? [tasks] : []),
     performance,
     requests,
+    squad,
+    chat,
     ...(canManageWorkloadSettings(actor) ? [settings] : []),
   ];
 }

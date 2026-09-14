@@ -9,11 +9,15 @@ import {
   loadFeedback,
   loadGoals,
   loadPerformanceHistory,
+  loadPeriodScore,
 } from "@/lib/performance-data";
+import { resolvePeriod } from "@/lib/performance";
+import { performancePeriodSchema } from "@/lib/validations/performance";
 import { canEditEmployee, canViewPerformance } from "@/lib/permissions";
 import { PageHeader } from "@/components/dashboard/page-header";
 import { Card, CardContent } from "@/components/ui/card";
-import { PerformanceScoreBadge } from "@/components/performance/score-badge";
+import { PeriodFilter } from "@/components/performance/period-filter";
+import { PeriodScore } from "@/components/performance/period-score";
 import { ScoreHistoryChart } from "@/components/performance/score-history-chart";
 import { GoalList } from "@/components/performance/goal-views";
 import { GoalForm } from "@/components/performance/goal-form";
@@ -33,12 +37,17 @@ export const metadata: Metadata = { title: "Performance — Talking Lens Media" 
  */
 export default async function EmployeePerformancePage({
   params,
+  searchParams,
 }: PageProps<"/performance/[id]">) {
   const actor = await getActor();
   if (!actor) redirect("/login");
   if (actor.accountType !== "company") redirect("/my-space");
 
   const { id } = await params;
+  const { period: preset = "all", from, to } = performancePeriodSchema.parse(
+    await searchParams
+  );
+  const period = resolvePeriod(preset, from, to, new Date());
 
   const employee = await db.employee.findFirst({
     where: scopedWhere(actor, { id }),
@@ -56,13 +65,13 @@ export default async function EmployeePerformancePage({
 
   const mayDecide = canEditEmployee(actor, employee);
 
-  const [history, goals, feedback] = await Promise.all([
-    loadPerformanceHistory(actor.companyId, employee.id),
+  const [periodScore, history, goals, feedback] = await Promise.all([
+    loadPeriodScore(actor.companyId, employee.id, period),
+    loadPerformanceHistory(actor.companyId, employee.id, period),
     loadGoals(actor.companyId, employee.id),
     loadFeedback(actor.companyId, employee.id),
   ]);
 
-  const latestScore = history[0]?.score ?? null;
   const chartHistory = [...history].reverse().map((point) => ({
     score: Number(point.score),
     computedAt: point.computedAt,
@@ -86,12 +95,14 @@ export default async function EmployeePerformancePage({
 
       <Card>
         <CardContent className="flex flex-col gap-4 py-2">
-          <div className="flex flex-col gap-1">
-            <h2 className="text-h3 text-brand-brown font-semibold">Score</h2>
-            <PerformanceScoreBadge
-              score={latestScore === null ? null : Number(latestScore)}
-            />
-          </div>
+          <h2 className="text-h3 text-brand-brown font-semibold">Score</h2>
+          <PeriodFilter
+            basePath={`/performance/${employee.id}`}
+            period={preset}
+            from={from ?? ""}
+            to={to ?? ""}
+          />
+          <PeriodScore score={periodScore} period={period} />
           <ScoreHistoryChart history={chartHistory} />
         </CardContent>
       </Card>

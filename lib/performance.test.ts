@@ -7,8 +7,11 @@ import {
   PERFORMANCE_WEIGHTS,
   performanceBand,
   performanceBandLabel,
+  resolvePeriod,
+  scopeInputsToPeriod,
   taskCompletionRate,
   workloadContribution,
+  type Period,
 } from "@/lib/performance";
 
 const due = (day: string) => new Date(`${day}T00:00:00.000Z`);
@@ -198,6 +201,156 @@ describe("calculatePerformanceScore", () => {
         PERFORMANCE_WEIGHTS.feedback +
         PERFORMANCE_WEIGHTS.goals);
     expect(score).toBe(Math.round(expected * 100) / 100);
+  });
+});
+
+describe("resolvePeriod", () => {
+  // A Wednesday, so the week boundaries are visibly not the day itself.
+  const now = new Date("2026-09-16T10:30:00.000Z");
+
+  it("is null for all time, which is the whole record", () => {
+    expect(resolvePeriod("all", undefined, undefined, now)).toBeNull();
+  });
+
+  it("runs a week Monday to Sunday, inclusive of the last instant", () => {
+    const period = resolvePeriod("week", undefined, undefined, now);
+    expect(period?.from.toISOString()).toBe("2026-09-14T00:00:00.000Z");
+    expect(period?.to.toISOString()).toBe("2026-09-20T23:59:59.999Z");
+  });
+
+  it("runs a month from the 1st to the real last day", () => {
+    const february = resolvePeriod(
+      "month",
+      undefined,
+      undefined,
+      new Date("2026-02-10T12:00:00.000Z")
+    );
+    expect(february?.from.toISOString()).toBe("2026-02-01T00:00:00.000Z");
+    expect(february?.to.toISOString()).toBe("2026-02-28T23:59:59.999Z");
+  });
+
+  it("includes both ends of a custom range", () => {
+    const period = resolvePeriod("custom", "2026-03-01", "2026-03-31", now);
+    expect(period?.from.toISOString()).toBe("2026-03-01T00:00:00.000Z");
+    expect(period?.to.toISOString()).toBe("2026-03-31T23:59:59.999Z");
+  });
+
+  it("falls back to all time rather than erroring on a hand-edited URL", () => {
+    expect(resolvePeriod("custom", undefined, undefined, now)).toBeNull();
+    expect(resolvePeriod("custom", "2026-03-01", undefined, now)).toBeNull();
+    expect(resolvePeriod("custom", "not-a-date", "2026-03-31", now)).toBeNull();
+    // End before start is a range nobody meant.
+    expect(resolvePeriod("custom", "2026-03-31", "2026-03-01", now)).toBeNull();
+  });
+});
+
+describe("scopeInputsToPeriod", () => {
+  const march: Period = {
+    from: new Date("2026-03-01T00:00:00.000Z"),
+    to: new Date("2026-03-31T23:59:59.999Z"),
+  };
+
+  const input = {
+    tasks: [
+      // Finished inside March, late against its own deadline.
+      {
+        status: "Done" as const,
+        dueDate: due("2026-03-10"),
+        completedAt: due("2026-03-12"),
+      },
+      // Finished in February — another month's work.
+      {
+        status: "Done" as const,
+        dueDate: due("2026-02-10"),
+        completedAt: due("2026-02-11"),
+      },
+      // Came due in March and still is not finished.
+      { status: "Todo" as const, dueDate: due("2026-03-20"), completedAt: null },
+      // Neither finished nor due in March.
+      { status: "Todo" as const, dueDate: due("2026-05-01"), completedAt: null },
+    ],
+    workloadPercent: 80,
+    feedback: [
+      { rating: 5, createdAt: due("2026-03-15") },
+      { rating: 1, createdAt: due("2026-02-15") },
+    ],
+    goals: [
+      { status: "Achieved" as const, decidedAt: due("2026-03-05") },
+      { status: "Missed" as const, decidedAt: due("2026-01-05") },
+      { status: "Active" as const, decidedAt: due("2026-03-06") },
+    ],
+  };
+
+  it("passes the whole record through for all time", () => {
+    const scoped = scopeInputsToPeriod(input, null);
+    expect(scoped.tasks).toHaveLength(4);
+    expect(scoped.feedbackRatings).toEqual([5, 1]);
+    expect(scoped.goals).toHaveLength(3);
+    expect(scoped.workloadPercent).toBe(80);
+  });
+
+  it("keeps work finished in the window, and work that came due in it unfinished", () => {
+    const scoped = scopeInputsToPeriod(input, march);
+    expect(scoped.tasks).toHaveLength(2);
+    // One of the two reached Done, and it was late.
+    expect(taskCompletionRate(scoped.tasks)).toBe(50);
+    expect(onTimeDeliveryRate(scoped.tasks)).toBe(0);
+  });
+
+  it("excludes a Done task with no completion timestamp to place it", () => {
+    const scoped = scopeInputsToPeriod(
+      {
+        ...input,
+        tasks: [
+          { status: "Done", dueDate: due("2026-03-10"), completedAt: null },
+        ],
+      },
+      march
+    );
+    expect(scoped.tasks).toHaveLength(0);
+  });
+
+  it("keeps only feedback given in the window", () => {
+    expect(scopeInputsToPeriod(input, march).feedbackRatings).toEqual([5]);
+  });
+
+  it("keeps only goals decided in the window, never still-Active ones", () => {
+    const scoped = scopeInputsToPeriod(input, march);
+    expect(scoped.goals).toEqual([{ status: "Achieved", decidedAt: due("2026-03-05") }]);
+  });
+
+  it("drops workload from a bounded period, since it has no history", () => {
+    expect(scopeInputsToPeriod(input, march).workloadPercent).toBeNull();
+  });
+
+  it("scores null for a window nothing happened in", () => {
+    const empty = scopeInputsToPeriod(input, {
+      from: new Date("2026-08-01T00:00:00.000Z"),
+      to: new Date("2026-08-31T23:59:59.999Z"),
+    });
+    expect(calculatePerformanceScore(empty)).toBeNull();
+  });
+
+  it("includes the first and last instant of the window", () => {
+    const edges = scopeInputsToPeriod(
+      {
+        ...input,
+        tasks: [
+          {
+            status: "Done",
+            dueDate: null,
+            completedAt: new Date("2026-03-01T00:00:00.000Z"),
+          },
+          {
+            status: "Done",
+            dueDate: null,
+            completedAt: new Date("2026-03-31T23:59:59.999Z"),
+          },
+        ],
+      },
+      march
+    );
+    expect(edges.tasks).toHaveLength(2);
   });
 });
 

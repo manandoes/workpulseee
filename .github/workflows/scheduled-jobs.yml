@@ -1,0 +1,51 @@
+name: Scheduled jobs
+
+# Calls the app's job endpoints on a schedule.
+#
+# Architecture.md section 2 names BullMQ + Redis for background work, but no
+# queue infrastructure exists and no host is chosen, so the jobs live behind
+# plain HTTP endpoints guarded by `CRON_SECRET` (see
+# `app/api/jobs/notify-deadlines/route.ts`). This workflow is the scheduler
+# that calls them — chosen over Vercel Cron so the schedule is not tied to one
+# host and is not capped to one run a day.
+#
+# Only the deadline sweep is scheduled here. The four older job endpoints —
+# generate-alerts, recalculate-workload, recalculate-performance and
+# cleanup-chat-messages — have never had a scheduler either, and wiring them up
+# is a separate decision about how often each should run; the dashboard
+# regenerates alerts on every visit in the meantime.
+#
+# Required repository secrets:
+#   APP_URL      Base URL of the deployment, e.g. https://app.example.com
+#   CRON_SECRET  The same value as the app's CRON_SECRET environment variable
+
+on:
+  schedule:
+    # 03:30 UTC — 09:00 in India, where this app's default currency puts its
+    # users. Deadlines are stored at UTC midnight, so a morning run warns about
+    # work due "today" at the start of that day rather than the end of it.
+    - cron: "30 3 * * *"
+  # So the sweep can be run by hand after a deploy, or to verify the secrets.
+  workflow_dispatch:
+
+jobs:
+  notify-deadlines:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Warn assignees whose deadlines are close
+        run: |
+          set -euo pipefail
+
+          status=$(curl --silent --show-error --fail-with-body \
+            --max-time 300 \
+            --write-out '%{http_code}' \
+            --output response.json \
+            --request POST \
+            --header "Authorization: Bearer ${CRON_SECRET}" \
+            "${APP_URL%/}/api/jobs/notify-deadlines")
+
+          echo "HTTP ${status}"
+          cat response.json
+        env:
+          APP_URL: ${{ secrets.APP_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}

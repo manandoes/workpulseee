@@ -1,10 +1,11 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { ListPlus } from "lucide-react";
+import { ClipboardCheck, ListPlus } from "lucide-react";
 import { getActor } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { loadOwnRequests } from "@/lib/request-data";
+import { canApproveRequests } from "@/lib/permissions";
 import { paginationSchema } from "@/lib/pagination";
 import { EmptyState, PageHeader } from "@/components/dashboard/page-header";
 import { Pagination } from "@/components/dashboard/pagination";
@@ -41,12 +42,22 @@ export default async function MyRequestsPage({
         title="My Requests"
         description="Leave, expenses, equipment and HR requests you've submitted, and their status."
         action={
-          <Button asChild>
-            <Link href="/my-space/requests/new">
-              <ListPlus aria-hidden />
-              New request
-            </Link>
-          </Button>
+          <div className="flex flex-wrap items-center gap-3">
+            {canApproveRequests(actor) ? (
+              <Button asChild variant="outline">
+                <Link href="/my-space/requests/approvals">
+                  <ClipboardCheck aria-hidden />
+                  Approvals
+                </Link>
+              </Button>
+            ) : null}
+            <Button asChild>
+              <Link href="/my-space/requests/new">
+                <ListPlus aria-hidden />
+                New request
+              </Link>
+            </Button>
+          </div>
         }
       />
 

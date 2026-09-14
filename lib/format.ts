@@ -105,3 +105,41 @@ export function formatDateTime(
     timeZoneName: "short",
   });
 }
+
+/**
+ * A duration in milliseconds as `"2h 14m"` (or `"45m"` under an hour), for an
+ * attendance session's length.
+ *
+ * Coarser than the live `HH:MM:SS` ticker on the attendance widget — that one
+ * counts a running session second by second, this one summarises a finished
+ * (or finished-so-far) total the way `formatMoney`/`formatPercent` summarise
+ * other quantities for display.
+ */
+export function formatDuration(milliseconds: number): string {
+  if (!Number.isFinite(milliseconds) || milliseconds < 0) return "—";
+
+  const totalMinutes = Math.floor(milliseconds / 60_000);
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+
+  if (hours === 0) return `${minutes}m`;
+  return `${hours}h ${minutes}m`;
+}
+
+/**
+ * `HH:MM:SS`, for a clock that is still running — the attendance widget and a
+ * task's timer both tick one every second.
+ *
+ * Finer-grained than `formatDuration`'s `"2h 14m"` on purpose: that is how a
+ * finished stretch of time is summarised, this is how a live one is watched,
+ * and a number that only moves once a minute reads as broken.
+ */
+export function formatElapsed(milliseconds: number): string {
+  const totalSeconds = Math.max(0, Math.floor(milliseconds / 1000));
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+
+  const pad = (value: number) => value.toString().padStart(2, "0");
+  return `${pad(hours)}:${pad(minutes)}:${pad(seconds)}`;
+}

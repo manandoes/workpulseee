@@ -7,6 +7,7 @@ const actor: SessionActor = {
   companyId: "company_a",
   role: "Admin",
   accountType: "company",
+  grants: [],
 };
 
 describe("scopedWhere", () => {

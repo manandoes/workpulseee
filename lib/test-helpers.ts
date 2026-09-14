@@ -141,11 +141,21 @@ export function companyActor(
   id: string,
   role: CompanyRole
 ): SessionActor {
-  return { id, companyId, role: role as AppRole, accountType: "company" };
+  return {
+    id,
+    companyId,
+    role: role as AppRole,
+    accountType: "company",
+    grants: [],
+  };
 }
 
-export function employeeActor(companyId: string, id: string): SessionActor {
-  return { id, companyId, role: "Employee", accountType: "employee" };
+export function employeeActor(
+  companyId: string,
+  id: string,
+  grants: SessionActor["grants"] = []
+): SessionActor {
+  return { id, companyId, role: "Employee", accountType: "employee", grants };
 }
 
 /** Builds a `NextRequest` for a route handler, JSON body only. */

@@ -4,9 +4,11 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   ClipboardCheck,
+  Contact,
   FolderKanban,
   LayoutDashboard,
   ListChecks,
+  MessageCircle,
   Settings,
   TrendingUp,
   Users,
@@ -14,6 +16,7 @@ import {
 } from "lucide-react";
 import { cn } from "cn";
 import type { NavItem } from "@/lib/permissions";
+import { ChatNavBadge } from "@/components/dashboard/chat-nav-badge";
 
 /**
  * `navigationFor` returns icon names rather than components so that the
@@ -27,6 +30,8 @@ const ICONS: Record<string, LucideIcon> = {
   TrendingUp,
   ClipboardCheck,
   Settings,
+  MessageCircle,
+  Contact,
 };
 
 export function SidebarNav({ items }: { items: NavItem[] }) {
@@ -56,6 +61,7 @@ export function SidebarNav({ items }: { items: NavItem[] }) {
           >
             <Icon aria-hidden className="size-5 shrink-0" strokeWidth={1.5} />
             {item.label}
+            {item.href === "/chat" ? <ChatNavBadge /> : null}
           </Link>
         );
       })}

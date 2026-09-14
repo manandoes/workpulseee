@@ -86,6 +86,8 @@ export type LoadedRequest = {
   createdAt: Date;
   employee: RequestEmployee;
   approver: { id: string; fullName: string } | null;
+  /** Set instead of `approver` when a grant-holding Employee decided this (Phase 11). */
+  approverEmployee: { id: string; fullName: string } | null;
 };
 
 const requestSelect = {
@@ -109,6 +111,7 @@ const requestSelect = {
     },
   },
   approver: { select: { id: true, fullName: true } },
+  approverEmployee: { select: { id: true, fullName: true } },
 } as const;
 
 /**

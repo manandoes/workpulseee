@@ -3,11 +3,13 @@ import Link from "next/link";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { navigationFor } from "@/lib/permissions";
+import { loadOpenBreak } from "@/lib/attendance-data";
 import { BrandMark } from "@/components/marketing/brand-mark";
 import { SidebarNav } from "@/components/dashboard/sidebar-nav";
 import { SignOutButton } from "@/components/dashboard/sign-out-button";
 import { NotificationBell } from "@/components/dashboard/notification-bell";
 import { Avatar } from "@/components/dashboard/avatar";
+import { BreakOverlay } from "@/components/attendance/break-overlay";
 import { Toaster } from "@/components/ui/sonner";
 
 /**
@@ -25,11 +27,27 @@ export default async function DashboardLayout({ children }: LayoutProps<"/">) {
     redirect("/login");
   }
 
+  // Grants (Phase 11) only ever apply to an Employee actor — see
+  // `getActor()` in lib/auth.ts, which this mirrors.
+  const grants =
+    session.user.accountType === "employee"
+      ? (
+          await db.permissionGrant.findMany({
+            where: {
+              companyId: session.user.companyId,
+              employeeId: session.user.id,
+            },
+            select: { permission: true },
+          })
+        ).map((grant) => grant.permission)
+      : [];
+
   const actor = {
     id: session.user.id,
     companyId: session.user.companyId,
     role: session.user.role,
     accountType: session.user.accountType,
+    grants,
   };
 
   const navigation = navigationFor(actor);
@@ -44,18 +62,24 @@ export default async function DashboardLayout({ children }: LayoutProps<"/">) {
    */
   const avatarUrl =
     actor.accountType === "company"
-      ? (
+      ? ((
           await db.companyAccount.findFirst({
             where: { id: actor.id, companyId: actor.companyId },
             select: { avatarUrl: true },
           })
-        )?.avatarUrl ?? null
-      : (
+        )?.avatarUrl ?? null)
+      : ((
           await db.employee.findFirst({
             where: { id: actor.id, companyId: actor.companyId },
             select: { avatarUrl: true },
           })
-        )?.avatarUrl ?? null;
+        )?.avatarUrl ?? null);
+
+  // Plan.md Phase 15: the blocking break overlay follows the employee across
+  // every page, not only My Work, so it is loaded here rather than per-page.
+  // Only ever set for an Employee actor — a company account never clocks in.
+  const openBreak =
+    actor.accountType === "employee" ? await loadOpenBreak(actor) : null;
 
   return (
     <div className="dashboard-theme flex min-h-full flex-1">
@@ -76,7 +100,7 @@ export default async function DashboardLayout({ children }: LayoutProps<"/">) {
         </div>
 
         <div className="flex flex-col gap-3">
-          <NotificationBell className="self-start" />
+          <NotificationBell className="self-start" align="left" />
           <Link
             href="/profile"
             className="hover:bg-brand-yellow-light flex items-center gap-2.5 rounded-lg px-3 py-1.5 transition-colors"
@@ -126,6 +150,11 @@ export default async function DashboardLayout({ children }: LayoutProps<"/">) {
       </div>
 
       <Toaster />
+      <BreakOverlay
+        openBreak={
+          openBreak ? { startedAt: openBreak.startedAt.toISOString() } : null
+        }
+      />
     </div>
   );
 }
