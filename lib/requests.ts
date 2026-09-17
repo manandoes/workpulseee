@@ -1,4 +1,8 @@
-import type { RequestStatus, RequestType } from "@/lib/generated/prisma/enums";
+import type {
+  LeaveDayPart,
+  RequestStatus,
+  RequestType,
+} from "@/lib/generated/prisma/enums";
 
 /**
  * Request business logic (Rules.md section 5 — rules live in `lib/`, not
@@ -38,6 +42,30 @@ export function requestNeedsAmount(type: RequestType): boolean {
   return type === "Reimbursement";
 }
 
+/**
+ * Only a Leave request may name which part of the day it covers. Widening
+ * this to `WFH` later is one `||`, per Plan.md Phase 16's open decision.
+ */
+export function requestNeedsDayPart(type: RequestType): boolean {
+  return type === "Leave";
+}
+
+export const LEAVE_DAY_PARTS = [
+  "FullDay",
+  "FirstHalf",
+  "SecondHalf",
+] as const satisfies readonly LeaveDayPart[];
+
+const DAY_PART_LABELS: Record<LeaveDayPart, string> = {
+  FullDay: "Full day",
+  FirstHalf: "First half",
+  SecondHalf: "Second half",
+};
+
+export function dayPartLabel(dayPart: LeaveDayPart): string {
+  return DAY_PART_LABELS[dayPart];
+}
+
 const TYPE_LABELS: Record<RequestType, string> = {
   Leave: "Leave",
   Reimbursement: "Reimbursement",
@@ -51,6 +79,19 @@ const TYPE_LABELS: Record<RequestType, string> = {
 
 export function requestTypeLabel(type: RequestType): string {
   return TYPE_LABELS[type];
+}
+
+/**
+ * The type label, with a half-day leave's part called out ("Leave · First
+ * half") — shared by the list and detail views so they can never disagree.
+ * A `FullDay` (or absent, on every non-Leave type) shows just the type.
+ */
+export function requestTypeDisplay(
+  type: RequestType,
+  dayPart: LeaveDayPart | null
+): string {
+  if (!dayPart || dayPart === "FullDay") return requestTypeLabel(type);
+  return `${requestTypeLabel(type)} · ${dayPartLabel(dayPart)}`;
 }
 
 const STATUS_LABELS: Record<RequestStatus, string> = {

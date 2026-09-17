@@ -13,7 +13,11 @@ import {
   TASK_STATUSES,
   UNASSIGNED,
 } from "@/lib/tasks";
-import { loadAssigneeFilterOptions, loadTaskProjects } from "@/lib/task-data";
+import {
+  loadAssigneeFilterOptions,
+  loadTaskClients,
+  loadTaskProjects,
+} from "@/lib/task-data";
 import { canManageTask, canViewTasks } from "@/lib/permissions";
 import { paginationMeta, paginationSchema } from "@/lib/pagination";
 import { taskFiltersSchema, taskViewSchema } from "@/lib/validations/tasks";
@@ -28,7 +32,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { cn } from "cn";
 
-export const metadata: Metadata = { title: "Tasks — Talking Lens Media" };
+export const metadata: Metadata = { title: "Tasks — WorkPulse" };
 
 /**
  * Task board and list (Phases.md Phase 5).
@@ -58,8 +62,9 @@ export default async function TasksPage({ searchParams }: PageProps<"/tasks">) {
     AND: [taskFilter(filters, now), taskVisibilityFilter(actor)],
   });
 
-  const [projects, assignees, total] = await Promise.all([
+  const [projects, clients, assignees, total] = await Promise.all([
     loadTaskProjects(actor),
+    loadTaskClients(actor),
     loadAssigneeFilterOptions(actor),
     db.task.count({ where }),
   ]);
@@ -84,6 +89,7 @@ export default async function TasksPage({ searchParams }: PageProps<"/tasks">) {
       createdById: true,
       assignee: { select: { id: true, fullName: true } },
       project: { select: { id: true, name: true, leadAccountId: true } },
+      client: { select: { id: true, name: true } },
     },
     skip: meta ? meta.skip : 0,
     take: meta ? meta.take : 500,
@@ -98,8 +104,10 @@ export default async function TasksPage({ searchParams }: PageProps<"/tasks">) {
    */
   const canManage = (task: {
     project: { leadAccountId: string | null } | null;
+    client: { id: string } | null;
     createdById: string | null;
-  }) => canManageTask(actor, task);
+  }) =>
+    canManageTask(actor, { ...task, clientId: task.client?.id ?? null });
 
   const isFiltered = Object.values(filters).some(Boolean);
 
@@ -130,6 +138,12 @@ export default async function TasksPage({ searchParams }: PageProps<"/tasks">) {
             label: "Project",
             anyLabel: "All projects",
             options: projects,
+          },
+          {
+            name: "clientId",
+            label: "Client",
+            anyLabel: "All clients",
+            options: clients,
           },
           {
             name: "assigneeId",

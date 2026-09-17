@@ -14,7 +14,7 @@ import { InviteAccountForm } from "@/components/employees/invite-account-form";
 import { RoleBadge } from "@/components/employees/status-badge";
 import { Card, CardContent } from "@/components/ui/card";
 
-export const metadata: Metadata = { title: "Company accounts — Talking Lens Media" };
+export const metadata: Metadata = { title: "Company accounts — WorkPulse" };
 
 /**
  * The Owner / Admin / Manager / HR logins (Architecture.md section 4).

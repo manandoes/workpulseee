@@ -23,7 +23,7 @@ import { WorkloadBar } from "@/components/dashboard/workload-bar";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 
-export const metadata: Metadata = { title: "Employees — Talking Lens Media" };
+export const metadata: Metadata = { title: "Employees — WorkPulse" };
 
 /**
  * Employee directory (Phases.md Phase 3).

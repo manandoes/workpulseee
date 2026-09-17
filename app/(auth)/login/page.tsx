@@ -4,9 +4,9 @@ import { Building2, UserRound } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 
 export const metadata: Metadata = {
-  title: "Sign in — Talking Lens Media",
+  title: "Sign in — WorkPulse",
   description:
-    "Sign in to Talking Lens Media as a company admin or as an employee of a company.",
+    "Sign in to WorkPulse as a company admin or as an employee of a company.",
 };
 
 /**
@@ -37,7 +37,7 @@ export default function LoginPage() {
       <CardContent className="flex flex-col gap-6 py-2">
         <div className="flex flex-col gap-2">
           <h1 className="text-h1 text-brand-brown font-semibold">Sign in</h1>
-          <p className="text-text-secondary">Choose how you use Talking Lens Media.</p>
+          <p className="text-text-secondary">Choose how you use WorkPulse.</p>
         </div>
 
         <div className="flex flex-col gap-3">

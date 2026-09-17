@@ -12,6 +12,7 @@ import { scopedWhere } from "@/lib/tenant";
 import { db } from "@/lib/db";
 import { directoryFilter } from "@/lib/employees";
 import { resolveEmployeeWrite } from "@/lib/employee-data";
+import { loadEmailConfig } from "@/lib/company-email-config";
 import {
   buildInviteUrl,
   generateInviteToken,
@@ -148,11 +149,15 @@ export async function POST(request: NextRequest) {
       companyName: company.name,
       inviteUrl,
     });
-    const delivery = await sendEmail({
-      to: employee.companyEmail,
-      subject,
-      text,
-    });
+    const emailConfig = await loadEmailConfig(actor.companyId);
+    const delivery = await sendEmail(
+      {
+        to: employee.companyEmail,
+        subject,
+        text,
+      },
+      emailConfig
+    );
 
     return NextResponse.json(
       {

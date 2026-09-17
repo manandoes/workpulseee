@@ -16,7 +16,7 @@ import { OrgTree } from "@/components/employees/org-tree";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 
-export const metadata: Metadata = { title: "Org chart — Talking Lens Media" };
+export const metadata: Metadata = { title: "Org chart — WorkPulse" };
 
 /**
  * Reporting structure (Phases.md Phase 3 — "org structure, manager to

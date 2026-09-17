@@ -15,9 +15,12 @@ import {
 } from "@/components/forms/fields";
 import { requestTypeLabel } from "@/components/requests/status-badge";
 import {
+  LEAVE_DAY_PARTS,
   REQUEST_TYPES,
+  dayPartLabel,
   requestNeedsAmount,
   requestNeedsDateRange,
+  requestNeedsDayPart,
 } from "@/lib/requests";
 import {
   createRequestSchema,
@@ -35,6 +38,11 @@ import {
 const TYPE_OPTIONS = REQUEST_TYPES.map((type) => ({
   value: type,
   label: requestTypeLabel(type),
+}));
+
+const DAY_PART_OPTIONS = LEAVE_DAY_PARTS.map((dayPart) => ({
+  value: dayPart,
+  label: dayPartLabel(dayPart),
 }));
 
 export function RequestForm() {
@@ -55,6 +63,7 @@ export function RequestForm() {
       description: "",
       startDate: "",
       endDate: "",
+      dayPart: "FullDay",
       amount: "",
     },
   });
@@ -62,6 +71,7 @@ export function RequestForm() {
   const type = useWatch({ control, name: "type" });
   const needsDateRange = requestNeedsDateRange(type);
   const needsAmount = requestNeedsAmount(type);
+  const needsDayPart = requestNeedsDayPart(type);
 
   const onSubmit = handleSubmit(async (values) => {
     setFormError(null);
@@ -128,6 +138,17 @@ export function RequestForm() {
             {...register("endDate")}
           />
         </div>
+      ) : null}
+
+      {needsDayPart ? (
+        <SelectField
+          id="dayPart"
+          label="Day part"
+          options={DAY_PART_OPTIONS}
+          hint="A first or second half must be a single day."
+          error={errors.dayPart?.message}
+          {...register("dayPart")}
+        />
       ) : null}
 
       {needsAmount ? (

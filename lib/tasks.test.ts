@@ -156,9 +156,16 @@ describe("taskFilter", () => {
     });
   });
 
-  it("reaches a client through its projects", () => {
+  it("reaches a client through its projects, or a task filed directly under it", () => {
     expect(taskFilter({ clientId: "cli_1" }, NOW)).toEqual({
-      project: { clientId: "cli_1" },
+      AND: [
+        {
+          OR: [
+            { project: { clientId: "cli_1" } },
+            { clientId: "cli_1" },
+          ],
+        },
+      ],
     });
   });
 

@@ -15,7 +15,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { NotificationSettingsForm } from "@/components/dashboard/notification-settings-form";
 
 export const metadata: Metadata = {
-  title: "Notifications — Talking Lens Media",
+  title: "Notifications — WorkPulse",
 };
 
 /**

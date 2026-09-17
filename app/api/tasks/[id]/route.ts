@@ -12,8 +12,10 @@ import { getActor } from "@/lib/auth";
 import { db } from "@/lib/db";
 import {
   findTask,
+  findTaskClient,
   findTaskProject,
   resolveTaskWrite,
+  unknownClient,
   unknownProject,
 } from "@/lib/task-data";
 import { canManageTask } from "@/lib/permissions";
@@ -90,7 +92,39 @@ export async function PATCH(
       }
     }
 
-    const resolved = await resolveTaskWrite(actor, parsed.data, project, {
+    /**
+     * A task is on a project or a client, never both — moving onto a
+     * project above already clears any existing client, and the same
+     * both-sides-authorised check applies to moving onto a client.
+     */
+    let client: { id: string; name: string } | null = project
+      ? null
+      : task.clientId
+        ? { id: task.clientId, name: "" }
+        : null;
+    const targetClientId = project ? "" : (parsed.data.clientId?.trim() ?? "");
+    if (targetClientId !== (client?.id ?? "")) {
+      if (!targetClientId) {
+        client = null;
+      } else {
+        const target = await findTaskClient(actor, targetClientId);
+        if (!target) return writeFailure(unknownClient());
+
+        if (
+          !canManageTask(actor, {
+            project: null,
+            clientId: target.id,
+            createdById: task.createdById,
+          })
+        ) {
+          return forbidden("You can only move a task to a client you manage.");
+        }
+
+        client = target;
+      }
+    }
+
+    const resolved = await resolveTaskWrite(actor, parsed.data, project, client, {
       status: task.status,
       completedAt: task.completedAt,
     });
@@ -180,6 +214,7 @@ export async function PATCH(
        */
       stillManageable: canManageTask(actor, {
         project,
+        clientId: client?.id ?? null,
         createdById: task.createdById,
       }),
     });

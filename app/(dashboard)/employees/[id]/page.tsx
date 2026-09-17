@@ -13,7 +13,7 @@ import {
   canViewPersonalDetails,
   canViewProjects,
 } from "@/lib/permissions";
-import { loadEmployeeAttendance } from "@/lib/attendance-data";
+import { loadPersonAttendance } from "@/lib/attendance-data";
 import { PageHeader } from "@/components/dashboard/page-header";
 import { EmployeeStatusBadge } from "@/components/employees/status-badge";
 import { EmployeeStatusActions } from "@/components/employees/employee-status-actions";
@@ -24,7 +24,7 @@ import { AttendanceTable } from "@/components/attendance/attendance-table";
 import { Button } from "@/components/ui/button";
 import { Panel, Detail } from "@/components/dashboard/detail-panel";
 
-export const metadata: Metadata = { title: "Employee — Talking Lens Media" };
+export const metadata: Metadata = { title: "Employee — WorkPulse" };
 
 /**
  * Employee profile (PRD.md section 6.2).
@@ -111,7 +111,7 @@ export default async function EmployeeProfilePage({
   // follows the same visibility rule and is only loaded when it will
   // actually be rendered.
   const attendance = maySeePersonal
-    ? await loadEmployeeAttendance(actor, employee.id)
+    ? await loadPersonAttendance(actor, { kind: "employee", id: employee.id })
     : null;
   const now = new Date();
 
@@ -320,15 +320,19 @@ export default async function EmployeeProfilePage({
         </Panel>
       </div>
 
-      {/*
-        PRD.md section 6.2 also links performance, goals and feedback to a
-        profile. Those models arrive in Phase 8 — saying so is more honest than
-        showing empty widgets that look broken.
-      */}
-      <div className="border-border bg-surface-muted text-text-secondary mt-6 rounded-xl border px-5 py-4">
-        Performance, goals and feedback will appear on this profile once Phase 8
-        is built.
-      </div>
+      {mayEdit ? (
+        <div className="border-border bg-surface-muted mt-6 flex items-center justify-between rounded-xl border px-5 py-4">
+          <p className="text-text-secondary">
+            Score, goals and manager feedback (Phases.md Phase 8).
+          </p>
+          <Link
+            href={`/performance/employee/${employee.id}`}
+            className="text-brand-brown font-medium underline-offset-4 hover:underline"
+          >
+            View performance →
+          </Link>
+        </div>
+      ) : null}
     </>
   );
 }

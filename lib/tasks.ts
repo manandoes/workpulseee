@@ -167,7 +167,19 @@ export function taskFilter(filters: TaskFilters, now: Date) {
   }
 
   if (filters.projectId) where.projectId = filters.projectId;
-  if (filters.clientId) where.project = { clientId: filters.clientId };
+  if (filters.clientId) {
+    // A task on a client's project, or filed directly under the client with
+    // no project in between — nested under its own key rather than
+    // `where.OR` so it survives alongside the `q` search's own OR above.
+    where.AND = [
+      {
+        OR: [
+          { project: { clientId: filters.clientId } },
+          { clientId: filters.clientId },
+        ],
+      },
+    ];
+  }
   if (filters.status) where.status = filters.status;
   if (filters.priority) where.priority = filters.priority;
 

@@ -10,6 +10,7 @@ import {
 import { getActor } from "@/lib/auth";
 import { scopedWhere } from "@/lib/tenant";
 import { db } from "@/lib/db";
+import { loadEmailConfig } from "@/lib/company-email-config";
 import {
   buildInviteUrl,
   generateInviteToken,
@@ -143,7 +144,11 @@ export async function POST(request: NextRequest) {
       role: account.role,
       inviteUrl,
     });
-    const delivery = await sendEmail({ to: account.workEmail, subject, text });
+    const emailConfig = await loadEmailConfig(actor.companyId);
+    const delivery = await sendEmail(
+      { to: account.workEmail, subject, text },
+      emailConfig
+    );
 
     return NextResponse.json(
       { account, emailDelivered: delivery.delivered, inviteUrl },

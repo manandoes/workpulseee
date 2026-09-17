@@ -196,9 +196,13 @@
  * component needs to change to pick this up.
  */
 .dashboard-theme {
+  /* Owner-chosen brand color (Plan: branding) overrides this single variable
+     as an inline style on the dashboard root element — hover/light are
+     derived from it with color-mix() rather than hardcoded, so a custom
+     brand color cascades correctly without touching any component. */
   --brand-yellow: #ffcc00;
-  --brand-yellow-hover: #e6b800;
-  --brand-yellow-light: #fff3b0;
+  --brand-yellow-hover: color-mix(in srgb, var(--brand-yellow) 85%, black);
+  --brand-yellow-light: color-mix(in srgb, var(--brand-yellow) 30%, white);
   /* `brand-brown` is the app's "heading / primary text" slot, not literally
      brown — repurposed here to black rather than renamed, so every existing
      `text-brand-brown` call site (headings, active states, card titles)
@@ -247,6 +251,29 @@
   --sidebar-accent-foreground: var(--foreground);
   --sidebar-border: var(--border);
   --sidebar-ring: var(--brand-yellow);
+}
+
+/*
+ * Dark theme (Plan: dark/light toggle) — a personal, per-browser preference
+ * (see `THEME_COOKIE` in lib/permissions.ts), never applied to the marketing
+ * site: it only fires as `[data-theme="dark"]` on the same `.dashboard-theme`
+ * root the block above scopes to, so it inherits that scoping for free.
+ * Black backgrounds, grayish text — everything else (brand-yellow and its
+ * derived hover/light, the status palette) is left alone, same as the light
+ * dashboard theme above.
+ */
+.dashboard-theme[data-theme="dark"] {
+  --brand-brown: #f5f5f5;
+  --brand-brown-soft: #a3a3a3;
+  --brand-brown-light: #2e2e2e;
+
+  --background: #0a0a0a;
+  --foreground: #e5e5e5;
+  --surface: #141414;
+  --surface-muted: #1c1c1c;
+
+  --border: #2a2a2a;
+  --input: #2a2a2a;
 }
 
 @layer base {

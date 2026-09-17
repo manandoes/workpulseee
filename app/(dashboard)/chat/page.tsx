@@ -4,7 +4,7 @@ import { getActor } from "@/lib/auth";
 import { PageHeader } from "@/components/dashboard/page-header";
 import { ConversationList } from "@/components/chat/conversation-list";
 
-export const metadata: Metadata = { title: "Chat — Talking Lens Media" };
+export const metadata: Metadata = { title: "Chat — WorkPulse" };
 
 /**
  * Chat list (Phase 11). Reachable by both account types — start a

@@ -16,7 +16,7 @@ import {
   requestTypeLabel,
 } from "@/components/requests/status-badge";
 
-export const metadata: Metadata = { title: "Requests — Talking Lens Media" };
+export const metadata: Metadata = { title: "Requests — WorkPulse" };
 
 /**
  * The approval queue (Phases.md Phase 7).

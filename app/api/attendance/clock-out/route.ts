@@ -1,20 +1,17 @@
 import { NextResponse } from "next/server";
-import { forbidden, serverError, unauthorized, writeFailure } from "@/lib/api";
+import { serverError, unauthorized, writeFailure } from "@/lib/api";
 import { getActor } from "@/lib/auth";
 import { clockOut } from "@/lib/attendance-data";
 
 /**
  * POST /api/attendance/clock-out — end the caller's open attendance session.
  *
- * Mirrors `/api/attendance/clock-in`: employee logins only.
+ * Mirrors `/api/attendance/clock-in`: every actor, not employee logins only
+ * (Plan: attendance for all company accounts).
  */
 export async function POST() {
   const actor = await getActor();
   if (!actor) return unauthorized();
-
-  if (actor.accountType !== "employee") {
-    return forbidden("Only an employee can clock themselves out.");
-  }
 
   try {
     const resolved = await clockOut(actor);

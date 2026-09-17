@@ -8,7 +8,7 @@ import { BrandMark } from "@/components/marketing/brand-mark";
 export default function AuthLayout({ children }: LayoutProps<"/">) {
   return (
     <div className="bg-background flex min-h-full flex-1 flex-col items-center justify-center gap-8 px-6 py-16">
-      <Link href="/" aria-label="Talking Lens Media home">
+      <Link href="/" aria-label="WorkPulse home">
         <BrandMark />
       </Link>
       <main className="w-full max-w-md">{children}</main>

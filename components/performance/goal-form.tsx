@@ -11,15 +11,19 @@ import {
   createGoalSchema,
   type CreateGoalInput,
 } from "@/lib/validations/performance";
+import type { PerformanceSubject } from "@/lib/performance-data";
 
 /**
- * Set a goal for an employee (Phases.md Phase 8 — "goal creation/tracking").
+ * Set a goal for a subject (Phases.md Phase 8 — "goal creation/tracking"),
+ * widened to company accounts too (Plan: performance for all company
+ * accounts).
  *
- * Manager-owned (confirmed with the user): only rendered where the caller has
- * already checked `canEditEmployee` — the employee reads goals on My Growth
- * but never creates them here.
+ * Manager-owned for an employee, Owner/Admin-owned for a company account
+ * (confirmed with the user): only rendered where the caller has already
+ * checked `canEditEmployee`/`isCompanyAdmin` — the subject reads goals on
+ * their own growth/profile page but never creates them here.
  */
-export function GoalForm({ employeeId }: { employeeId: string }) {
+export function GoalForm({ subject }: { subject: PerformanceSubject }) {
   const router = useRouter();
   const [formError, setFormError] = useState<string | null>(null);
 
@@ -37,11 +41,14 @@ export function GoalForm({ employeeId }: { employeeId: string }) {
   const onSubmit = handleSubmit(async (values) => {
     setFormError(null);
 
-    const response = await fetch(`/api/performance/${employeeId}/goals`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(values),
-    });
+    const response = await fetch(
+      `/api/performance/${subject.kind}/${subject.id}/goals`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(values),
+      }
+    );
 
     const body = await response.json().catch(() => null);
 

@@ -8,7 +8,7 @@ import { FaqSection } from "@/components/marketing/faq-section";
 import { CtaBand } from "@/components/marketing/cta-band";
 
 export const metadata: Metadata = {
-  title: "Talking Lens Media — Run your whole agency from one dashboard",
+  title: "WorkPulse — Run your whole agency from one dashboard",
   description:
     "An all-in-one operating dashboard for agencies that connects employees, projects, tasks, performance, expenses, and internal operations in one place.",
 };

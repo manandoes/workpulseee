@@ -86,7 +86,7 @@ export function ProductPreview({ className }: { className?: string }) {
         </div>
       </div>
       <figcaption className="sr-only">
-        Illustrative preview of the Talking Lens Media company dashboard, showing sample
+        Illustrative preview of the WorkPulse company dashboard, showing sample
         headline counts and per-employee workload.
       </figcaption>
     </figure>

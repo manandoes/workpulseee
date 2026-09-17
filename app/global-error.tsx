@@ -26,7 +26,7 @@ export default function GlobalError({
       <body className="bg-background text-foreground flex min-h-full flex-col items-center justify-center gap-4 px-6 text-center">
         <h1 className="text-h2 font-semibold">Something went wrong</h1>
         <p className="text-text-secondary max-w-md">
-          Talking Lens Media hit an unexpected error. Try again, or reload the page.
+          WorkPulse hit an unexpected error. Try again, or reload the page.
         </p>
         <button
           type="button"

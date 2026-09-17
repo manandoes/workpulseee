@@ -10,7 +10,7 @@ import { PageHeader } from "@/components/dashboard/page-header";
 import { ProjectForm } from "@/components/projects/project-form";
 import { Card, CardContent } from "@/components/ui/card";
 
-export const metadata: Metadata = { title: "Edit project — Talking Lens Media" };
+export const metadata: Metadata = { title: "Edit project — WorkPulse" };
 
 export default async function EditProjectPage({
   params,

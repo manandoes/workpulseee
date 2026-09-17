@@ -10,7 +10,7 @@ import { SectionTabs } from "@/components/dashboard/section-tabs";
 import { MetricTile } from "@/components/dashboard/metric-tile";
 import { FinancialsTable } from "@/components/projects/financials-table";
 
-export const metadata: Metadata = { title: "Financials — Talking Lens Media" };
+export const metadata: Metadata = { title: "Financials — WorkPulse" };
 
 /**
  * Agency-wide profitability (Phases.md Phase 11): the totals at the top and

@@ -2,7 +2,12 @@ import { NextRequest } from "next/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { getActor } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { employeeActor, createTestCompany, createEmployee } from "@/lib/test-helpers";
+import {
+  companyActor,
+  employeeActor,
+  createTestCompany,
+  createEmployee,
+} from "@/lib/test-helpers";
 import { POST } from "./route";
 
 vi.mock("@/lib/auth", () => ({ getActor: vi.fn() }));
@@ -96,5 +101,32 @@ describe("POST /api/attendance/break/start", () => {
     expect(second.status).toBe(409);
     const body = await second.json();
     expect(body.code).toBe("duplicate");
+  });
+
+  /**
+   * Plan: attendance for all company accounts — a company account has no
+   * running task timers to pause (it is never a task assignee), so this is
+   * the natural no-op `attendance-data.ts` documents, not a failure.
+   */
+  it("starts a break for a company account, pausing nothing", async () => {
+    const { companyId, ownerId } = await createTestCompany();
+    await db.attendanceRecord.create({
+      data: { companyId, accountId: ownerId },
+    });
+    vi.mocked(getActor).mockResolvedValue(
+      companyActor(companyId, ownerId, "Owner")
+    );
+
+    const response = await POST(request());
+
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body.record.pausedTaskIds).toEqual([]);
+
+    const record = await db.breakRecord.findUniqueOrThrow({
+      where: { id: body.record.id },
+    });
+    expect(record.accountId).toBe(ownerId);
+    expect(record.employeeId).toBeNull();
   });
 });

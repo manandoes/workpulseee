@@ -23,7 +23,7 @@ import { DeleteTaskButton } from "@/components/tasks/delete-task-button";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 
-export const metadata: Metadata = { title: "Task — Talking Lens Media" };
+export const metadata: Metadata = { title: "Task — WorkPulse" };
 
 /**
  * Task detail (Phases.md Phase 5).
@@ -65,6 +65,8 @@ export default async function TaskPage({ params }: PageProps<"/tasks/[id]">) {
           client: { select: { id: true, name: true } },
         },
       },
+      clientId: true,
+      client: { select: { id: true, name: true } },
       comments: {
         where: { deletedAt: null },
         orderBy: { createdAt: "asc" },
@@ -129,6 +131,13 @@ export default async function TaskPage({ params }: PageProps<"/tasks/[id]">) {
                 {task.project.client.name}
               </Link>
             </>
+          ) : task.client ? (
+            <Link
+              href={`/projects/clients/${task.client.id}`}
+              className="underline-offset-4 hover:underline"
+            >
+              {task.client.name}
+            </Link>
           ) : (
             "Personal task"
           )

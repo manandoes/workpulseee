@@ -1,10 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
   REQUEST_TYPES,
+  dayPartLabel,
   requestFilter,
   requestNeedsAmount,
   requestNeedsDateRange,
+  requestNeedsDayPart,
   requestStatusLabel,
+  requestTypeDisplay,
   requestTypeLabel,
 } from "@/lib/requests";
 
@@ -26,6 +29,38 @@ describe("requestNeedsAmount", () => {
     for (const type of REQUEST_TYPES.filter((t) => t !== "Reimbursement")) {
       expect(requestNeedsAmount(type)).toBe(false);
     }
+  });
+});
+
+describe("requestNeedsDayPart", () => {
+  it("is true only for Leave", () => {
+    expect(requestNeedsDayPart("Leave")).toBe(true);
+    for (const type of REQUEST_TYPES.filter((t) => t !== "Leave")) {
+      expect(requestNeedsDayPart(type)).toBe(false);
+    }
+  });
+});
+
+describe("dayPartLabel", () => {
+  it("labels every day part", () => {
+    expect(dayPartLabel("FullDay")).toBe("Full day");
+    expect(dayPartLabel("FirstHalf")).toBe("First half");
+    expect(dayPartLabel("SecondHalf")).toBe("Second half");
+  });
+});
+
+describe("requestTypeDisplay", () => {
+  it("shows just the type for a full day, or no day part", () => {
+    expect(requestTypeDisplay("Leave", null)).toBe("Leave");
+    expect(requestTypeDisplay("Leave", "FullDay")).toBe("Leave");
+    expect(requestTypeDisplay("Reimbursement", null)).toBe("Reimbursement");
+  });
+
+  it("calls out a half day", () => {
+    expect(requestTypeDisplay("Leave", "FirstHalf")).toBe("Leave · First half");
+    expect(requestTypeDisplay("Leave", "SecondHalf")).toBe(
+      "Leave · Second half"
+    );
   });
 });
 

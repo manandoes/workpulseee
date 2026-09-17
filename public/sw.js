@@ -24,7 +24,7 @@ self.addEventListener("push", (event) => {
     return;
   }
 
-  const title = payload.title || "Talking Lens Media";
+  const title = payload.title || "WorkPulse";
 
   event.waitUntil(
     self.registration.showNotification(title, {

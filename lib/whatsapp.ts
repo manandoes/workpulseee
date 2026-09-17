@@ -25,7 +25,7 @@
  *
  *     {{2}}
  *
- *     Open Talking Lens Media to see the details.
+ *     Open WorkPulse to see the details.
  *
  * `{{1}}` is the recipient's name and `{{2}}` is the same sentence the in-app
  * bell shows, so the wording lives in `lib/notifications.ts` and never has to

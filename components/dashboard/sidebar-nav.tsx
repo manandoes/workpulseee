@@ -3,11 +3,13 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
+  CalendarDays,
   ClipboardCheck,
   Contact,
   FolderKanban,
   LayoutDashboard,
   ListChecks,
+  Megaphone,
   MessageCircle,
   Settings,
   TrendingUp,
@@ -32,6 +34,8 @@ const ICONS: Record<string, LucideIcon> = {
   Settings,
   MessageCircle,
   Contact,
+  CalendarDays,
+  Megaphone,
 };
 
 export function SidebarNav({ items }: { items: NavItem[] }) {
@@ -55,12 +59,17 @@ export function SidebarNav({ items }: { items: NavItem[] }) {
             className={cn(
               "flex items-center gap-3 rounded-lg px-3 py-2 transition-colors",
               isActive
-                ? "bg-brand-yellow text-foreground font-medium"
+                ? // Box-shadow tinted with the same --brand-yellow variable
+                  // the active fill uses, so it follows whatever color the
+                  // Owner picks (Plan: brand color) with no JS needed.
+                  "bg-brand-yellow text-foreground shadow-[0_2px_10px_-2px_var(--brand-yellow)] font-medium"
                 : "text-brand-brown-soft hover:bg-brand-yellow-light hover:text-foreground"
             )}
           >
             <Icon aria-hidden className="size-5 shrink-0" strokeWidth={1.5} />
-            {item.label}
+            <span className="hidden truncate group-hover:inline-block">
+              {item.label}
+            </span>
             {item.href === "/chat" ? <ChatNavBadge /> : null}
           </Link>
         );

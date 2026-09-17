@@ -1,7 +1,13 @@
 import { NextRequest } from "next/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { getActor } from "@/lib/auth";
-import { employeeActor, createTestCompany, createEmployee } from "@/lib/test-helpers";
+import { db } from "@/lib/db";
+import {
+  companyActor,
+  employeeActor,
+  createTestCompany,
+  createEmployee,
+} from "@/lib/test-helpers";
 import { POST } from "./route";
 
 vi.mock("@/lib/auth", () => ({ getActor: vi.fn() }));
@@ -43,5 +49,29 @@ describe("POST /api/attendance/clock-in", () => {
     const response = await POST(requestWithUserAgent(DESKTOP_UA));
 
     expect(response.status).toBe(200);
+  });
+
+  /**
+   * Plan: attendance for all company accounts — a company account (Owner,
+   * Admin, Manager or HR) can clock in exactly like an employee, and the
+   * written row carries `accountId`, not `employeeId`.
+   */
+  it("clocks in a company account, writing accountId not employeeId", async () => {
+    const { companyId, ownerId } = await createTestCompany();
+    vi.mocked(getActor).mockResolvedValue(
+      companyActor(companyId, ownerId, "Owner")
+    );
+
+    const response = await POST(requestWithUserAgent(DESKTOP_UA));
+
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body.record.id).toBeTruthy();
+
+    const record = await db.attendanceRecord.findUniqueOrThrow({
+      where: { id: body.record.id },
+    });
+    expect(record.accountId).toBe(ownerId);
+    expect(record.employeeId).toBeNull();
   });
 });

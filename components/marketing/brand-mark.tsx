@@ -2,7 +2,7 @@ import Image from "next/image";
 import { cn } from "cn";
 
 /**
- * Talking Lens Media wordmark: the company logo beside the brand-brown name.
+ * WorkPulse wordmark: the product logo beside the brand-brown product name.
  */
 export function BrandMark({
   className,
@@ -27,7 +27,7 @@ export function BrandMark({
           labelClassName
         )}
       >
-        Talking Lens Media
+        WorkPulse
       </span>
     </span>
   );

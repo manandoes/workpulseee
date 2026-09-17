@@ -13,8 +13,10 @@ import { db } from "@/lib/db";
 import { scopedWhere } from "@/lib/tenant";
 import { taskFilter, taskVisibilityFilter, TASK_ORDER } from "@/lib/tasks";
 import {
+  findTaskClient,
   findTaskProject,
   resolveTaskWrite,
+  unknownClient,
   unknownProject,
 } from "@/lib/task-data";
 import { canManageTask, canViewTasks } from "@/lib/permissions";
@@ -56,6 +58,7 @@ export async function GET(request: NextRequest) {
         estimatedHours: true,
         completedAt: true,
         project: { select: { id: true, name: true } },
+        client: { select: { id: true, name: true } },
         assignee: { select: { id: true, fullName: true } },
       },
     });
@@ -97,18 +100,29 @@ export async function POST(request: NextRequest) {
     const project = projectId ? await findTaskProject(actor, projectId) : null;
     if (projectId && !project) return writeFailure(unknownProject());
 
+    const clientId = projectId ? "" : (parsed.data.clientId?.trim() ?? "");
+    const client = clientId ? await findTaskClient(actor, clientId) : null;
+    if (clientId && !client) return writeFailure(unknownClient());
+
     /**
      * A task on a project inherits that project's ownership, so raising one
      * is the same right as editing the project: any project for an Owner or
-     * Admin, and the ones they lead for a Manager. A standalone task has no
-     * project to inherit from — it's personal to whoever raises it, which
-     * `canManageTask` already grants to its own creator.
+     * Admin, and the ones they lead for a Manager. A client-direct or fully
+     * standalone task has no project to inherit from — it's personal to
+     * whoever raises it, which `canManageTask` already grants to its own
+     * creator (plus Owner/Admin oversight for the client-direct case).
      */
-    if (!canManageTask(actor, { project, createdById: actor.id })) {
+    if (
+      !canManageTask(actor, {
+        project,
+        clientId: client?.id ?? null,
+        createdById: actor.id,
+      })
+    ) {
       return forbidden("You can only add tasks to projects you lead.");
     }
 
-    const resolved = await resolveTaskWrite(actor, parsed.data, project);
+    const resolved = await resolveTaskWrite(actor, parsed.data, project, client);
     if (!resolved.ok) return writeFailure(resolved);
 
     const task = await db.task.create({

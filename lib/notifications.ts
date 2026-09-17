@@ -96,6 +96,9 @@ export type NotificationChannel = "InApp" | "Email" | "WhatsApp" | "Push";
  * `RequestSubmitted` deliberately stays off Email and WhatsApp: approvers see
  * a queue of these all day, and the existing Phase 7 behaviour was in-app
  * only, so it gains push and nothing else. Everything else earns the full set.
+ *
+ * `MeetingScheduled` (Plan.md Phase 17) is a direct personal invite — the
+ * same weight as `TaskAssigned` — so it earns the full set too.
  */
 const CHANNELS_BY_TYPE: Record<
   NotificationType,
@@ -106,6 +109,10 @@ const CHANNELS_BY_TYPE: Record<
   DeadlineApproaching: ["InApp", "Push", "Email", "WhatsApp"],
   RequestSubmitted: ["InApp", "Push"],
   RequestDecided: ["InApp", "Push", "Email", "WhatsApp"],
+  MeetingScheduled: ["InApp", "Push", "Email", "WhatsApp"],
+  // A company-wide broadcast, the same weight as `MeetingScheduled` — a
+  // direct message everyone in the company gets, so it earns the full set.
+  AnnouncementPosted: ["InApp", "Push", "Email", "WhatsApp"],
 };
 
 /**
@@ -301,4 +308,29 @@ export function deadlineDedupeKey(
   daysUntilDue: number
 ): string {
   return `deadline:${taskId}:${dueDate.toISOString().slice(0, 10)}:${daysUntilDue}`;
+}
+
+// ---------------------------------------------------------------------------
+// Calendar (Plan.md Phase 17)
+// ---------------------------------------------------------------------------
+
+/** What an invited participant sees when a meeting is booked with them. */
+export function meetingScheduledMessage(
+  title: string,
+  startAt: Date,
+  organizerName: string
+): string {
+  return `${organizerName} scheduled "${title}" with you on ${formatDate(startAt)}.`;
+}
+
+// ---------------------------------------------------------------------------
+// Announcements
+// ---------------------------------------------------------------------------
+
+/** What everyone sees when a new company announcement is posted. */
+export function announcementPostedMessage(
+  authorName: string,
+  title: string
+): string {
+  return `${authorName} posted an announcement: "${title}"`;
 }

@@ -21,7 +21,7 @@ import { OverdueBadge, taskStatusLabel } from "@/components/tasks/status-badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 
-export const metadata: Metadata = { title: "Project — Talking Lens Media" };
+export const metadata: Metadata = { title: "Project — WorkPulse" };
 
 /**
  * Project detail (Phases.md Phase 4).

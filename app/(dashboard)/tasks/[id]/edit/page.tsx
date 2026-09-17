@@ -7,6 +7,7 @@ import { toAmountInputValue, toDateInputValue } from "@/lib/format";
 import {
   loadAssigneesByProject,
   loadCompanyEmployeeOptions,
+  loadTaskClients,
   loadTaskProjects,
 } from "@/lib/task-data";
 import { canManageTask, canViewTasks } from "@/lib/permissions";
@@ -14,7 +15,7 @@ import { PageHeader } from "@/components/dashboard/page-header";
 import { TaskForm } from "@/components/tasks/task-form";
 import { Card, CardContent } from "@/components/ui/card";
 
-export const metadata: Metadata = { title: "Edit task — Talking Lens Media" };
+export const metadata: Metadata = { title: "Edit task — WorkPulse" };
 
 export default async function EditTaskPage({
   params,
@@ -39,6 +40,7 @@ export default async function EditTaskPage({
       createdById: true,
       projectId: true,
       project: { select: { leadAccountId: true } },
+      clientId: true,
     },
   });
 
@@ -48,13 +50,15 @@ export default async function EditTaskPage({
   // being shown a form that would only fail (Rules.md section 3).
   if (!canManageTask(actor, task)) redirect(`/tasks/${task.id}`);
 
-  const [projects, assigneesByProject, allEmployees] = await Promise.all([
-    // Every project, including closed ones: the task's own project must stay in
-    // the list, or editing anything else would silently move the task.
-    loadTaskProjects(actor),
-    loadAssigneesByProject(actor),
-    loadCompanyEmployeeOptions(actor),
-  ]);
+  const [projects, clients, assigneesByProject, allEmployees] =
+    await Promise.all([
+      // Every project, including closed ones: the task's own project must
+      // stay in the list, or editing anything else would silently move it.
+      loadTaskProjects(actor),
+      loadTaskClients(actor),
+      loadAssigneesByProject(actor),
+      loadCompanyEmployeeOptions(actor),
+    ]);
 
   return (
     <>
@@ -70,11 +74,13 @@ export default async function EditTaskPage({
             taskId={task.id}
             cancelHref={`/tasks/${task.id}`}
             projects={projects}
+            clients={clients}
             assigneesByProject={assigneesByProject}
             allEmployees={allEmployees}
             defaultValues={{
               title: task.title,
               projectId: task.projectId ?? "",
+              clientId: task.clientId ?? "",
               description: task.description ?? "",
               status: task.status,
               priority: task.priority,

@@ -4,10 +4,8 @@ import { formatDate, formatDateTime, formatMoney } from "@/lib/format";
 import { canDecideOnRequest, type SessionActor } from "@/lib/permissions";
 import type { LoadedRequest } from "@/lib/request-data";
 import { PageHeader } from "@/components/dashboard/page-header";
-import {
-  RequestStatusBadge,
-  requestTypeLabel,
-} from "@/components/requests/status-badge";
+import { requestTypeDisplay } from "@/lib/requests";
+import { RequestStatusBadge } from "@/components/requests/status-badge";
 import { DecisionForm } from "@/components/requests/decision-form";
 import {
   RequestAttachments,
@@ -76,7 +74,7 @@ export function RequestDetail({
 
       <PageHeader
         title={request.subject}
-        description={requestTypeLabel(request.type)}
+        description={requestTypeDisplay(request.type, request.dayPart)}
         action={<RequestStatusBadge status={request.status} />}
       />
 

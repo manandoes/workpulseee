@@ -23,6 +23,16 @@ import {
   createTaskSchema,
   type CreateTaskInput,
 } from "@/lib/validations/tasks";
+import { cn } from "cn";
+
+/** The three shapes a task's target can take. */
+type TargetType = "project" | "client" | "general";
+
+const TARGET_TYPES: { value: TargetType; label: string }[] = [
+  { value: "project", label: "Project" },
+  { value: "client", label: "Client" },
+  { value: "general", label: "General" },
+];
 
 /**
  * Create and edit a task (Phases.md Phase 5).
@@ -47,6 +57,7 @@ export function TaskForm({
   taskId,
   defaultValues,
   projects,
+  clients,
   assigneesByProject,
   allEmployees,
   cancelHref,
@@ -55,6 +66,8 @@ export function TaskForm({
   taskId?: string;
   defaultValues: CreateTaskInput;
   projects: SelectOption[];
+  /** Active clients a task can be filed directly under. */
+  clients: SelectOption[];
   /** Each project's team, keyed by project id. */
   assigneesByProject: Record<string, SelectOption[]>;
   /** Every active employee in the company. */
@@ -63,6 +76,13 @@ export function TaskForm({
 }) {
   const router = useRouter();
   const [formError, setFormError] = useState<string | null>(null);
+  const [targetType, setTargetType] = useState<TargetType>(
+    defaultValues.projectId
+      ? "project"
+      : defaultValues.clientId
+        ? "client"
+        : "general"
+  );
 
   const {
     register,
@@ -85,6 +105,15 @@ export function TaskForm({
    */
   const projectId = useWatch({ control, name: "projectId" }) ?? "";
   const teamOptions = assigneesByProject[projectId] ?? [];
+
+  function selectTargetType(next: TargetType) {
+    setTargetType(next);
+    if (next !== "project") {
+      resetField("projectId", { defaultValue: "" });
+      resetField("assigneeId", { defaultValue: "" });
+    }
+    if (next !== "client") resetField("clientId", { defaultValue: "" });
+  }
   const teamIds = new Set(teamOptions.map((option) => option.value));
   // Picking one of these on a project task adds them to its team on save
   // (`resolveTaskWrite` in lib/task-data.ts) — assigning and staffing in one step.
@@ -154,21 +183,62 @@ export function TaskForm({
           error={errors.title?.message}
           {...register("title")}
         />
-        <SelectField
-          id="projectId"
-          label="Project"
-          placeholder="No project — personal task"
-          hint="Leave blank for a quick personal to-do, or file it under a project."
-          options={projects}
-          error={errors.projectId?.message}
-          {...register("projectId", {
-            /**
-             * The person selected may not be on the new project's team, and
-             * leaving a stale name in the box would only fail on save.
-             */
-            onChange: () => resetField("assigneeId", { defaultValue: "" }),
-          })}
-        />
+        <div className="flex flex-col gap-1.5 sm:col-span-2">
+          <span className="text-meta text-text-secondary font-medium">
+            File under
+          </span>
+          <div role="radiogroup" aria-label="Task target" className="flex gap-1">
+            {TARGET_TYPES.map((type) => (
+              <button
+                key={type.value}
+                type="button"
+                role="radio"
+                aria-checked={targetType === type.value}
+                onClick={() => selectTargetType(type.value)}
+                className={cn(
+                  "rounded-lg px-3 py-1.5 font-medium transition-colors",
+                  targetType === type.value
+                    ? "bg-brand-yellow-light text-brand-brown"
+                    : "text-text-secondary hover:bg-surface-muted hover:text-brand-brown"
+                )}
+              >
+                {type.label}
+              </button>
+            ))}
+          </div>
+          <p className="text-text-secondary text-meta">
+            A project task inherits that project&apos;s team and budget; a
+            client task and a general task are both personal to whoever
+            raises them.
+          </p>
+        </div>
+
+        {targetType === "project" ? (
+          <SelectField
+            id="projectId"
+            label="Project"
+            options={projects}
+            error={errors.projectId?.message}
+            {...register("projectId", {
+              /**
+               * The person selected may not be on the new project's team, and
+               * leaving a stale name in the box would only fail on save.
+               */
+              onChange: () => resetField("assigneeId", { defaultValue: "" }),
+            })}
+          />
+        ) : null}
+
+        {targetType === "client" ? (
+          <SelectField
+            id="clientId"
+            label="Client"
+            options={clients}
+            error={errors.clientId?.message}
+            {...register("clientId")}
+          />
+        ) : null}
+
         <SelectField
           id="assigneeId"
           label="Assignee"

@@ -18,7 +18,7 @@ const FAQS = [
   {
     question: "Is this an HRMS replacement?",
     answer:
-      "No. Talking Lens Media covers day-to-day operations — people, projects, tasks, workload, performance, and internal requests. It deliberately leaves out payroll processing, tax compliance, and statutory HR filings, so it complements an HRMS rather than replacing one.",
+      "No. WorkPulse covers day-to-day operations — people, projects, tasks, workload, performance, and internal requests. It deliberately leaves out payroll processing, tax compliance, and statutory HR filings, so it complements an HRMS rather than replacing one.",
   },
   {
     question: "Can employees see each other's performance?",
@@ -28,7 +28,7 @@ const FAQS = [
   {
     question: "Is my company's data isolated from others?",
     answer:
-      "Yes. Talking Lens Media is multi-tenant, and every record belongs to exactly one company. Every query is scoped to the company of the signed-in user, so one company's data can never appear in another's view.",
+      "Yes. WorkPulse is multi-tenant, and every record belongs to exactly one company. Every query is scoped to the company of the signed-in user, so one company's data can never appear in another's view.",
   },
   {
     question: "Can I invite employees after signing up?",

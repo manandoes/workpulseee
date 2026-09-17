@@ -14,7 +14,7 @@ import {
  * background with a thin status-coloured left border rather than a fully
  * coloured fill. Success auto-dismisses after 4s; errors stay until dismissed.
  *
- * The stock shadcn version reads the theme via `next-themes`. Talking Lens Media is
+ * The stock shadcn version reads the theme via `next-themes`. WorkPulse is
  * light-only for v1 (Design.md section 2), so the theme is pinned instead.
  */
 const Toaster = ({ ...props }: ToasterProps) => {

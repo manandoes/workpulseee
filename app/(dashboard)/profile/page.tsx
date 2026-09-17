@@ -7,7 +7,7 @@ import { PageHeader } from "@/components/dashboard/page-header";
 import { AvatarUpload } from "@/components/dashboard/avatar-upload";
 import { Card, CardContent } from "@/components/ui/card";
 
-export const metadata: Metadata = { title: "My Profile — Talking Lens Media" };
+export const metadata: Metadata = { title: "My Profile — WorkPulse" };
 
 /**
  * Self-service profile: the signed-in user's own personal details and their

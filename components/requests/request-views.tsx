@@ -1,11 +1,13 @@
 import Link from "next/link";
-import type { RequestStatus, RequestType } from "@/lib/generated/prisma/enums";
+import type {
+  LeaveDayPart,
+  RequestStatus,
+  RequestType,
+} from "@/lib/generated/prisma/enums";
 import { formatDate, formatMoney } from "@/lib/format";
+import { requestTypeDisplay } from "@/lib/requests";
 import { Card, CardContent } from "@/components/ui/card";
-import {
-  RequestStatusBadge,
-  requestTypeLabel,
-} from "@/components/requests/status-badge";
+import { RequestStatusBadge } from "@/components/requests/status-badge";
 
 /**
  * A request list, shared by the employee's "My Requests" and the company
@@ -18,6 +20,7 @@ export type RequestSummary = {
   type: RequestType;
   status: RequestStatus;
   subject: string;
+  dayPart: LeaveDayPart | null;
   amount: unknown;
   createdAt: Date;
   employee?: { id: string; fullName: string };
@@ -65,7 +68,7 @@ export function RequestList({
                     </Link>
                   </td>
                   <td className="text-text-secondary px-3 py-3">
-                    {requestTypeLabel(request.type)}
+                    {requestTypeDisplay(request.type, request.dayPart)}
                   </td>
                   {showEmployee ? (
                     <td className="text-text-secondary px-3 py-3">

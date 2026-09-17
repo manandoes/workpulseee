@@ -21,7 +21,7 @@ import { ClientStatusActions } from "@/components/projects/client-status-actions
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 
-export const metadata: Metadata = { title: "Client — Talking Lens Media" };
+export const metadata: Metadata = { title: "Client — WorkPulse" };
 
 /** Client detail, and the projects being delivered for them. */
 export default async function ClientPage({

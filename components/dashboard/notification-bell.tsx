@@ -27,20 +27,7 @@ type Notification = {
 
 const POLL_MS = 30_000;
 
-export function NotificationBell({
-  className,
-  align = "right",
-}: {
-  className?: string;
-  /**
-   * Which edge of the bell the panel's own edge anchors to. The sidebar
-   * instance sits near the left edge of the viewport, so a right-anchored
-   * (`right-0`) 320px panel there overflows off-screen — pass `"left"` there.
-   * The mobile header instance sits near the right edge, where `right-0`
-   * (the default) is correct.
-   */
-  align?: "left" | "right";
-}) {
+export function NotificationBell({ className }: { className?: string }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [notifications, setNotifications] = useState<Notification[]>([]);
@@ -116,10 +103,7 @@ export function NotificationBell({
 
       {open ? (
         <div
-          className={cn(
-            "border-border bg-surface absolute top-11 z-50 flex max-h-96 w-80 max-w-[calc(100vw-2rem)] flex-col overflow-hidden rounded-xl border shadow-lg",
-            align === "left" ? "left-0" : "right-0"
-          )}
+          className="border-border bg-surface absolute top-11 right-0 z-50 flex max-h-96 w-80 max-w-[calc(100vw-2rem)] flex-col overflow-hidden rounded-xl border shadow-lg"
         >
           <div className="border-border flex items-center justify-between border-b px-4 py-2.5">
             <span className="text-brand-brown font-medium">Notifications</span>

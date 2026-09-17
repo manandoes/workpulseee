@@ -134,9 +134,15 @@ describe("landingPathFor", () => {
 });
 
 describe("navigationFor", () => {
-  it("gives employees their personal sections, plus Squad and Chat (Phase 11 — both shared, reachable by any account type)", () => {
+  it("gives employees their personal sections, plus Squad, Chat, Calendar, Announcements and Settings (all shared, reachable by any account type)", () => {
     const hrefs = navigationFor(employeeActor).map((item) => item.href);
-    const sharedHrefs = ["/squad", "/chat"];
+    const sharedHrefs = [
+      "/squad",
+      "/chat",
+      "/calendar",
+      "/announcements",
+      "/settings",
+    ];
     expect(
       hrefs.every(
         (href) => href.startsWith("/my-space") || sharedHrefs.includes(href)
@@ -145,42 +151,87 @@ describe("navigationFor", () => {
     expect(hrefs).toEqual(expect.arrayContaining(sharedHrefs));
   });
 
-  it("gives HR people, performance and requests, but not delivery work", () => {
-    const hrefs = navigationFor(companyActor("HR")).map((item) => item.href);
-    expect(hrefs).toContain("/employees");
+  it("gives HR people, performance and requests in HRMS mode, but not delivery work or Squad/Chat/Calendar in either mode", () => {
+    const hrmsHrefs = navigationFor(companyActor("HR"), "hrms").map(
+      (item) => item.href
+    );
+    expect(hrmsHrefs).toContain("/employees");
     // Phase 8 — HR gives feedback and sets goals, both inside
     // `canEditEmployee`'s scope, so the page belongs in their navigation.
-    expect(hrefs).toContain("/performance");
-    expect(hrefs).toContain("/requests");
-    expect(hrefs).not.toContain("/projects");
-    expect(hrefs).not.toContain("/tasks");
+    expect(hrmsHrefs).toContain("/performance");
+    expect(hrmsHrefs).toContain("/requests");
+    expect(hrmsHrefs).not.toContain("/projects");
+    expect(hrmsHrefs).not.toContain("/tasks");
+    expect(hrmsHrefs).not.toContain("/squad");
+    expect(hrmsHrefs).not.toContain("/chat");
+    expect(hrmsHrefs).not.toContain("/calendar");
+
+    const pmsHrefs = navigationFor(companyActor("HR"), "pms").map(
+      (item) => item.href
+    );
+    expect(pmsHrefs).not.toContain("/projects");
+    expect(pmsHrefs).not.toContain("/tasks");
+    // Squad/Chat/Calendar are mode-gated, not role-gated — HR sees them in
+    // PMS mode same as anyone else, just not in HRMS mode.
+    expect(pmsHrefs).toContain("/squad");
+    expect(pmsHrefs).toContain("/chat");
+    expect(pmsHrefs).toContain("/calendar");
   });
 
-  it("gives owners the full company navigation", () => {
-    const hrefs = navigationFor(companyActor("Owner")).map((item) => item.href);
+  it("defaults to HRMS mode when none is given", () => {
+    const hrefs = navigationFor(companyActor("Owner")).map(
+      (item) => item.href
+    );
     expect(hrefs).toEqual([
       "/dashboard",
       "/employees",
-      "/projects",
-      "/tasks",
       "/performance",
       "/requests",
-      "/squad",
-      "/chat",
+      "/announcements",
       "/settings",
     ]);
   });
 
-  it("gives owners and managers Settings, but not HR", () => {
-    expect(
-      navigationFor(companyActor("Owner")).map((item) => item.href)
-    ).toContain("/settings");
-    expect(
-      navigationFor(companyActor("Manager")).map((item) => item.href)
-    ).toContain("/settings");
-    expect(
-      navigationFor(companyActor("HR")).map((item) => item.href)
-    ).not.toContain("/settings");
+  it("gives owners the full company navigation across both modes, with Squad/Chat/Calendar in PMS only", () => {
+    const hrmsHrefs = navigationFor(companyActor("Owner"), "hrms").map(
+      (item) => item.href
+    );
+    expect(hrmsHrefs).toEqual([
+      "/dashboard",
+      "/employees",
+      "/performance",
+      "/requests",
+      "/announcements",
+      "/settings",
+    ]);
+
+    const pmsHrefs = navigationFor(companyActor("Owner"), "pms").map(
+      (item) => item.href
+    );
+    expect(pmsHrefs).toEqual([
+      "/dashboard",
+      "/projects",
+      "/tasks",
+      "/squad",
+      "/chat",
+      "/calendar",
+      "/announcements",
+      "/settings",
+    ]);
+  });
+
+  it("gives owners and managers Settings in both modes, but not HR", () => {
+    for (const mode of ["hrms", "pms"] as const) {
+      expect(
+        navigationFor(companyActor("Owner"), mode).map((item) => item.href)
+      ).toContain("/settings");
+      expect(
+        navigationFor(companyActor("Manager"), mode).map((item) => item.href)
+      ).toContain("/settings");
+      expect(
+        navigationFor(companyActor("HR"), mode).map((item) => item.href)
+      ).not.toContain("/settings");
+    }
   });
 
   it("never shows a company user the employee self-service space", () => {
@@ -542,6 +593,56 @@ describe("canManageTask", () => {
       ).toBe(false);
     });
   });
+
+  /**
+   * A task filed directly under a client (no project) sits between the two:
+   * Owner/Admin get the same oversight every other "no natural lead" case in
+   * this file gets, plus whoever raised it — but not a Manager/HR who didn't
+   * raise it, since there is no lead the way a project has one.
+   */
+  describe("a client-direct task (no project, filed under a client)", () => {
+    const raisedBySomeoneElse = {
+      project: null,
+      clientId: "cli_1",
+      createdById: "acct_999",
+    };
+
+    it("lets an Owner or Admin manage it even when someone else raised it", () => {
+      for (const role of ["Owner", "Admin"] as const) {
+        expect(canManageTask(companyActor(role), raisedBySomeoneElse)).toBe(
+          true
+        );
+      }
+    });
+
+    it("does not let a Manager or HR who did not raise it manage it", () => {
+      for (const role of ["Manager", "HR"] as const) {
+        expect(canManageTask(companyActor(role), raisedBySomeoneElse)).toBe(
+          false
+        );
+      }
+    });
+
+    it("lets its creator manage it, regardless of role", () => {
+      expect(
+        canManageTask(companyActor("Manager"), {
+          project: null,
+          clientId: "cli_1",
+          createdById: "acct_1",
+        })
+      ).toBe(true);
+    });
+
+    it("never allows an employee", () => {
+      expect(
+        canManageTask(employeeActor, {
+          project: null,
+          clientId: "cli_1",
+          createdById: "emp_1",
+        })
+      ).toBe(false);
+    });
+  });
 });
 
 describe("canUpdateTaskStatus", () => {
@@ -593,32 +694,44 @@ describe("canUpdateTaskStatus", () => {
 });
 
 describe("navigationFor", () => {
-  it("offers Projects to the roles that can open it", () => {
+  it("offers Projects to the roles that can open it, in PMS mode", () => {
     for (const role of ["Owner", "Admin", "Manager"] as const) {
-      const hrefs = navigationFor(companyActor(role)).map((item) => item.href);
+      const hrefs = navigationFor(companyActor(role), "pms").map(
+        (item) => item.href
+      );
       expect(hrefs).toContain("/projects");
     }
   });
 
   /** The sidebar must never offer a section the server would refuse. */
-  it("does not offer Projects to HR or to an employee", () => {
-    expect(
-      navigationFor(companyActor("HR")).map((item) => item.href)
-    ).not.toContain("/projects");
+  it("does not offer Projects to HR or to an employee, in either mode", () => {
+    for (const mode of ["hrms", "pms"] as const) {
+      expect(
+        navigationFor(companyActor("HR"), mode).map((item) => item.href)
+      ).not.toContain("/projects");
+    }
     expect(navigationFor(employeeActor).map((item) => item.href)).not.toContain(
       "/projects"
     );
   });
 
-  it("offers Tasks to exactly the roles that can open the section", () => {
+  it("offers Tasks to exactly the roles that can open the section, in PMS mode", () => {
     for (const role of ["Owner", "Admin", "Manager"] as const) {
       expect(
-        navigationFor(companyActor(role)).map((item) => item.href)
+        navigationFor(companyActor(role), "pms").map((item) => item.href)
       ).toContain("/tasks");
     }
     expect(
-      navigationFor(companyActor("HR")).map((item) => item.href)
+      navigationFor(companyActor("HR"), "pms").map((item) => item.href)
     ).not.toContain("/tasks");
+  });
+
+  it("never offers Projects or Tasks in HRMS mode, even to a delivery role", () => {
+    const hrefs = navigationFor(companyActor("Owner"), "hrms").map(
+      (item) => item.href
+    );
+    expect(hrefs).not.toContain("/projects");
+    expect(hrefs).not.toContain("/tasks");
   });
 });
 

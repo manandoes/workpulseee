@@ -6,7 +6,13 @@ import { canJoinTeam, isClosed } from "@/lib/projects";
 import { completionFor, isOpen } from "@/lib/tasks";
 import { formatPercent } from "@/lib/format";
 import type { SelectOption } from "@/components/forms/fields";
-import type { TaskPriority, TaskStatus } from "@/lib/generated/prisma/enums";
+import type {
+  ClientStatus,
+  TaskPriority,
+  TaskStatus,
+} from "@/lib/generated/prisma/enums";
+
+const ACTIVE_CLIENT_STATUS: ClientStatus = "Active";
 
 /**
  * Database access for tasks.
@@ -67,16 +73,47 @@ export const unknownProject = () =>
   invalid("projectId", "That project is not in your company.");
 
 // ---------------------------------------------------------------------------
+// The client a task is filed directly under (no project in between)
+// ---------------------------------------------------------------------------
+
+/** The client fields a task write needs. */
+export type TaskClient = {
+  id: string;
+  name: string;
+};
+
+/**
+ * Load the client a task is being filed directly under.
+ *
+ * Restricted to active clients, mirroring `loadTaskProjects`'s `openOnly`
+ * reasoning: new work should not land on an archived client.
+ */
+export function findTaskClient(
+  actor: SessionActor,
+  clientId: string
+): Promise<TaskClient | null> {
+  return db.client.findFirst({
+    where: scopedWhere(actor, { id: clientId, status: ACTIVE_CLIENT_STATUS }),
+    select: { id: true, name: true },
+  });
+}
+
+/** What every route says when a client id names nothing it can see. */
+export const unknownClient = () =>
+  invalid("clientId", "That client is not in your company.");
+
+// ---------------------------------------------------------------------------
 // Tasks
 // ---------------------------------------------------------------------------
 
 type TaskInput = {
   title: string;
   /**
-   * Not read here — the caller already resolved it to `project` below.
-   * Present only because it's part of the schema the route parses.
+   * Not read here — the caller already resolved it to `project`/`client`
+   * below. Present only because it's part of the schema the route parses.
    */
   projectId?: string;
+  clientId?: string;
   description?: string;
   status?: TaskStatus;
   priority?: TaskPriority;
@@ -88,6 +125,7 @@ type TaskInput = {
 export type TaskWriteData = {
   title: string;
   projectId: string | null;
+  clientId: string | null;
   description?: string | null;
   status?: TaskStatus;
   priority?: TaskPriority;
@@ -103,21 +141,27 @@ export type TaskWriteResolution =
 /**
  * Resolve a create or an edit against the database.
  *
- * `project` has already been loaded through the tenant filter and authorised by
- * the caller, or is `null` for a standalone task. `current` is the task being
- * edited, and is absent when creating — it is what lets a finished task keep
- * its original completion date through an unrelated save.
+ * `project` has already been loaded through the tenant filter and authorised
+ * by the caller, or is `null` for a client-direct or a fully standalone
+ * task. `client` is likewise loaded and authorised by the caller and is
+ * only ever set when `project` is `null` — a task is on a project or a
+ * client, never both (`lib/validations/tasks.ts`'s `superRefine`).
+ * `current` is the task being edited, and is absent when creating — it is
+ * what lets a finished task keep its original completion date through an
+ * unrelated save.
  */
 export async function resolveTaskWrite(
   actor: SessionActor,
   input: TaskInput,
   project: TaskProject | null,
+  client: TaskClient | null = null,
   current?: { status: TaskStatus; completedAt: Date | null },
   now: Date = new Date()
 ): Promise<TaskWriteResolution> {
   const data: TaskWriteData = {
     title: input.title,
     projectId: project ? project.id : null,
+    clientId: project ? null : client ? client.id : null,
   };
 
   if (input.description !== undefined) {
@@ -232,6 +276,22 @@ export async function loadTaskProjects(
       value: project.id,
       label: `${project.name} — ${project.client.name}`,
     }));
+}
+
+/**
+ * Active clients a task can be filed directly under — the `openOnly` clients
+ * counterpart to `loadTaskProjects`.
+ */
+export async function loadTaskClients(
+  actor: SessionActor
+): Promise<SelectOption[]> {
+  const clients = await db.client.findMany({
+    where: scopedWhere(actor, { status: ACTIVE_CLIENT_STATUS }),
+    orderBy: { name: "asc" },
+    select: { id: true, name: true },
+  });
+
+  return clients.map((client) => ({ value: client.id, label: client.name }));
 }
 
 /**
@@ -395,9 +455,14 @@ export type LoadedTask = {
   completedAt: Date | null;
   /** Phases.md Phase 6 — whose workload a write to this task can change. */
   assigneeId: string | null;
-  /** Who raised it — what `canManageTask` checks for a standalone task. */
+  /**
+   * Who raised it — what `canManageTask` checks for a client-direct or
+   * fully standalone task.
+   */
   createdById: string | null;
   project: TaskProject | null;
+  /** Set only when `project` is null and the task is filed under a client. */
+  clientId: string | null;
 };
 
 export function findTask(
@@ -414,6 +479,7 @@ export function findTask(
       assigneeId: true,
       createdById: true,
       project: { select: { id: true, name: true, leadAccountId: true } },
+      clientId: true,
     },
   });
 }

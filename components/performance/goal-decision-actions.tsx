@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { Check, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import type { PerformanceSubject } from "@/lib/performance-data";
 
 /**
  * Mark an Active goal Achieved or Missed (Phases.md Phase 8).
@@ -13,10 +14,10 @@ import { Button } from "@/components/ui/button";
  * still `Active` — the server refuses a second decision with 409.
  */
 export function GoalDecisionActions({
-  employeeId,
+  subject,
   goalId,
 }: {
-  employeeId: string;
+  subject: PerformanceSubject;
   goalId: string;
 }) {
   const router = useRouter();
@@ -26,7 +27,7 @@ export function GoalDecisionActions({
     setBusy(true);
 
     const response = await fetch(
-      `/api/performance/${employeeId}/goals/${goalId}`,
+      `/api/performance/${subject.kind}/${subject.id}/goals/${goalId}`,
       {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },

@@ -223,11 +223,13 @@ export function canViewTasks(actor: SessionActor): boolean {
 
 /**
  * The part of a task the permission rules need: the project it belongs to, or
- * `null` for a standalone task, plus who raised it (only meaningful in the
- * `null` case).
+ * `null` for a standalone task, the client it is filed directly under (with
+ * no project in between) when it has one, plus who raised it (only
+ * meaningful in the no-project cases).
  */
 export type TaskSubject = {
   project: ProjectSubject | null;
+  clientId?: string | null;
   createdById?: string | null;
 };
 
@@ -240,13 +242,24 @@ export type TaskSubject = {
  * Manager may change the tasks on the projects they lead (PRD.md section 9 —
  * "manage own team's tasks, projects").
  *
- * A standalone task has no project to be governed by, so it is personal to
- * whoever raised it instead — deliberately with no Owner/Admin override,
- * since the whole point of a project-less task is that it is a personal
+ * A task filed directly under a client (no project) gets the same
+ * Owner/Admin oversight every other "no natural lead" case in this file
+ * gets, plus whoever raised it — but not a Manager/HR who didn't raise it,
+ * since a client-direct task has no lead the way a project does.
+ *
+ * A fully standalone task (no project, no client) is personal to whoever
+ * raised it instead — deliberately with no Owner/Admin override, since the
+ * whole point of a project-less, client-less task is that it is a personal
  * to-do, not scoped delivery work.
  */
 export function canManageTask(actor: SessionActor, task: TaskSubject): boolean {
   if (task.project) return canManageProject(actor, task.project);
+  if (task.clientId) {
+    return (
+      isCompanyAdmin(actor) ||
+      (actor.accountType === "company" && task.createdById === actor.id)
+    );
+  }
   return actor.accountType === "company" && task.createdById === actor.id;
 }
 
@@ -400,6 +413,34 @@ export function canManageWorkloadSettings(actor: SessionActor): boolean {
 }
 
 /**
+ * Who may cancel a `Meeting` (Plan.md Phase 17). Organizer-only — a meeting
+ * has no lead/admin escape hatch the way a project does, since cancelling
+ * someone else's meeting for them is not a power any role has been given.
+ */
+export type MeetingSubject = {
+  organizerEmployeeId: string | null;
+  organizerAccountId: string | null;
+};
+
+export function canCancelMeeting(
+  actor: SessionActor,
+  meeting: MeetingSubject
+): boolean {
+  return actor.accountType === "employee"
+    ? meeting.organizerEmployeeId === actor.id
+    : meeting.organizerAccountId === actor.id;
+}
+
+/**
+ * Who may post a company announcement (optionally with a poll). Any company
+ * account role — Owner, Admin, Manager, HR — not employees, who can read and
+ * vote but not post.
+ */
+export function canManageAnnouncements(actor: SessionActor): boolean {
+  return actor.accountType === "company";
+}
+
+/**
  * Where a user lands after signing in (Architecture.md section 3).
  * Employees get their own self-service space; everyone else gets the dashboard.
  */
@@ -415,10 +456,78 @@ export type NavItem = {
 };
 
 /**
- * Sidebar navigation per role. Employees never see company-wide sections, and
- * HR sees the people-and-requests slice rather than delivery work.
+ * The sidebar mode toggle (Plan: HRMS/PMS toggle) — a company account's own
+ * display preference for which slice of the sidebar it wants, stored as a
+ * cookie (`app/api/settings/dashboard-mode/route.ts`). Never applies to an
+ * Employee actor, whose nav is a fixed self-service set regardless of mode.
  */
-export function navigationFor(actor: SessionActor): NavItem[] {
+export const DASHBOARD_MODES = ["hrms", "pms"] as const;
+export type DashboardMode = (typeof DASHBOARD_MODES)[number];
+
+/**
+ * The cookie name itself lives here rather than in
+ * `app/api/settings/dashboard-mode/route.ts` — a `route.ts` file may only
+ * export HTTP method handlers (Next.js rejects any other named export from
+ * one), so the constant both that route and every reader of the cookie
+ * (`app/(dashboard)/layout.tsx`, `app/(dashboard)/dashboard/page.tsx`) share
+ * has to sit somewhere else.
+ */
+export const DASHBOARD_MODE_COOKIE = "dashboardMode";
+
+/**
+ * Dark/light theme (Plan: theme toggle) — a personal, per-browser display
+ * preference like `DashboardMode` above, but available to every actor
+ * (employee or company), stored the same way: a cookie
+ * (`app/api/settings/theme/route.ts`) read server-side in
+ * `app/(dashboard)/layout.tsx` and applied as `data-theme` on the
+ * `.dashboard-theme` root so it never reaches the marketing site.
+ */
+export const THEME_MODES = ["light", "dark"] as const;
+export type ThemeMode = (typeof THEME_MODES)[number];
+export const THEME_COOKIE = "themeMode";
+
+/**
+ * Owner-only company branding (Plan: brand color) — unlike theme mode, this
+ * is company-wide, not personal, so it is persisted on `Company` rather than
+ * a cookie (`app/api/settings/branding/route.ts`, same shape as
+ * `canManagePermissionGrants`'s Owner-only gate).
+ */
+export function canManageBranding(actor: SessionActor): boolean {
+  return actor.accountType === "company" && actor.role === "Owner";
+}
+
+/**
+ * Owner-only email delivery settings (Settings -> Email delivery) — the
+ * company's own Resend/Brevo API key, so it is gated even more narrowly than
+ * `canManageCompanySettings`, same Owner-only shape as `canManageBranding`
+ * and `canManagePermissionGrants`.
+ */
+export function canManageEmailSettings(actor: SessionActor): boolean {
+  return actor.accountType === "company" && actor.role === "Owner";
+}
+
+/**
+ * Sidebar navigation per role, filtered by `mode` for a company actor.
+ * Employees never see company-wide sections and ignore `mode` entirely — see
+ * `DashboardMode`.
+ *
+ * HRMS gets the people-and-requests slice (Employees, Performance, Requests);
+ * PMS gets the delivery slice (Projects, Tasks, Squad, Chat, Calendar), each
+ * still gated by the same predicates the pages and routes check
+ * (`canViewProjects`/`canViewTasks`), so the sidebar can never offer a section
+ * the server would refuse. Dashboard, Announcements, and Settings (for
+ * whoever could already manage it) are not delivery-vs-people work and stay
+ * visible in both modes.
+ *
+ * This also folds in what used to be a separate HR-only branch: HR already
+ * fails `canViewProjects`/`canViewTasks`/`canManageWorkloadSettings` (none of
+ * them are a delivery role), so the mode-aware list below produces the exact
+ * same HRMS-mode nav HR always had, with no special case needed.
+ */
+export function navigationFor(
+  actor: SessionActor,
+  mode: DashboardMode = "hrms"
+): NavItem[] {
   if (actor.accountType === "employee") {
     return [
       { href: "/my-space", label: "My Work", icon: "LayoutDashboard" },
@@ -430,6 +539,17 @@ export function navigationFor(actor: SessionActor): NavItem[] {
       },
       { href: "/squad", label: "Squad", icon: "Contact" },
       { href: "/chat", label: "Chat", icon: "MessageCircle" },
+      { href: "/calendar", label: "Calendar", icon: "CalendarDays" },
+      {
+        href: "/announcements",
+        label: "Announcements",
+        icon: "Megaphone",
+      },
+      // Plan: theme toggle — the only reason an Employee opens /settings is
+      // the personal Appearance card; every company-only card there
+      // (Workload/Alerts/Branding/Employee permissions) still checks its own
+      // permission and renders nothing for them.
+      { href: "/settings", label: "Settings", icon: "Settings" },
     ];
   }
 
@@ -461,30 +581,29 @@ export function navigationFor(actor: SessionActor): NavItem[] {
   };
   const squad: NavItem = { href: "/squad", label: "Squad", icon: "Contact" };
   const chat: NavItem = { href: "/chat", label: "Chat", icon: "MessageCircle" };
+  const calendar: NavItem = {
+    href: "/calendar",
+    label: "Calendar",
+    icon: "CalendarDays",
+  };
+  const announcements: NavItem = {
+    href: "/announcements",
+    label: "Announcements",
+    icon: "Megaphone",
+  };
   const settings: NavItem = {
     href: "/settings",
     label: "Settings",
     icon: "Settings",
   };
 
-  if (actor.role === "HR") {
-    // Phase 8 gives HR real work on this page (setting goals, giving
-    // feedback — both inside `canEditEmployee`'s scope), so it joins the
-    // people-and-requests slice HR already had.
-    return [dashboard, employees, performance, requests, squad, chat];
-  }
-
   return [
     dashboard,
-    employees,
-    // Built from the same predicates the pages and routes check, so the sidebar
-    // can never offer a section the server would refuse.
-    ...(canViewProjects(actor) ? [projects] : []),
-    ...(canViewTasks(actor) ? [tasks] : []),
-    performance,
-    requests,
-    squad,
-    chat,
+    ...(mode === "hrms" ? [employees, performance, requests] : []),
+    ...(mode === "pms" && canViewProjects(actor) ? [projects] : []),
+    ...(mode === "pms" && canViewTasks(actor) ? [tasks] : []),
+    ...(mode === "pms" ? [squad, chat, calendar] : []),
+    announcements,
     ...(canManageWorkloadSettings(actor) ? [settings] : []),
   ];
 }

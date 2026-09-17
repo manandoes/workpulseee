@@ -1,9 +1,11 @@
 import { z } from "zod";
 import {
+  LEAVE_DAY_PARTS,
   REQUEST_STATUSES,
   REQUEST_TYPES,
   requestNeedsAmount,
   requestNeedsDateRange,
+  requestNeedsDayPart,
 } from "@/lib/requests";
 
 /**
@@ -38,6 +40,7 @@ export const createRequestSchema = z
     description: z.string().trim().min(1, "Describe the request").max(4000),
     startDate: dateOnly.optional().or(z.literal("")),
     endDate: dateOnly.optional().or(z.literal("")),
+    dayPart: z.enum(LEAVE_DAY_PARTS).optional(),
     amount: z
       .string()
       .trim()
@@ -75,6 +78,21 @@ export const createRequestSchema = z
         code: "custom",
         path: ["amount"],
         message: "Amount is required for a reimbursement.",
+      });
+    }
+
+    const dayPart = value.dayPart ?? "FullDay";
+    if (
+      requestNeedsDayPart(value.type) &&
+      dayPart !== "FullDay" &&
+      value.startDate &&
+      value.endDate &&
+      value.startDate !== value.endDate
+    ) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["endDate"],
+        message: "A half day must be a single day.",
       });
     }
   });

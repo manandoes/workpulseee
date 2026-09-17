@@ -21,7 +21,7 @@ import { ClientStatusBadge } from "@/components/projects/status-badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 
-export const metadata: Metadata = { title: "Clients — Talking Lens Media" };
+export const metadata: Metadata = { title: "Clients — WorkPulse" };
 
 /** Client list (Phases.md Phase 4). */
 export default async function ClientsPage({

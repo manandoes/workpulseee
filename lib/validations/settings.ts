@@ -56,3 +56,68 @@ export const alertSettingsSchema = z.object({
 });
 
 export type AlertSettingsInput = z.infer<typeof alertSettingsSchema>;
+
+/**
+ * The HRMS/PMS sidebar mode (Plan: dashboard-mode toggle) — a display
+ * preference, not tenant data, so it is the one setting in this file with no
+ * DB column behind it (`app/api/settings/dashboard-mode/route.ts` writes it
+ * straight to a cookie).
+ */
+export const dashboardModeSchema = z.object({
+  mode: z.enum(["hrms", "pms"]),
+});
+
+export type DashboardModeInput = z.infer<typeof dashboardModeSchema>;
+
+/**
+ * Dark/light theme (Plan: theme toggle) — same shape as `dashboardModeSchema`
+ * and, like it, cookie-only: no DB column behind it
+ * (`app/api/settings/theme/route.ts`).
+ */
+export const themeSettingsSchema = z.object({
+  theme: z.enum(["light", "dark"]),
+});
+
+export type ThemeSettingsInput = z.infer<typeof themeSettingsSchema>;
+
+/**
+ * Owner-only company branding (Plan: brand color) — unlike theme mode, this
+ * is persisted on `Company.brandColor` (`app/api/settings/branding/route.ts`),
+ * since it is company-wide, not a personal preference.
+ */
+export const brandColorSchema = z.object({
+  brandColor: z
+    .string()
+    .trim()
+    .regex(/^#[0-9a-f]{6}$/i, "Enter a hex color like #ffcc00"),
+});
+
+export type BrandColorInput = z.infer<typeof brandColorSchema>;
+
+/**
+ * Owner-only email delivery settings (Settings -> Email delivery,
+ * `canManageEmailSettings`) — the company's own Resend/Brevo identity for
+ * invite and notification emails, persisted on `Company`
+ * (`app/api/settings/email/route.ts`).
+ *
+ * `emailApiKey` is optional and blank means "keep the currently stored key":
+ * the form never receives the real key back to prefill, so leaving it blank
+ * is how an owner changes the provider or from-address without re-entering a
+ * key that hasn't changed.
+ */
+export const emailSettingsSchema = z.object({
+  emailProvider: z.enum(["resend", "brevo"]),
+  emailFromAddress: z
+    .string()
+    .trim()
+    .min(3, "Enter a from address")
+    .max(200, "Keep this under 200 characters"),
+  emailApiKey: z
+    .string()
+    .trim()
+    .max(200, "Keep this under 200 characters")
+    .optional()
+    .or(z.literal("")),
+});
+
+export type EmailSettingsInput = z.infer<typeof emailSettingsSchema>;

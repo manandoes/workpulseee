@@ -32,10 +32,13 @@ export type TaskSummary = {
   /**
    * Carries the lead because a task is governed by its project: the page's
    * `canManage` reads it to decide, per row, whether the status control is
-   * shown (`canManageTask` in lib/permissions.ts). `null` for a standalone
-   * task, which has no project to be governed by.
+   * shown (`canManageTask` in lib/permissions.ts). `null` for a client-direct
+   * or fully standalone task, neither of which has a project to be governed
+   * by.
    */
   project: { id: string; name: string; leadAccountId: string | null } | null;
+  /** Set only when `project` is null and the task is filed under a client. */
+  client: { id: string; name: string } | null;
 };
 
 /** Whether the viewer may move a given task. */
@@ -52,32 +55,51 @@ function TaskTitle({ task }: { task: TaskSummary }) {
   );
 }
 
-/** A task's project, or "Personal task" when it has none. */
+/**
+ * A task's target: its project, the client it is filed directly under, or
+ * "Personal task" when it has neither.
+ */
 function TaskProjectLabel({
   project,
+  client,
   className,
 }: {
   project: TaskSummary["project"];
+  client: TaskSummary["client"];
   className?: string;
 }) {
-  if (!project) {
+  if (project) {
     return (
-      <span className={cn("text-text-secondary", className)}>
-        Personal task
-      </span>
+      <Link
+        href={`/projects/${project.id}`}
+        className={cn(
+          "text-text-secondary underline-offset-4 hover:underline",
+          className
+        )}
+      >
+        {project.name}
+      </Link>
+    );
+  }
+
+  if (client) {
+    return (
+      <Link
+        href={`/projects/clients/${client.id}`}
+        className={cn(
+          "text-text-secondary underline-offset-4 hover:underline",
+          className
+        )}
+      >
+        {client.name}
+      </Link>
     );
   }
 
   return (
-    <Link
-      href={`/projects/${project.id}`}
-      className={cn(
-        "text-text-secondary underline-offset-4 hover:underline",
-        className
-      )}
-    >
-      {project.name}
-    </Link>
+    <span className={cn("text-text-secondary", className)}>
+      Personal task
+    </span>
   );
 }
 
@@ -138,6 +160,7 @@ export function TaskBoard({
 
                       <TaskProjectLabel
                         project={task.project}
+                        client={task.client}
                         className="text-meta"
                       />
 
@@ -213,7 +236,10 @@ export function TaskList({
                     </div>
                   </td>
                   <td className="text-text-secondary px-3 py-3">
-                    <TaskProjectLabel project={task.project} />
+                    <TaskProjectLabel
+                      project={task.project}
+                      client={task.client}
+                    />
                   </td>
                   <td className="text-text-secondary px-3 py-3">
                     {task.assignee ? (

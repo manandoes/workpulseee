@@ -1,12 +1,6 @@
 import type { NextRequest } from "next/server";
 import { NextResponse, userAgent } from "next/server";
-import {
-  apiError,
-  forbidden,
-  serverError,
-  unauthorized,
-  writeFailure,
-} from "@/lib/api";
+import { apiError, serverError, unauthorized, writeFailure } from "@/lib/api";
 import { getActor } from "@/lib/auth";
 import { clockIn } from "@/lib/attendance-data";
 import { attendanceAllowedOnDevice } from "@/lib/device";
@@ -14,10 +8,10 @@ import { attendanceAllowedOnDevice } from "@/lib/device";
 /**
  * POST /api/attendance/clock-in — start today's attendance session.
  *
- * Employee logins only: attendance is something an employee does to
- * themselves, not something a company account does on their behalf, the same
- * split `/api/tasks/[id]/status` draws between "my own board" and "the
- * projects I manage".
+ * Every actor clocks themselves in — an Employee, or a company account
+ * (Owner/Admin/Manager/HR) reviewed on the same attendance/performance
+ * parameters (Plan: attendance for all company accounts) — never something
+ * done on someone else's behalf.
  *
  * Plan.md Phase 14: clocking in is refused from a phone or tablet
  * (`lib/device.ts`) — clocking out stays allowed everywhere so an open
@@ -26,10 +20,6 @@ import { attendanceAllowedOnDevice } from "@/lib/device";
 export async function POST(request: NextRequest) {
   const actor = await getActor();
   if (!actor) return unauthorized();
-
-  if (actor.accountType !== "employee") {
-    return forbidden("Only an employee can clock themselves in.");
-  }
 
   const { device } = userAgent(request);
   if (!attendanceAllowedOnDevice(device.type)) {

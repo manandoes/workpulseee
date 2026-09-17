@@ -1,4 +1,5 @@
 import type { GoalStatus } from "@/lib/generated/prisma/enums";
+import type { PerformanceSubject } from "@/lib/performance-data";
 import { formatDate } from "@/lib/format";
 import { GoalStatusBadge } from "@/components/performance/goal-status-badge";
 import { GoalDecisionActions } from "@/components/performance/goal-decision-actions";
@@ -19,11 +20,11 @@ export type GoalSummary = {
  * gates the Achieve/Miss actions, since goals are manager-owned.
  */
 export function GoalList({
-  employeeId,
+  subject,
   goals,
   mayDecide,
 }: {
-  employeeId: string;
+  subject: PerformanceSubject;
   goals: GoalSummary[];
   mayDecide: boolean;
 }) {
@@ -52,7 +53,7 @@ export function GoalList({
             {formatDate(goal.createdAt)}
           </p>
           {mayDecide && goal.status === "Active" ? (
-            <GoalDecisionActions employeeId={employeeId} goalId={goal.id} />
+            <GoalDecisionActions subject={subject} goalId={goal.id} />
           ) : null}
         </li>
       ))}

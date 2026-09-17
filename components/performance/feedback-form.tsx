@@ -15,6 +15,7 @@ import {
   createFeedbackSchema,
   type CreateFeedbackInput,
 } from "@/lib/validations/performance";
+import type { PerformanceSubject } from "@/lib/performance-data";
 
 const RATING_OPTIONS = [
   { value: "5", label: "5 — Excellent" },
@@ -25,13 +26,16 @@ const RATING_OPTIONS = [
 ];
 
 /**
- * Give an employee feedback (Phases.md Phase 8 — "manager feedback log").
+ * Give a subject feedback (Phases.md Phase 8 — "manager feedback log"),
+ * widened to company accounts too (Plan: performance for all company
+ * accounts).
  *
- * Visible to the employee immediately on submission (confirmed with the
- * user) — there is no draft/private state. Manager-owned, like goals: only
- * rendered where the caller has already checked `canEditEmployee`.
+ * Visible to the subject immediately on submission (confirmed with the
+ * user) — there is no draft/private state. Manager-owned for an employee,
+ * Owner/Admin-owned for a company account, like goals: only rendered where
+ * the caller has already checked `canEditEmployee`/`isCompanyAdmin`.
  */
-export function FeedbackForm({ employeeId }: { employeeId: string }) {
+export function FeedbackForm({ subject }: { subject: PerformanceSubject }) {
   const router = useRouter();
   const [formError, setFormError] = useState<string | null>(null);
 
@@ -49,11 +53,14 @@ export function FeedbackForm({ employeeId }: { employeeId: string }) {
   const onSubmit = handleSubmit(async (values) => {
     setFormError(null);
 
-    const response = await fetch(`/api/performance/${employeeId}/feedback`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(values),
-    });
+    const response = await fetch(
+      `/api/performance/${subject.kind}/${subject.id}/feedback`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(values),
+      }
+    );
 
     const body = await response.json().catch(() => null);
 

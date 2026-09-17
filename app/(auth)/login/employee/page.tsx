@@ -5,9 +5,9 @@ import { AuthPathTabs } from "@/components/marketing/auth-path-tabs";
 import { EmployeeLoginForm } from "@/components/auth/employee-login-form";
 
 export const metadata: Metadata = {
-  title: "Employee Login — Talking Lens Media",
+  title: "Employee Login — WorkPulse",
   description:
-    "Sign in to Talking Lens Media as an employee using your company ID and employee ID or email.",
+    "Sign in to WorkPulse as an employee using your company ID and employee ID or email.",
 };
 
 /**

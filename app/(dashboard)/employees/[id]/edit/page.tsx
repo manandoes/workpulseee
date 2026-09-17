@@ -15,7 +15,7 @@ import { PageHeader } from "@/components/dashboard/page-header";
 import { EmployeeForm } from "@/components/employees/employee-form";
 import { Card, CardContent } from "@/components/ui/card";
 
-export const metadata: Metadata = { title: "Edit employee — Talking Lens Media" };
+export const metadata: Metadata = { title: "Edit employee — WorkPulse" };
 
 /**
  * Edit an employee profile.

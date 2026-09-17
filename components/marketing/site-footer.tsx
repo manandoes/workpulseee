@@ -70,7 +70,7 @@ export function SiteFooter() {
 
         <div className="border-border mt-10 border-t pt-6">
           <p className="text-text-secondary text-meta">
-            &copy; {new Date().getFullYear()} Talking Lens Media. All rights reserved.
+            &copy; {new Date().getFullYear()} WorkPulse. All rights reserved.
           </p>
         </div>
       </div>

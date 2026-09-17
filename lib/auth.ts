@@ -209,25 +209,34 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
      */
     async signOut(message) {
       const token = "token" in message ? message.token : null;
-      if (!token?.sub || token.accountType !== "employee") return;
+      if (!token?.sub) return;
 
-      try {
-        await stopRunningEntries(token.companyId as string, token.sub);
-      } catch (cause) {
-        console.error("[auth] failed to stop task timers on sign-out", {
-          employeeId: token.sub,
-          cause,
-        });
+      // A CompanyAccount is never a task assignee, so there is never a
+      // running task timer to stop for one — only an Employee needs this
+      // step (Plan: attendance for all company accounts).
+      if (token.accountType === "employee") {
+        try {
+          await stopRunningEntries(token.companyId as string, token.sub);
+        } catch (cause) {
+          console.error("[auth] failed to stop task timers on sign-out", {
+            employeeId: token.sub,
+            cause,
+          });
+        }
       }
 
-      // Plan.md Phase 15: signing out ends the working day, so an open break
-      // cannot be left dangling either — same "the one hook that always
-      // fires" reasoning as the task-timer close above.
+      // Plan.md Phase 15 (widened by Plan: attendance for all company
+      // accounts): signing out ends the working day, so an open break cannot
+      // be left dangling either, for either actor type — same "the one hook
+      // that always fires" reasoning as the task-timer close above.
       try {
-        await closeOpenBreakOnSignOut(token.companyId as string, token.sub);
+        await closeOpenBreakOnSignOut(token.companyId as string, {
+          kind: token.accountType === "employee" ? "employee" : "account",
+          id: token.sub,
+        });
       } catch (cause) {
         console.error("[auth] failed to close open break on sign-out", {
-          employeeId: token.sub,
+          subjectId: token.sub,
           cause,
         });
       }

@@ -251,12 +251,18 @@ the single-day rule and the default.
 
 ## Phase 17 — Calendar (Google preview + in-app meetings)
 
-### Decision (confirmed)
+### Decision (confirmed, revised)
 
-Read-only Google: each person may connect their Google account so the app can
-**preview** their schedule. Meetings that WorkPulse books live in WorkPulse, not
-in Google — so booking works with colleagues who have not connected Google, and
-the app never needs write scope on anyone's calendar.
+Each person may connect their Google account so the app can **preview** their
+schedule. The WorkPulse `Meeting` row is always the source of truth — booking
+still works fully with colleagues who have never connected Google — but when
+the organizer *is* connected, booking or cancelling a meeting in WorkPulse
+also creates or deletes a mirrored event on their own Google Calendar
+(`calendar.events` scope, not the broader `calendar` scope), inviting any
+other participants who are themselves connected. A Google write failure
+(token expired, API error, not connected) never blocks the WorkPulse-side
+booking — it just means that meeting stays WorkPulse-only, the same
+graceful-degradation rule the read side already followed.
 
 This is the largest phase, and the only one with an external dependency and a
 setup step outside the codebase.
@@ -285,9 +291,11 @@ any client. `.env.example` gains `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`,
 ### Google access
 
 `lib/google-calendar.ts` talks to Google with plain `fetch` — token exchange,
-refresh, `events.list` for the connected person's own preview, and `freeBusy`
-for colleagues. The `googleapis` package is ~50MB of surface for three HTTPS
-calls, which Rules.md section 1 rules out.
+refresh, `events.list` for the connected person's own preview, `freeBusy` for
+colleagues, and `events.insert`/`events.delete` to mirror a booked/cancelled
+WorkPulse meeting onto the organizer's own calendar. The `googleapis` package
+is ~50MB of surface for a handful of HTTPS calls, which Rules.md section 1
+rules out.
 
 **Privacy rule, enforced in the data layer:** you see your own events with their
 titles; another person's Google data is returned as **busy intervals only**, no

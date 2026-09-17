@@ -23,11 +23,20 @@ const PROTECTED_PREFIXES = [
   "/notifications",
   "/squad",
   "/chat",
+  "/calendar",
+  "/announcements",
 ];
 
 /** Reachable by both account types, like `/my-space` — excluded from the
  * "company area" split below. */
-const SHARED_PREFIXES = ["/my-space", "/notifications", "/squad", "/chat"];
+const SHARED_PREFIXES = [
+  "/my-space",
+  "/notifications",
+  "/squad",
+  "/chat",
+  "/calendar",
+  "/announcements",
+];
 
 /** Signed-in users have no reason to see these again. */
 const AUTH_PAGES = ["/login", "/register"];

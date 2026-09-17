@@ -20,11 +20,35 @@ import type { SessionActor } from "@/lib/permissions";
  * `scopedWhere`, the same way `lib/performance-data.ts` reads
  * `Feedback`/`PerformanceRecord`.
  *
- * `clockIn`/`clockOut`/`startBreak`/`endBreak`/`loadMyAttendance` are only
- * ever called for an Employee actor — the routes and pages that call them
- * check `accountType === "employee"` first, so `actor.id` is the employee's
- * own row id, the same assumption `lib/my-work-data.ts` documents.
+ * Plan: attendance for all company accounts, not just employees —
+ * `clockIn`/`clockOut`/`startBreak`/`endBreak`/`loadMyAttendance` now work for
+ * either an Employee or a CompanyAccount actor, via `subjectColumns` below
+ * (the same two-nullable-FK shape `lib/notification-data.ts`'s
+ * `recipientColumns` already established). A CompanyAccount is never a task
+ * assignee, so `startBreak`'s "pause every running task timer" step is a
+ * natural no-op for one — the `taskTimeEntry.employeeId` lookup below simply
+ * never matches a CompanyAccount id.
  */
+
+/** Which subject column a query or write should use for this actor. */
+function subjectColumns(actor: SessionActor) {
+  return actor.accountType === "employee"
+    ? { employeeId: actor.id }
+    : { accountId: actor.id };
+}
+
+/** An explicit person to read attendance for, named the same way the schema
+ * names them — used by the admin-facing reads below, where the subject isn't
+ * necessarily the caller. */
+export type AttendanceSubject =
+  | { kind: "employee"; id: string }
+  | { kind: "account"; id: string };
+
+function subjectWhereFor(subject: AttendanceSubject) {
+  return subject.kind === "employee"
+    ? { employeeId: subject.id }
+    : { accountId: subject.id };
+}
 
 export type AttendanceRecordRow = {
   id: string;
@@ -63,7 +87,7 @@ export function loadOpenSession(
   return db.attendanceRecord.findFirst({
     where: {
       companyId: actor.companyId,
-      employeeId: actor.id,
+      ...subjectColumns(actor),
       clockOutAt: null,
     },
     select: recordSelect,
@@ -84,7 +108,7 @@ export async function clockIn(actor: SessionActor): Promise<ClockResolution> {
   }
 
   const record = await db.attendanceRecord.create({
-    data: { companyId: actor.companyId, employeeId: actor.id },
+    data: { companyId: actor.companyId, ...subjectColumns(actor) },
     select: recordSelect,
   });
 
@@ -151,7 +175,7 @@ export function loadOpenBreak(
   return db.breakRecord.findFirst({
     where: {
       companyId: actor.companyId,
-      employeeId: actor.id,
+      ...subjectColumns(actor),
       endedAt: null,
     },
     select: breakSelect,
@@ -184,16 +208,25 @@ export async function startBreak(actor: SessionActor): Promise<BreakResolution> 
   }
 
   const now = new Date();
-  const running = await db.taskTimeEntry.findMany({
-    where: { companyId: actor.companyId, employeeId: actor.id, endedAt: null },
-    select: { id: true, taskId: true },
-  });
+  // Only ever non-empty for an Employee actor — a CompanyAccount is never a
+  // task assignee, so this simply finds nothing for one.
+  const running =
+    actor.accountType === "employee"
+      ? await db.taskTimeEntry.findMany({
+          where: {
+            companyId: actor.companyId,
+            employeeId: actor.id,
+            endedAt: null,
+          },
+          select: { id: true, taskId: true },
+        })
+      : [];
 
   const [record] = await db.$transaction([
     db.breakRecord.create({
       data: {
         companyId: actor.companyId,
-        employeeId: actor.id,
+        ...subjectColumns(actor),
         attendanceRecordId: session.id,
         startedAt: now,
         pausedTaskIds: running.map((entry) => entry.taskId),
@@ -266,11 +299,11 @@ export async function endBreak(actor: SessionActor): Promise<BreakResolution> {
  */
 export async function closeOpenBreakOnSignOut(
   companyId: string,
-  employeeId: string,
+  subject: AttendanceSubject,
   now: Date = new Date()
 ): Promise<boolean> {
   const { count } = await db.breakRecord.updateMany({
-    where: { companyId, employeeId, endedAt: null },
+    where: { companyId, ...subjectWhereFor(subject), endedAt: null },
     data: { endedAt: now },
   });
   return count > 0;
@@ -282,7 +315,7 @@ export function loadMyAttendance(
   limit = 10
 ): Promise<AttendanceRecordWithBreaks[]> {
   return db.attendanceRecord.findMany({
-    where: { companyId: actor.companyId, employeeId: actor.id },
+    where: { companyId: actor.companyId, ...subjectColumns(actor) },
     orderBy: { clockInAt: "desc" },
     take: limit,
     select: recordWithBreaksSelect,
@@ -290,19 +323,20 @@ export function loadMyAttendance(
 }
 
 /**
- * A given employee's recent sessions, for the admin-facing Attendance panel
- * on their profile page. Scoped by company only, the same way
- * `loadPerformanceHistory` scopes an employee's score history — the page
- * itself checks `canViewPersonalDetails` before rendering this, and the id
- * passed in has already been confirmed to belong to this company.
+ * A given person's recent sessions, for the admin-facing Attendance panel on
+ * their profile page — an Employee or a CompanyAccount (Plan: attendance for
+ * all company accounts). Scoped by company only, the same way
+ * `loadPerformanceHistory` scopes a subject's score history — the page itself
+ * checks `canViewPersonalDetails` before rendering this, and the id passed in
+ * has already been confirmed to belong to this company.
  */
-export function loadEmployeeAttendance(
+export function loadPersonAttendance(
   actor: SessionActor,
-  employeeId: string,
+  subject: AttendanceSubject,
   limit = 10
 ): Promise<AttendanceRecordWithBreaks[]> {
   return db.attendanceRecord.findMany({
-    where: { companyId: actor.companyId, employeeId },
+    where: { companyId: actor.companyId, ...subjectWhereFor(subject) },
     orderBy: { clockInAt: "desc" },
     take: limit,
     select: recordWithBreaksSelect,

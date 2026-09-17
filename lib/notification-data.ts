@@ -2,9 +2,11 @@ import { db } from "@/lib/db";
 import type { SessionActor } from "@/lib/permissions";
 import { daysFromToday, OPEN_STATUSES } from "@/lib/tasks";
 import {
+  announcementPostedMessage,
   DEADLINE_WARNING_DAYS,
   deadlineDedupeKey,
   deadlineMessage,
+  meetingScheduledMessage,
   requestDecidedMessage,
   requestSubmittedMessage,
   resolveApproversFor,
@@ -19,6 +21,7 @@ import {
   requestDecisionEmailBody,
   sendEmail,
 } from "@/lib/mailer";
+import { loadEmailConfig } from "@/lib/company-email-config";
 import { sendWhatsApp } from "@/lib/whatsapp";
 import { sendPush } from "@/lib/push";
 import { paginationMeta, type PaginationMeta } from "@/lib/pagination";
@@ -187,6 +190,8 @@ const EMAIL_SUBJECTS: Record<NotificationType, string> = {
   DeadlineApproaching: "A deadline is coming up",
   RequestSubmitted: "A new request needs your decision",
   RequestDecided: "Your request has been decided",
+  MeetingScheduled: "You've been invited to a meeting",
+  AnnouncementPosted: "A new company announcement was posted",
 };
 
 /**
@@ -276,7 +281,10 @@ async function deliver({
                 message,
                 link: absoluteLink(link),
               });
-            await sendEmail({ to: person.email!, ...body });
+            await sendEmail(
+              { to: person.email!, ...body },
+              await loadEmailConfig(companyId)
+            );
             return;
           }
 
@@ -547,6 +555,102 @@ export async function warnCompanyDeadlines(
   }
 
   return warned;
+}
+
+/**
+ * A meeting was booked — tell an invited participant.
+ *
+ * Never called for the organizer themselves (`lib/calendar-data.ts`'s
+ * `proposeMeeting` excludes them from its recipient list) — the same "don't
+ * notify the person who just did it" rule `notifyTaskAssigned` follows.
+ */
+export async function notifyMeetingScheduled(meeting: {
+  id: string;
+  companyId: string;
+  title: string;
+  startAt: Date;
+  organizerName: string;
+  recipient: Recipient;
+}): Promise<void> {
+  try {
+    await deliver({
+      companyId: meeting.companyId,
+      recipient: meeting.recipient,
+      type: "MeetingScheduled",
+      message: meetingScheduledMessage(
+        meeting.title,
+        meeting.startAt,
+        meeting.organizerName
+      ),
+      link: `/calendar?meetingId=${meeting.id}`,
+    });
+  } catch (cause) {
+    console.error("[notifications] Could not notify a meeting participant", {
+      cause,
+    });
+  }
+}
+
+/**
+ * A new company announcement went up — tell every active Employee and every
+ * other CompanyAccount in the company. The poster is excluded, the same
+ * "don't notify the person who just did it" rule `notifyTaskAssigned` and
+ * `notifyMeetingScheduled` follow.
+ */
+export async function notifyAnnouncementPosted(announcement: {
+  id: string;
+  title: string;
+  companyId: string;
+  createdByAccountId: string;
+  createdByAccount: { fullName: string };
+}): Promise<void> {
+  try {
+    const [employees, accounts] = await Promise.all([
+      db.employee.findMany({
+        where: { companyId: announcement.companyId, deletedAt: null },
+        select: { id: true },
+      }),
+      db.companyAccount.findMany({
+        where: {
+          companyId: announcement.companyId,
+          deletedAt: null,
+          id: { not: announcement.createdByAccountId },
+        },
+        select: { id: true },
+      }),
+    ]);
+
+    const message = announcementPostedMessage(
+      announcement.createdByAccount.fullName,
+      announcement.title
+    );
+    const link = `/announcements?announcementId=${announcement.id}`;
+
+    await Promise.all([
+      ...employees.map((employee) =>
+        deliver({
+          companyId: announcement.companyId,
+          recipient: { employeeId: employee.id },
+          type: "AnnouncementPosted",
+          message,
+          link,
+        })
+      ),
+      ...accounts.map((account) =>
+        deliver({
+          companyId: announcement.companyId,
+          recipient: { accountId: account.id },
+          type: "AnnouncementPosted",
+          message,
+          link,
+        })
+      ),
+    ]);
+  } catch (cause) {
+    console.error("[notifications] Could not notify about an announcement", {
+      cause,
+    });
+  }
 }
 
 // ---------------------------------------------------------------------------

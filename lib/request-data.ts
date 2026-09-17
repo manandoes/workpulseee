@@ -3,8 +3,16 @@ import { db } from "@/lib/db";
 import { scopedWhere } from "@/lib/tenant";
 import type { SessionActor } from "@/lib/permissions";
 import { paginationMeta, type PaginationMeta } from "@/lib/pagination";
-import { requestFilter, type RequestFilters } from "@/lib/requests";
-import type { RequestStatus, RequestType } from "@/lib/generated/prisma/enums";
+import {
+  requestFilter,
+  requestNeedsDayPart,
+  type RequestFilters,
+} from "@/lib/requests";
+import type {
+  LeaveDayPart,
+  RequestStatus,
+  RequestType,
+} from "@/lib/generated/prisma/enums";
 import type { CreateRequestInput } from "@/lib/validations/requests";
 
 /**
@@ -26,6 +34,7 @@ export type RequestWriteData = {
   description: string;
   startDate: Date | null;
   endDate: Date | null;
+  dayPart: LeaveDayPart | null;
   amount: string | null;
 };
 
@@ -55,6 +64,9 @@ export function resolveRequest(
       description: input.description,
       startDate: dateOrNull(input.startDate ?? ""),
       endDate: dateOrNull(input.endDate ?? ""),
+      dayPart: requestNeedsDayPart(input.type)
+        ? (input.dayPart ?? "FullDay")
+        : null,
       amount: input.amount || null,
     },
   };
@@ -80,6 +92,7 @@ export type LoadedRequest = {
   description: string;
   startDate: Date | null;
   endDate: Date | null;
+  dayPart: LeaveDayPart | null;
   amount: unknown;
   decisionNote: string | null;
   decidedAt: Date | null;
@@ -98,6 +111,7 @@ const requestSelect = {
   description: true,
   startDate: true,
   endDate: true,
+  dayPart: true,
   amount: true,
   decisionNote: true,
   decidedAt: true,

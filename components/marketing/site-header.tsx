@@ -29,7 +29,7 @@ export function SiteHeader() {
   return (
     <header className="border-border bg-background/95 sticky top-0 z-50 w-full border-b backdrop-blur-sm">
       <div className="mx-auto flex h-16 w-full max-w-[1200px] items-center justify-between gap-6 px-6">
-        <Link href="/" aria-label="Talking Lens Media home">
+        <Link href="/" aria-label="WorkPulse home">
           <BrandMark />
         </Link>
 

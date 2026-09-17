@@ -7,7 +7,7 @@ import { PageHeader } from "@/components/dashboard/page-header";
 import { Avatar } from "@/components/dashboard/avatar";
 import { Card, CardContent } from "@/components/ui/card";
 
-export const metadata: Metadata = { title: "Squad — Talking Lens Media" };
+export const metadata: Metadata = { title: "Squad — WorkPulse" };
 
 /**
  * Every member of the company, as a directory of cards (Phase 11) — Owner,

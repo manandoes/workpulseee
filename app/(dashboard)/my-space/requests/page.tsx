@@ -12,7 +12,7 @@ import { Pagination } from "@/components/dashboard/pagination";
 import { RequestList } from "@/components/requests/request-views";
 import { Button } from "@/components/ui/button";
 
-export const metadata: Metadata = { title: "My Requests — Talking Lens Media" };
+export const metadata: Metadata = { title: "My Requests — WorkPulse" };
 
 /**
  * An employee's own requests (PRD.md section 6.9 — "My Requests": leave,

@@ -8,7 +8,7 @@ import { PageHeader } from "@/components/dashboard/page-header";
 import { ClientForm } from "@/components/projects/client-form";
 import { Card, CardContent } from "@/components/ui/card";
 
-export const metadata: Metadata = { title: "Edit client — Talking Lens Media" };
+export const metadata: Metadata = { title: "Edit client — WorkPulse" };
 
 export default async function EditClientPage({
   params,

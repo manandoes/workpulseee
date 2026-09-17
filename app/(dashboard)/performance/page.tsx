@@ -12,7 +12,7 @@ import { Pagination } from "@/components/dashboard/pagination";
 import { PerformanceScoreBadge } from "@/components/performance/score-badge";
 import { Card, CardContent } from "@/components/ui/card";
 
-export const metadata: Metadata = { title: "Performance — Talking Lens Media" };
+export const metadata: Metadata = { title: "Performance — WorkPulse" };
 
 /**
  * The performance list (Phases.md Phase 8).
@@ -104,7 +104,7 @@ export default async function PerformancePage({
                     <tr key={employee.id} className="border-border border-b">
                       <td className="px-3 py-3">
                         <Link
-                          href={`/performance/${employee.id}`}
+                          href={`/performance/employee/${employee.id}`}
                           className="text-brand-brown font-medium underline-offset-4 hover:underline"
                         >
                           {employee.fullName}

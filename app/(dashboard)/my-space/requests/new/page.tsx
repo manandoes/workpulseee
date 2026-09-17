@@ -5,7 +5,7 @@ import { PageHeader } from "@/components/dashboard/page-header";
 import { RequestForm } from "@/components/requests/request-form";
 import { Card, CardContent } from "@/components/ui/card";
 
-export const metadata: Metadata = { title: "New request — Talking Lens Media" };
+export const metadata: Metadata = { title: "New request — WorkPulse" };
 
 /** Submit a request (Phases.md Phase 7). Employee-only, like the API route. */
 export default async function NewRequestPage() {

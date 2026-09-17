@@ -41,18 +41,36 @@ const optionalHours = z
   .optional()
   .or(z.literal(""));
 
-export const createTaskSchema = z.object({
-  title: z.string().trim().min(3, "Give the task a title").max(160),
-  /** Empty means a standalone, project-less task. */
-  projectId: optionalText(40),
-  description: optionalText(4000),
-  status: z.enum(TASK_STATUSES).optional(),
-  priority: z.enum(TASK_PRIORITIES).optional(),
-  /** Empty means unassigned; otherwise an Employee id. */
-  assigneeId: optionalText(40),
-  dueDate: optionalDate,
-  estimatedHours: optionalHours,
-});
+/**
+ * A task has exactly one of three target shapes: on a project, filed
+ * directly under a client, or fully general/personal (both empty).
+ * Enforced here, not in the database — the same style the previously
+ * project-only nullable `projectId` already used.
+ */
+export const createTaskSchema = z
+  .object({
+    title: z.string().trim().min(3, "Give the task a title").max(160),
+    /** Empty means no project — either a client-direct or general task. */
+    projectId: optionalText(40),
+    /** Empty means no client — either a project or general task. */
+    clientId: optionalText(40),
+    description: optionalText(4000),
+    status: z.enum(TASK_STATUSES).optional(),
+    priority: z.enum(TASK_PRIORITIES).optional(),
+    /** Empty means unassigned; otherwise an Employee id. */
+    assigneeId: optionalText(40),
+    dueDate: optionalDate,
+    estimatedHours: optionalHours,
+  })
+  .superRefine((value, ctx) => {
+    if (value.projectId && value.clientId) {
+      ctx.addIssue({
+        code: "custom",
+        message: "A task is on a project or a client, not both",
+        path: ["clientId"],
+      });
+    }
+  });
 
 export const updateTaskSchema = createTaskSchema;
 

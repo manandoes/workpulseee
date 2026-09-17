@@ -12,7 +12,7 @@ import {
   canViewPerformance,
   isCompanyAdmin,
 } from "@/lib/permissions";
-import { loadEmployeeAttendance } from "@/lib/attendance-data";
+import { loadPersonAttendance } from "@/lib/attendance-data";
 import { totalDurationMs } from "@/lib/attendance";
 import { countTasksByStatus } from "@/lib/task-data";
 import {
@@ -29,9 +29,11 @@ import { Button } from "@/components/ui/button";
 import { PerformanceScoreBadge } from "@/components/performance/score-badge";
 import { ScoreHistoryChart } from "@/components/performance/score-history-chart";
 import { GoalList } from "@/components/performance/goal-views";
+import { GoalForm } from "@/components/performance/goal-form";
 import { FeedbackList } from "@/components/performance/feedback-views";
+import { FeedbackForm } from "@/components/performance/feedback-form";
 
-export const metadata: Metadata = { title: "Squad — Talking Lens Media" };
+export const metadata: Metadata = { title: "Squad — WorkPulse" };
 
 /**
  * A Squad member's detail (Phase 11). Always shows the basic block; the
@@ -64,8 +66,39 @@ export default async function SquadMemberPage({
     });
     if (!account) notFound();
 
-    const maySeeDetail = isCompanyAdmin(actor);
     const isSelf = actor.accountType === "company" && actor.id === account.id;
+    const maySeeDetail = isCompanyAdmin(actor);
+    // Plan: attendance for all company accounts — an Owner/Admin can review
+    // anyone's attendance, same as an employee's; a Manager/HR account can
+    // still see their own, same "or isSelf" widening
+    // `employees/[id]/page.tsx`'s equivalent gate already carries.
+    const maySeeAttendance = maySeeDetail || isSelf;
+    // Plan: performance for all company accounts — same split as attendance
+    // above; deciding a goal/giving feedback for a company account is
+    // Owner/Admin-only (no manager relationship to check, unlike an
+    // employee), matching the API routes' own gate.
+    const maySeeGrowth = maySeeDetail || isSelf;
+    const mayDecide = maySeeDetail;
+
+    const accountSubject = { kind: "account" as const, id: account.id };
+
+    const [attendance, growthHistory, goals, feedback] = await Promise.all([
+      maySeeAttendance
+        ? loadPersonAttendance(actor, { kind: "account", id: account.id })
+        : Promise.resolve(null),
+      maySeeGrowth
+        ? loadPerformanceHistory(actor.companyId, accountSubject)
+        : Promise.resolve([]),
+      maySeeGrowth ? loadGoals(actor.companyId, accountSubject) : Promise.resolve([]),
+      maySeeGrowth ? loadFeedback(actor.companyId, accountSubject) : Promise.resolve([]),
+    ]);
+    const now = new Date();
+
+    const latestScore = growthHistory[0]?.score ?? null;
+    const chartHistory = [...growthHistory].reverse().map((point) => ({
+      score: Number(point.score),
+      computedAt: point.computedAt,
+    }));
 
     return (
       <>
@@ -90,6 +123,42 @@ export default async function SquadMemberPage({
             <Panel title="Contact" plain>
               <p className="text-text-secondary">
                 Contact details are limited to owners and admins.
+              </p>
+            </Panel>
+          )}
+
+          {attendance ? (
+            <Panel title="Attendance" plain>
+              <p className="text-foreground">
+                Total logged: {formatDuration(totalDurationMs(attendance, now))}
+              </p>
+              <AttendanceTable records={attendance} now={now} />
+            </Panel>
+          ) : (
+            <Panel title="Attendance" plain>
+              <p className="text-text-secondary">
+                This is limited to owners, admins, and this person themselves.
+              </p>
+            </Panel>
+          )}
+
+          {maySeeGrowth ? (
+            <Panel title="Growth" plain>
+              <PerformanceScoreBadge score={latestScore === null ? null : Number(latestScore)} />
+              <ScoreHistoryChart history={chartHistory} />
+              <div className="mt-2">
+                <GoalList subject={accountSubject} goals={goals} mayDecide={mayDecide} />
+                {mayDecide ? <GoalForm subject={accountSubject} /> : null}
+              </div>
+              <div className="mt-2">
+                <FeedbackList feedback={feedback} />
+                {mayDecide ? <FeedbackForm subject={accountSubject} /> : null}
+              </div>
+            </Panel>
+          ) : (
+            <Panel title="Growth" plain>
+              <p className="text-text-secondary">
+                This is limited to owners, admins, and this person themselves.
               </p>
             </Panel>
           )}
@@ -131,17 +200,20 @@ export default async function SquadMemberPage({
   const maySeeDetail = canViewPersonalDetails(actor, employee) || isSelf;
   const mayEdit = canEditEmployee(actor, employee);
   const maySeeGrowth = canViewPerformance(actor, employee) || isSelf;
+  const employeeSubject = { kind: "employee" as const, id: employee.id };
 
   const [attendance, taskCounts, history, goals, feedback] = await Promise.all([
-    maySeeDetail ? loadEmployeeAttendance(actor, employee.id) : Promise.resolve(null),
+    maySeeDetail
+      ? loadPersonAttendance(actor, { kind: "employee", id: employee.id })
+      : Promise.resolve(null),
     maySeeDetail
       ? countTasksByStatus(actor.companyId, employee.id)
       : Promise.resolve(null),
     maySeeGrowth
-      ? loadPerformanceHistory(actor.companyId, employee.id)
+      ? loadPerformanceHistory(actor.companyId, employeeSubject)
       : Promise.resolve([]),
-    maySeeGrowth ? loadGoals(actor.companyId, employee.id) : Promise.resolve([]),
-    maySeeGrowth ? loadFeedback(actor.companyId, employee.id) : Promise.resolve([]),
+    maySeeGrowth ? loadGoals(actor.companyId, employeeSubject) : Promise.resolve([]),
+    maySeeGrowth ? loadFeedback(actor.companyId, employeeSubject) : Promise.resolve([]),
   ]);
   const now = new Date();
 
@@ -253,7 +325,7 @@ export default async function SquadMemberPage({
             <PerformanceScoreBadge score={latestScore === null ? null : Number(latestScore)} />
             <ScoreHistoryChart history={chartHistory} />
             <div className="mt-2">
-              <GoalList employeeId={employee.id} goals={goals} mayDecide={false} />
+              <GoalList subject={employeeSubject} goals={goals} mayDecide={false} />
             </div>
             <div className="mt-2">
               <FeedbackList feedback={feedback} />
