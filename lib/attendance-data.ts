@@ -1,3 +1,4 @@
+import { cache } from "react";
 import {
   duplicateFailure,
   invalidReference,
@@ -168,19 +169,38 @@ const breakSelect = {
   pausedTaskIds: true,
 } as const;
 
-/** The caller's own open break, if any — at most one ever exists. */
+/**
+ * The caller's own open break, if any — at most one ever exists.
+ *
+ * The layout and a page both need this on every navigation, each building
+ * its own `actor` object, so `cache` is keyed on the actor's primitive
+ * identity rather than the object itself — a fresh `actor` literal with the
+ * same ids would otherwise miss React's by-reference cache and run the query
+ * twice per request.
+ */
 export function loadOpenBreak(
-  actor: SessionActor
+  actor: Pick<SessionActor, "id" | "companyId" | "accountType">
 ): Promise<BreakRecordRow | null> {
-  return db.breakRecord.findFirst({
-    where: {
-      companyId: actor.companyId,
-      ...subjectColumns(actor),
-      endedAt: null,
-    },
-    select: breakSelect,
-  });
+  return loadOpenBreakCached(actor.companyId, actor.id, actor.accountType);
 }
+
+const loadOpenBreakCached = cache(
+  (
+    companyId: string,
+    subjectId: string,
+    accountType: SessionActor["accountType"]
+  ): Promise<BreakRecordRow | null> =>
+    db.breakRecord.findFirst({
+      where: {
+        companyId,
+        ...(accountType === "employee"
+          ? { employeeId: subjectId }
+          : { accountId: subjectId }),
+        endedAt: null,
+      },
+      select: breakSelect,
+    })
+);
 
 export type BreakResolution =
   { ok: true; record: BreakRecordRow } | WriteFailure;

@@ -14,9 +14,17 @@ export type TaskSignal = {
   status: TaskStatus;
   dueDate: Date | string | null;
   completedAt: Date | string | null;
+  /**
+   * Neither read nor required by scoring below — present only so the same
+   * fetched row can also drive `lib/performance-breakdown.ts`'s turnaround/
+   * project-contribution tiles without a second query or a second copy of
+   * `scopeInputsToPeriod`'s filtering.
+   */
+  createdAt?: Date | string;
+  projectId?: string | null;
 };
 
-function toDate(value: Date | string | null): Date | null {
+export function toDate(value: Date | string | null): Date | null {
   if (!value) return null;
   const date = value instanceof Date ? value : new Date(value);
   return Number.isNaN(date.getTime()) ? null : date;
@@ -369,4 +377,20 @@ export function performanceBandLabel(band: PerformanceBand): string {
     case "danger":
       return "Needs support";
   }
+}
+
+/**
+ * How much the score moved since it was last computed — the latest
+ * `PerformanceRecord` against the one before it. `null` with fewer than two
+ * points, the same "nothing to compare yet" reading `ScoreHistoryChart`
+ * already applies.
+ *
+ * Takes `history` oldest-first, matching `ScoreHistoryChart`'s convention —
+ * callers already build that order for the chart and can reuse it here.
+ */
+export function scoreDelta(history: readonly { score: number }[]): number | null {
+  if (history.length < 2) return null;
+  const latest = history[history.length - 1].score;
+  const previous = history[history.length - 2].score;
+  return Math.round((latest - previous) * 100) / 100;
 }

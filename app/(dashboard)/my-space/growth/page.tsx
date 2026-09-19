@@ -19,10 +19,12 @@ import { PeriodFilter } from "@/components/performance/period-filter";
 import { PeriodScore } from "@/components/performance/period-score";
 import { ScoreHistoryChart } from "@/components/performance/score-history-chart";
 import { BreakdownTiles } from "@/components/performance/breakdown-tiles";
+import { DayBreakdownPanel } from "@/components/performance/day-breakdown-panel";
+import { resolveRequestTimeZone } from "@/lib/timezone-request";
 import { GoalList } from "@/components/performance/goal-views";
 import { FeedbackList } from "@/components/performance/feedback-views";
 
-export const metadata: Metadata = { title: "My Growth — WorkPulse" };
+export const metadata: Metadata = { title: "My Growth" };
 
 /**
  * An employee's own performance page (PRD.md section 6.9 — "My Growth":
@@ -49,6 +51,7 @@ export default async function MyGrowthPage({
   const now = new Date();
   const period = resolvePeriod(preset, from, to, now);
   const subject = { kind: "employee" as const, id: actor.id };
+  const timeZone = await resolveRequestTimeZone();
 
   const reportQuery = new URLSearchParams({ period: preset });
   if (from) reportQuery.set("from", from);
@@ -57,7 +60,7 @@ export default async function MyGrowthPage({
   const [periodScore, history, breakdown, goals, feedback] = await Promise.all([
     loadPeriodScore(actor.companyId, subject, period),
     loadPerformanceHistory(actor.companyId, subject, period),
-    loadPerformanceBreakdown(actor.companyId, subject, period, now),
+    loadPerformanceBreakdown(actor.companyId, subject, period, now, timeZone),
     loadGoals(actor.companyId, subject),
     loadFeedback(actor.companyId, subject),
   ]);
@@ -102,6 +105,7 @@ export default async function MyGrowthPage({
             Breakdown
           </h2>
           <BreakdownTiles breakdown={breakdown} />
+          <DayBreakdownPanel days={breakdown.days} />
         </CardContent>
       </Card>
 

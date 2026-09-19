@@ -13,6 +13,7 @@ import {
   buildPerformanceBreakdown,
   type PerformanceBreakdown,
 } from "@/lib/performance-breakdown";
+import { dayKeyInZone } from "@/lib/timezone";
 import type { GoalStatus } from "@/lib/generated/prisma/enums";
 import type {
   CreateFeedbackInput,
@@ -85,6 +86,10 @@ const taskSignalSelect = {
   status: true,
   dueDate: true,
   completedAt: true,
+  // Not read for scoring — carried along for `performance-breakdown.ts`'s
+  // turnaround/project-contribution tiles (`TaskSignal`'s optional fields).
+  createdAt: true,
+  projectId: true,
 } as const;
 
 /**
@@ -167,6 +172,8 @@ export async function loadPeriodScore(
 // Parameter breakdown (attendance, breaks, focus, tasks)
 // ---------------------------------------------------------------------------
 
+const DAY_MS = 24 * 60 * 60 * 1000;
+
 /**
  * One subject's performance broken down by parameter, over `period` (or
  * their whole record when `period` is `null`) — what
@@ -180,24 +187,42 @@ export async function loadPeriodScore(
  * rather than `scopedWhere`, the same way `lib/attendance-data.ts` already
  * reads them. `TaskTimeEntry` has no `accountId` column (a CompanyAccount is
  * never a task assignee), so tracked time is a natural empty list for one.
+ *
+ * `timeZone` only affects the day-level breakdown (`days`) — `period.from`/
+ * `period.to` are UTC midnights (`lib/performance.ts`), so a session near
+ * either edge can start inside the viewer's local day while falling just
+ * outside (or just inside) the UTC window. Attendance rows are therefore
+ * fetched with the window widened by one day on each side — the maximum
+ * real-world zone offset is under 14h — and then trimmed back to the exact
+ * UTC period before feeding the existing `attendance`/`focus`/`breaks` tiles,
+ * so those numbers are unaffected; only `buildAttendanceDays` sees the
+ * widened set, bucketed and re-clipped by zone-local day key.
  */
 export async function loadPerformanceBreakdown(
   companyId: string,
   subject: PerformanceSubject,
   period: Period | null,
-  now: Date = new Date()
+  now: Date = new Date(),
+  timeZone: string = "UTC"
 ): Promise<PerformanceBreakdown> {
   const startedInPeriod = period
     ? { gte: period.from, lte: period.to }
     : undefined;
 
-  const [input, sessions, timeEntries] = await Promise.all([
+  const widenedWindow = period
+    ? {
+        gte: new Date(period.from.getTime() - DAY_MS),
+        lte: new Date(period.to.getTime() + DAY_MS),
+      }
+    : undefined;
+
+  const [input, widenedSessions, timeEntries, leaveRequests] = await Promise.all([
     scoreInputsFor(companyId, subject),
     db.attendanceRecord.findMany({
       where: {
         companyId,
         ...subjectWhereFor(subject),
-        clockInAt: startedInPeriod,
+        clockInAt: widenedWindow,
       },
       select: {
         clockInAt: true,
@@ -211,9 +236,44 @@ export async function loadPerformanceBreakdown(
           select: { startedAt: true, endedAt: true },
         })
       : Promise.resolve([]),
+    // Day classification (Leave/half-day/WFH) is derived from approved
+    // requests — `Request.employeeId` is required and there is no
+    // `Request.accountId` (a CompanyAccount decides requests, never submits
+    // one), so this is a natural empty list for an account subject.
+    subject.kind === "employee"
+      ? db.request.findMany({
+          where: {
+            companyId,
+            employeeId: subject.id,
+            status: "Approved",
+            type: { in: ["Leave", "WFH"] },
+            ...(widenedWindow
+              ? { startDate: { lte: widenedWindow.lte }, endDate: { gte: widenedWindow.gte } }
+              : {}),
+          },
+          select: { type: true, startDate: true, endDate: true, dayPart: true },
+        })
+      : Promise.resolve([]),
   ]);
 
+  const sessions = period
+    ? widenedSessions.filter(
+        (session) =>
+          session.clockInAt.getTime() >= period.from.getTime() &&
+          session.clockInAt.getTime() <= period.to.getTime()
+      )
+    : widenedSessions;
+
   const scoped = scopeInputsToPeriod(input, period);
+
+  const leaveWindows = leaveRequests
+    .filter((request) => request.startDate !== null && request.endDate !== null)
+    .map((request) => ({
+      type: request.type as "Leave" | "WFH",
+      startDayKey: dayKeyInZone(request.startDate!, timeZone),
+      endDayKey: dayKeyInZone(request.endDate!, timeZone),
+      dayPart: request.dayPart,
+    }));
 
   return buildPerformanceBreakdown(
     {
@@ -224,6 +284,14 @@ export async function loadPerformanceBreakdown(
       workloadPercent: scoped.workloadPercent,
       feedbackRatings: scoped.feedbackRatings,
       goals: scoped.goals,
+      dayAttendance: {
+        sessions: widenedSessions,
+        breaks: widenedSessions.flatMap((session) => session.breaks),
+        leaveWindows,
+        fromDayKey: period ? dayKeyInZone(period.from, timeZone) : null,
+        toDayKey: period ? dayKeyInZone(period.to, timeZone) : null,
+        timeZone,
+      },
     },
     now
   );

@@ -17,13 +17,15 @@ import {
 import { performancePeriodSchema } from "@/lib/validations/performance";
 import { formatDate } from "@/lib/format";
 import { canViewPerformance, isCompanyAdmin } from "@/lib/permissions";
+import { resolveRequestTimeZone } from "@/lib/timezone-request";
 import { PerformanceScoreBadge } from "@/components/performance/score-badge";
 import { BreakdownTiles } from "@/components/performance/breakdown-tiles";
+import { DayBreakdownPanel } from "@/components/performance/day-breakdown-panel";
 import { GoalList } from "@/components/performance/goal-views";
 import { FeedbackList } from "@/components/performance/feedback-views";
 import { PrintButton } from "@/components/performance/print-button";
 
-export const metadata: Metadata = { title: "Performance report — WorkPulse" };
+export const metadata: Metadata = { title: "Performance report" };
 
 /**
  * A single-column, print-oriented version of `/performance/[memberKind]/
@@ -54,6 +56,7 @@ export default async function PerformanceReportPage({
   );
   const now = new Date();
   const period = resolvePeriod(preset, from, to, now);
+  const timeZone = await resolveRequestTimeZone();
 
   if (memberKind === "account") {
     const account = await db.companyAccount.findFirst({
@@ -66,7 +69,7 @@ export default async function PerformanceReportPage({
     const subject = { kind: "account" as const, id: account.id };
     const [periodScore, breakdown, goals, feedback] = await Promise.all([
       loadPeriodScore(actor.companyId, subject, period),
-      loadPerformanceBreakdown(actor.companyId, subject, period, now),
+      loadPerformanceBreakdown(actor.companyId, subject, period, now, timeZone),
       loadGoals(actor.companyId, subject),
       loadFeedback(actor.companyId, subject),
     ]);
@@ -104,7 +107,7 @@ export default async function PerformanceReportPage({
   const subject = { kind: "employee" as const, id: employee.id };
   const [periodScore, breakdown, goals, feedback] = await Promise.all([
     loadPeriodScore(actor.companyId, subject, period),
-    loadPerformanceBreakdown(actor.companyId, subject, period, now),
+    loadPerformanceBreakdown(actor.companyId, subject, period, now, timeZone),
     loadGoals(actor.companyId, subject),
     loadFeedback(actor.companyId, subject),
   ]);
@@ -182,6 +185,7 @@ function ReportBody({
           Breakdown by parameter
         </h2>
         <BreakdownTiles breakdown={breakdown} />
+        <DayBreakdownPanel days={breakdown.days} defaultOpen />
       </section>
 
       <section className="flex flex-col gap-3">

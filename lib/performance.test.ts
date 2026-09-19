@@ -9,6 +9,7 @@ import {
   performanceBandLabel,
   resolvePeriod,
   scopeInputsToPeriod,
+  scoreDelta,
   taskCompletionRate,
   workloadContribution,
   type Period,
@@ -368,5 +369,21 @@ describe("performanceBand", () => {
     expect(performanceBandLabel("success")).toBe("Strong");
     expect(performanceBandLabel("warning")).toBe("Steady");
     expect(performanceBandLabel("danger")).toBe("Needs support");
+  });
+});
+
+describe("scoreDelta", () => {
+  it("is null with fewer than two points", () => {
+    expect(scoreDelta([])).toBeNull();
+    expect(scoreDelta([{ score: 80 }])).toBeNull();
+  });
+
+  it("is the latest score minus the one before it", () => {
+    expect(scoreDelta([{ score: 70 }, { score: 82.5 }])).toBe(12.5);
+    expect(scoreDelta([{ score: 60 }, { score: 90 }, { score: 85 }])).toBe(-5);
+  });
+
+  it("is 0 when the score hasn't moved", () => {
+    expect(scoreDelta([{ score: 75 }, { score: 75 }])).toBe(0);
   });
 });

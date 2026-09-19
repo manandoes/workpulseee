@@ -12,7 +12,7 @@ import { Pagination } from "@/components/dashboard/pagination";
 import { PerformanceScoreBadge } from "@/components/performance/score-badge";
 import { Card, CardContent } from "@/components/ui/card";
 
-export const metadata: Metadata = { title: "Performance — WorkPulse" };
+export const metadata: Metadata = { title: "Performance" };
 
 /**
  * The performance list (Phases.md Phase 8).

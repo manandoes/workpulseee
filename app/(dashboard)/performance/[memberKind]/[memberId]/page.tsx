@@ -21,13 +21,16 @@ import { Button } from "@/components/ui/button";
 import { PeriodFilter } from "@/components/performance/period-filter";
 import { PeriodScore } from "@/components/performance/period-score";
 import { ScoreHistoryChart } from "@/components/performance/score-history-chart";
+import { ScoreTrend } from "@/components/performance/score-trend";
 import { BreakdownTiles } from "@/components/performance/breakdown-tiles";
+import { DayBreakdownPanel } from "@/components/performance/day-breakdown-panel";
+import { resolveRequestTimeZone } from "@/lib/timezone-request";
 import { GoalList } from "@/components/performance/goal-views";
 import { GoalForm } from "@/components/performance/goal-form";
 import { FeedbackList } from "@/components/performance/feedback-views";
 import { FeedbackForm } from "@/components/performance/feedback-form";
 
-export const metadata: Metadata = { title: "Performance — WorkPulse" };
+export const metadata: Metadata = { title: "Performance" };
 
 /**
  * One subject's performance page (Phases.md Phase 8): score history, goals,
@@ -59,6 +62,7 @@ export default async function PerformanceMemberPage({
   );
   const now = new Date();
   const period = resolvePeriod(preset, from, to, now);
+  const timeZone = await resolveRequestTimeZone();
 
   const reportQuery = new URLSearchParams({ period: preset });
   if (from) reportQuery.set("from", from);
@@ -79,7 +83,7 @@ export default async function PerformanceMemberPage({
     const [periodScore, history, breakdown, goals, feedback] = await Promise.all([
       loadPeriodScore(actor.companyId, subject, period),
       loadPerformanceHistory(actor.companyId, subject, period),
-      loadPerformanceBreakdown(actor.companyId, subject, period, now),
+      loadPerformanceBreakdown(actor.companyId, subject, period, now, timeZone),
       loadGoals(actor.companyId, subject),
       loadFeedback(actor.companyId, subject),
     ]);
@@ -123,6 +127,7 @@ export default async function PerformanceMemberPage({
               to={to ?? ""}
             />
             <PeriodScore score={periodScore} period={period} />
+            <ScoreTrend history={chartHistory} />
             <ScoreHistoryChart history={chartHistory} />
           </CardContent>
         </Card>
@@ -133,6 +138,7 @@ export default async function PerformanceMemberPage({
               Breakdown
             </h2>
             <BreakdownTiles breakdown={breakdown} />
+            <DayBreakdownPanel days={breakdown.days} />
           </CardContent>
         </Card>
 
@@ -177,7 +183,7 @@ export default async function PerformanceMemberPage({
   const [periodScore, history, breakdown, goals, feedback] = await Promise.all([
     loadPeriodScore(actor.companyId, subject, period),
     loadPerformanceHistory(actor.companyId, subject, period),
-    loadPerformanceBreakdown(actor.companyId, subject, period, now),
+    loadPerformanceBreakdown(actor.companyId, subject, period, now, timeZone),
     loadGoals(actor.companyId, subject),
     loadFeedback(actor.companyId, subject),
   ]);
@@ -221,6 +227,7 @@ export default async function PerformanceMemberPage({
             to={to ?? ""}
           />
           <PeriodScore score={periodScore} period={period} />
+          <ScoreTrend history={chartHistory} />
           <ScoreHistoryChart history={chartHistory} />
         </CardContent>
       </Card>
@@ -231,6 +238,7 @@ export default async function PerformanceMemberPage({
             Breakdown
           </h2>
           <BreakdownTiles breakdown={breakdown} />
+          <DayBreakdownPanel days={breakdown.days} />
         </CardContent>
       </Card>
 
