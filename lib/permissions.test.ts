@@ -23,6 +23,10 @@ import {
   isCompanyAdmin,
   landingPathFor,
   navigationFor,
+  canSendBulkEmail,
+  canManagePayroll,
+  canManageRecruitment,
+  canViewSalarySlip,
   type AppRole,
   type SessionActor,
 } from "@/lib/permissions";
@@ -42,6 +46,64 @@ const employeeActor: SessionActor = {
   accountType: "employee",
   grants: [],
 };
+
+describe("canSendBulkEmail", () => {
+  it.each<AppRole>(["Owner", "Admin", "HR"])("allows %s", (role) => {
+    expect(canSendBulkEmail(companyActor(role))).toBe(true);
+  });
+
+  /**
+   * Narrower than `canManageAnnouncements`, which every company account holds:
+   * a mass email leaves the app, so a Manager scoped to one delivery team is
+   * not the right audience for it.
+   */
+  it("does not allow a Manager", () => {
+    expect(canSendBulkEmail(companyActor("Manager"))).toBe(false);
+  });
+
+  it("does not allow an employee", () => {
+    expect(canSendBulkEmail(employeeActor)).toBe(false);
+  });
+});
+
+describe("canManagePayroll", () => {
+  it.each<AppRole>(["Owner", "Admin", "HR"])("allows %s", (role) => {
+    expect(canManagePayroll(companyActor(role))).toBe(true);
+  });
+
+  it("does not allow a Manager or an employee", () => {
+    expect(canManagePayroll(companyActor("Manager"))).toBe(false);
+    expect(canManagePayroll(employeeActor)).toBe(false);
+  });
+});
+
+describe("canViewSalarySlip", () => {
+  const ownSlip = { employeeId: "emp_1", published: true };
+  const othersSlip = { employeeId: "emp_2", published: true };
+  const ownDraft = { employeeId: "emp_1", published: false };
+
+  it("lets an employee read their own published slip", () => {
+    expect(canViewSalarySlip(employeeActor, ownSlip)).toBe(true);
+  });
+
+  it("never lets an employee read someone else's", () => {
+    expect(canViewSalarySlip(employeeActor, othersSlip)).toBe(false);
+  });
+
+  /** A draft is HR's working copy — the employee should not see a number yet. */
+  it("hides an unpublished slip from its own employee", () => {
+    expect(canViewSalarySlip(employeeActor, ownDraft)).toBe(false);
+  });
+
+  it("lets payroll roles read any slip, published or not", () => {
+    expect(canViewSalarySlip(companyActor("HR"), ownDraft)).toBe(true);
+    expect(canViewSalarySlip(companyActor("Owner"), othersSlip)).toBe(true);
+  });
+
+  it("does not let a Manager read one", () => {
+    expect(canViewSalarySlip(companyActor("Manager"), ownSlip)).toBe(false);
+  });
+});
 
 describe("canManageEmployees", () => {
   it.each<AppRole>(["Owner", "Admin", "HR"])("allows %s", (role) => {
@@ -187,6 +249,9 @@ describe("navigationFor", () => {
       "/employees",
       "/performance",
       "/requests",
+      "/hiring",
+      "/payroll",
+      "/communications",
       "/announcements",
       "/settings",
     ]);
@@ -201,6 +266,9 @@ describe("navigationFor", () => {
       "/employees",
       "/performance",
       "/requests",
+      "/hiring",
+      "/payroll",
+      "/communications",
       "/announcements",
       "/settings",
     ]);
@@ -784,8 +852,53 @@ describe("grant-aware permissions", () => {
     expect(canApproveRequests(employeeActor)).toBe(false);
   });
 
+  it("ManageRecruitment grant opens hiring to an employee, and puts it in their nav", () => {
+    const granted: SessionActor = {
+      ...employeeActor,
+      grants: ["ManageRecruitment"],
+    };
+
+    expect(canManageRecruitment(granted)).toBe(true);
+    expect(canManageRecruitment(employeeActor)).toBe(false);
+
+    // The one grant that opens a whole section, so unlike the others it has to
+    // reach the sidebar or the page is unreachable without typing the URL.
+    expect(
+      navigationFor(granted).some((item) => item.href === "/hiring")
+    ).toBe(true);
+    expect(
+      navigationFor(employeeActor).some((item) => item.href === "/hiring")
+    ).toBe(false);
+  });
+
   it("a CompanyAccount is never affected by grants (accountType gate)", () => {
     const owner = companyActor("Owner");
     expect(owner.grants).toEqual([]);
+  });
+});
+
+describe("canManageRecruitment", () => {
+  it("is held by Owner and Admin, and by nobody else by default", () => {
+    expect(canManageRecruitment(companyActor("Owner"))).toBe(true);
+    expect(canManageRecruitment(companyActor("Admin"))).toBe(true);
+    // HR runs payroll but not hiring unless the Owner grants it — applications
+    // carry a stranger's CV and contact details.
+    expect(canManageRecruitment(companyActor("HR"))).toBe(false);
+    expect(canManageRecruitment(companyActor("Manager"))).toBe(false);
+  });
+
+  it("puts Hiring in the HRMS slice only, and only for who holds it", () => {
+    const owner = companyActor("Owner");
+    expect(
+      navigationFor(owner, "hrms").some((item) => item.href === "/hiring")
+    ).toBe(true);
+    expect(
+      navigationFor(owner, "pms").some((item) => item.href === "/hiring")
+    ).toBe(false);
+    expect(
+      navigationFor(companyActor("Manager"), "hrms").some(
+        (item) => item.href === "/hiring"
+      )
+    ).toBe(false);
   });
 });
