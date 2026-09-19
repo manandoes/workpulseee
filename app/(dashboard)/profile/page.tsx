@@ -7,7 +7,7 @@ import { PageHeader } from "@/components/dashboard/page-header";
 import { AvatarUpload } from "@/components/dashboard/avatar-upload";
 import { Card, CardContent } from "@/components/ui/card";
 
-export const metadata: Metadata = { title: "My Profile — WorkPulse" };
+export const metadata: Metadata = { title: "My Profile" };
 
 /**
  * Self-service profile: the signed-in user's own personal details and their

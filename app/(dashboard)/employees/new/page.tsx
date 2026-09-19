@@ -7,7 +7,7 @@ import { PageHeader } from "@/components/dashboard/page-header";
 import { EmployeeForm } from "@/components/employees/employee-form";
 import { Card, CardContent } from "@/components/ui/card";
 
-export const metadata: Metadata = { title: "Add employee — WorkPulse" };
+export const metadata: Metadata = { title: "Add employee" };
 
 /**
  * Add an employee (Architecture.md section 8 — employees never self-register;

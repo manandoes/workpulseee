@@ -6,7 +6,7 @@ import { AuthPathTabs } from "@/components/marketing/auth-path-tabs";
 import { CompanyLoginForm } from "@/components/auth/company-login-form";
 
 export const metadata: Metadata = {
-  title: "Company Login — WorkPulse",
+  title: "Company Login",
   description:
     "Sign in to your WorkPulse company workspace as an owner, admin, manager, or HR user.",
 };

@@ -1,5 +1,13 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 import { BrandMark } from "@/components/marketing/brand-mark";
+
+// Metadata merges down from the nearest ancestor layout — one export here
+// keeps every auth page (login, register, invite) out of search results,
+// rather than repeating `robots` on each.
+export const metadata: Metadata = {
+  robots: { index: false, follow: false },
+};
 
 /**
  * Auth shell — centred card on the cream background (Design.md section 8).

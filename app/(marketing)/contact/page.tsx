@@ -1,9 +1,13 @@
 import type { Metadata } from "next";
 import { PagePlaceholder } from "@/components/marketing/page-placeholder";
 
+// Placeholder content ("no contact details have been published yet") —
+// noindexed until real copy lands, and excluded from `app/sitemap.ts` to
+// match. Remove both exclusions together once this is written.
 export const metadata: Metadata = {
-  title: "Contact — WorkPulse",
+  title: "Contact",
   description: "Get in touch with the WorkPulse team.",
+  robots: { index: false, follow: true },
 };
 
 export default function ContactPage() {

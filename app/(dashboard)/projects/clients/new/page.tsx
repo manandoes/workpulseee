@@ -6,7 +6,7 @@ import { PageHeader } from "@/components/dashboard/page-header";
 import { ClientForm } from "@/components/projects/client-form";
 import { Card, CardContent } from "@/components/ui/card";
 
-export const metadata: Metadata = { title: "Add client — WorkPulse" };
+export const metadata: Metadata = { title: "Add client" };
 
 export default async function NewClientPage() {
   const actor = await getActor();

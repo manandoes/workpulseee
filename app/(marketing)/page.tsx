@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Hero } from "@/components/marketing/hero";
+import { StatsBand } from "@/components/marketing/stats-band";
 import { FeaturesSection } from "@/components/marketing/features-section";
 import { HowItWorksSection } from "@/components/marketing/how-it-works-section";
 import { PricingSection } from "@/components/marketing/pricing-section";
@@ -11,12 +12,14 @@ export const metadata: Metadata = {
   title: "WorkPulse — Run your whole agency from one dashboard",
   description:
     "An all-in-one operating dashboard for agencies that connects employees, projects, tasks, performance, expenses, and internal operations in one place.",
+  alternates: { canonical: "/" },
 };
 
 export default function LandingPage() {
   return (
     <>
       <Hero />
+      <StatsBand />
       <FeaturesSection />
       <HowItWorksSection />
       <PricingSection />

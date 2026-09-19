@@ -9,7 +9,7 @@ import { ProjectForm } from "@/components/projects/project-form";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 
-export const metadata: Metadata = { title: "New project — WorkPulse" };
+export const metadata: Metadata = { title: "New project" };
 
 /**
  * Start a project (Phases.md Phase 4 — "a manager can create a client, create a

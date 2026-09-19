@@ -15,7 +15,7 @@ import { PageHeader } from "@/components/dashboard/page-header";
 import { TaskForm } from "@/components/tasks/task-form";
 import { Card, CardContent } from "@/components/ui/card";
 
-export const metadata: Metadata = { title: "Edit task — WorkPulse" };
+export const metadata: Metadata = { title: "Edit task" };
 
 export default async function EditTaskPage({
   params,

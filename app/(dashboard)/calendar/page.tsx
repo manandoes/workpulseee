@@ -7,7 +7,7 @@ import { googleCalendarConfigured } from "@/lib/google-calendar-crypto";
 import { PageHeader } from "@/components/dashboard/page-header";
 import { CalendarShell } from "@/components/calendar/calendar-shell";
 
-export const metadata: Metadata = { title: "Calendar — WorkPulse" };
+export const metadata: Metadata = { title: "Calendar" };
 
 /**
  * Calendar (Plan.md Phase 17). Reachable by both account types, the same as

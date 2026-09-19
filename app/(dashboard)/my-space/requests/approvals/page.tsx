@@ -9,7 +9,7 @@ import { EmptyState, PageHeader } from "@/components/dashboard/page-header";
 import { Pagination } from "@/components/dashboard/pagination";
 import { RequestList } from "@/components/requests/request-views";
 
-export const metadata: Metadata = { title: "Approvals — WorkPulse" };
+export const metadata: Metadata = { title: "Approvals" };
 
 /**
  * Phase 11 / Phase 5 of the plan: the `DecideRequests` grant's

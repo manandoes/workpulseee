@@ -6,7 +6,7 @@ import { db } from "@/lib/db";
 import { hashInviteToken, isInviteExpired } from "@/lib/invites";
 
 export const metadata: Metadata = {
-  title: "Accept your invite — WorkPulse",
+  title: "Accept your invite",
   description: "Set your password and join your company's workspace.",
 };
 

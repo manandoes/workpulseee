@@ -19,7 +19,7 @@ import { AttendanceWidget } from "@/components/attendance/attendance-widget";
 import { AttendanceTable } from "@/components/attendance/attendance-table";
 import { Card, CardContent } from "@/components/ui/card";
 
-export const metadata: Metadata = { title: "My Work — WorkPulse" };
+export const metadata: Metadata = { title: "My Work" };
 
 /**
  * "My Work" (Phases.md Phase 10, PRD.md section 6.9): today's tasks, upcoming

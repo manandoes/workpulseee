@@ -6,7 +6,7 @@ import { PageHeader } from "@/components/dashboard/page-header";
 import { AnnouncementForm } from "@/components/announcements/announcement-form";
 import { Card, CardContent } from "@/components/ui/card";
 
-export const metadata: Metadata = { title: "New announcement — WorkPulse" };
+export const metadata: Metadata = { title: "New announcement" };
 
 export default async function NewAnnouncementPage() {
   const actor = await getActor();
