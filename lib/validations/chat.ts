@@ -6,13 +6,26 @@ import { CHAT_MESSAGE_MAX_LENGTH, CHAT_MESSAGE_MIN_LENGTH } from "@/lib/chat";
  * before anything touches the database). Mirrors `lib/validations/requests.ts`.
  */
 
-export const sendMessageSchema = z.object({
-  body: z
-    .string()
-    .trim()
-    .min(CHAT_MESSAGE_MIN_LENGTH, "Write a message")
-    .max(CHAT_MESSAGE_MAX_LENGTH, "Message is too long"),
-});
+/**
+ * A message needs text, a file, or both — `body` is only optional in the
+ * presence of an attachment, so a bare file share is valid but an empty
+ * message still is not (Plan: media/file sharing in chat).
+ */
+export const sendMessageSchema = z
+  .object({
+    body: z
+      .string()
+      .trim()
+      .max(CHAT_MESSAGE_MAX_LENGTH, "Message is too long")
+      .default(""),
+    attachmentFileId: z.string().trim().min(1).optional(),
+  })
+  .refine(
+    (value) =>
+      value.body.length >= CHAT_MESSAGE_MIN_LENGTH ||
+      Boolean(value.attachmentFileId),
+    { message: "Write a message or attach a file", path: ["body"] }
+  );
 
 /**
  * Starting a conversation targets either an Employee or a CompanyAccount —
