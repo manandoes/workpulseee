@@ -4,6 +4,7 @@ import { cookies } from "next/headers";
 import { getActor } from "@/lib/auth";
 import { db } from "@/lib/db";
 import {
+  canManageBilling,
   canManageBranding,
   canManageCompanySettings,
   canManageEmailSettings,
@@ -12,6 +13,11 @@ import {
   THEME_COOKIE,
   type ThemeMode,
 } from "@/lib/permissions";
+import {
+  countBillableEmployees,
+  employeeCapFor,
+  loadSubscription,
+} from "@/lib/billing";
 import { PageHeader } from "@/components/dashboard/page-header";
 import { Card, CardContent } from "@/components/ui/card";
 import { WorkloadSettingsForm } from "@/components/dashboard/workload-settings-form";
@@ -19,9 +25,15 @@ import { AlertSettingsForm } from "@/components/dashboard/alert-settings-form";
 import { PermissionGrantsTable } from "@/components/dashboard/permission-grants-table";
 import { ThemeToggle } from "@/components/dashboard/theme-toggle";
 import { BrandingForm } from "@/components/dashboard/branding-form";
+import { BillingSettingsCard } from "@/components/dashboard/billing-settings-card";
 import { EmailSettingsForm } from "@/components/dashboard/email-settings-form";
+import { EmailTemplateForm } from "@/components/dashboard/email-template-form";
+import { SalarySlipList } from "@/components/payroll/salary-slip-list";
+import { loadEmailTemplates } from "@/lib/email-template-data";
+import { loadFileSummaries } from "@/lib/files-data";
+import { loadMySalarySlips } from "@/lib/payroll-data";
 
-export const metadata: Metadata = { title: "Settings — WorkPulse" };
+export const metadata: Metadata = { title: "Settings" };
 
 /**
  * Company settings: the weekly capacity hours workload is measured against
@@ -46,6 +58,7 @@ export default async function SettingsPage() {
       stalledProjectDays: true,
       agingApprovalDays: true,
       brandColor: true,
+      currency: true,
       emailProvider: true,
       emailFromAddress: true,
       emailApiKeyEncrypted: true,
@@ -55,6 +68,35 @@ export default async function SettingsPage() {
   const cookieStore = await cookies();
   const theme: ThemeMode =
     cookieStore.get(THEME_COOKIE)?.value === "dark" ? "dark" : "light";
+
+  // Only the Owner sees the template card, and only an employee has slips of
+  // their own — neither read is worth making for an actor who cannot see the
+  // card it feeds.
+  const emailTemplates = canManageEmailSettings(actor)
+    ? await loadEmailTemplates(actor.companyId)
+    : [];
+
+  const templateAttachments: Record<string, Awaited<ReturnType<typeof loadFileSummaries>>> =
+    {};
+  for (const template of emailTemplates) {
+    templateAttachments[template.kind] = await loadFileSummaries(
+      actor.companyId,
+      template.attachmentIds
+    );
+  }
+
+  const mySlips =
+    actor.accountType === "employee" ? await loadMySalarySlips(actor) : [];
+
+  // Reaching this page at all already proved the subscription is active
+  // (`app/(dashboard)/layout.tsx`'s gate), so this is only ever read here to
+  // show the Owner their own plan/usage, never to gate anything.
+  const [subscription, employeesUsed] = canManageBilling(actor)
+    ? await Promise.all([
+        loadSubscription(actor.companyId),
+        countBillableEmployees(actor.companyId),
+      ])
+    : [null, 0];
 
   return (
     <>
@@ -77,6 +119,30 @@ export default async function SettingsPage() {
           <ThemeToggle theme={theme} />
         </CardContent>
       </Card>
+
+      {canManageBilling(actor) && subscription ? (
+        <Card>
+          <CardContent className="flex flex-col gap-4 py-2">
+            <div className="flex flex-col gap-1">
+              <h2 className="text-h3 text-brand-brown font-semibold">
+                Billing
+              </h2>
+              <p className="text-text-secondary text-meta">
+                Your plan, renewal date and employee seats.
+              </p>
+            </div>
+            <BillingSettingsCard
+              plan={subscription.plan}
+              currentPeriodEnd={
+                (subscription.currentPeriodEnd ?? new Date()).toISOString()
+              }
+              extraSeats={subscription.extraSeats}
+              employeeCap={employeeCapFor(subscription)}
+              employeesUsed={employeesUsed}
+            />
+          </CardContent>
+        </Card>
+      ) : null}
 
       {canManageBranding(actor) ? (
         <Card>
@@ -116,6 +182,43 @@ export default async function SettingsPage() {
               }
               emailFromAddress={company.emailFromAddress}
               emailApiKeySet={company.emailApiKeyEncrypted !== null}
+            />
+          </CardContent>
+        </Card>
+      ) : null}
+
+      {actor.accountType === "employee" ? (
+        <Card>
+          <CardContent className="flex flex-col gap-4 py-2">
+            <div className="flex flex-col gap-1">
+              <h2 className="text-h3 text-brand-brown font-semibold">
+                Salary slips
+              </h2>
+              <p className="text-text-secondary text-meta">
+                Download your slip for any month your company has published.
+              </p>
+            </div>
+            <SalarySlipList slips={mySlips} currency={company.currency} />
+          </CardContent>
+        </Card>
+      ) : null}
+
+      {canManageEmailSettings(actor) ? (
+        <Card>
+          <CardContent className="flex flex-col gap-4 py-2">
+            <div className="flex flex-col gap-1">
+              <h2 className="text-h3 text-brand-brown font-semibold">
+                Invite email template
+              </h2>
+              <p className="text-text-secondary text-meta">
+                Customise the wording of the invites new joiners receive, and
+                attach anything they should have on day one. Leave it alone to
+                keep WorkPulse&apos;s standard email.
+              </p>
+            </div>
+            <EmailTemplateForm
+              templates={emailTemplates}
+              attachments={templateAttachments}
             />
           </CardContent>
         </Card>
