@@ -57,8 +57,8 @@ export function ThemeToggle({ theme }: { theme: ThemeMode }) {
           className={cn(
             "flex-1 rounded-[calc(var(--radius-lg)-2px)] px-3 py-1 text-meta font-medium transition-colors disabled:opacity-50",
             option.theme === theme
-              ? "bg-brand-yellow text-foreground"
-              : "text-brand-brown-soft hover:bg-brand-yellow-light hover:text-foreground"
+              ? "bg-brand-yellow text-primary-foreground"
+              : "text-brand-brown-soft hover:bg-brand-yellow-light hover:text-brand-brown"
           )}
         >
           {option.label}

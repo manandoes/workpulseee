@@ -16,10 +16,12 @@ export function SignOutButton({
   return (
     <Button
       variant="ghost"
-      className="text-brand-brown-soft hover:bg-brand-yellow-light hover:text-foreground w-full justify-start gap-3 px-3"
+      className="text-brand-brown-soft hover:bg-brand-yellow-light hover:text-brand-brown h-auto w-full justify-start gap-2 px-1.5 py-1"
       onClick={() => signOut({ redirectTo: "/login" })}
     >
-      <LogOut aria-hidden className="size-5 shrink-0" strokeWidth={1.5} />
+      <span className="flex size-9 shrink-0 items-center justify-center">
+        <LogOut aria-hidden className="size-5" strokeWidth={1.5} />
+      </span>
       <span className={cn(labelClassName)}>Sign out</span>
     </Button>
   );

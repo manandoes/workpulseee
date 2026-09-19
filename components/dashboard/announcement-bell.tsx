@@ -64,7 +64,7 @@ export function AnnouncementBell({
         type="button"
         aria-label="Announcements"
         onClick={() => setOpen((value) => !value)}
-        className="text-brand-brown-soft hover:bg-brand-yellow-light hover:text-foreground relative flex size-9 items-center justify-center rounded-lg transition-colors"
+        className="text-brand-brown-soft hover:bg-brand-yellow-light hover:text-brand-brown relative flex size-9 items-center justify-center rounded-lg transition-colors"
       >
         <Megaphone aria-hidden className="size-5" strokeWidth={1.5} />
       </button>

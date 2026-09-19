@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { cookies } from "next/headers";
+import { after } from "next/server";
 import { ListPlus } from "lucide-react";
 import { getActor } from "@/lib/auth";
 import { db } from "@/lib/db";
@@ -27,7 +28,7 @@ import { AttendanceWidget } from "@/components/attendance/attendance-widget";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 
-export const metadata: Metadata = { title: "Dashboard — WorkPulse" };
+export const metadata: Metadata = { title: "Dashboard" };
 
 /**
  * Role-aware company dashboard (Phases.md Phase 9 — "Admin/Owner sees one
@@ -83,20 +84,25 @@ export default async function DashboardPage() {
   const mode: DashboardMode =
     cookieStore.get(DASHBOARD_MODE_COOKIE)?.value === "pms" ? "pms" : "hrms";
 
-  const [company] = await Promise.all([
-    db.company.findUniqueOrThrow({
-      where: { id: actor.companyId },
-      select: { currency: true },
-    }),
-    recalcCompanyAlerts(actor.companyId),
-  ]);
+  const [company, metrics, alerts, openSession, openBreak] =
+    await Promise.all([
+      db.company.findUniqueOrThrow({
+        where: { id: actor.companyId },
+        select: { currency: true },
+      }),
+      loadDashboardMetrics(actor),
+      loadAlertsFor(actor),
+      loadOpenSession(actor),
+      loadOpenBreak(actor),
+    ]);
 
-  const [metrics, alerts, openSession, openBreak] = await Promise.all([
-    loadDashboardMetrics(actor),
-    loadAlertsFor(actor),
-    loadOpenSession(actor),
-    loadOpenBreak(actor),
-  ]);
+  // Alerts shown above are whatever the last recalc (a previous visit, or
+  // the `generateAlerts` cron backstop) left in place — recomputing them is
+  // a full company-wide scan-and-rewrite (see `recalcCompanyAlerts`), too
+  // expensive to put on this page's critical path. `after` runs it once the
+  // response has been sent, so this visit renders instantly and the next
+  // one sees fresh alerts.
+  after(() => recalcCompanyAlerts(actor.companyId));
 
   const visibleAlerts = alertsForMode(alerts, mode);
 

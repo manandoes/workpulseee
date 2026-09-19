@@ -91,7 +91,7 @@ export function NotificationBell({ className }: { className?: string }) {
             : "Notifications"
         }
         onClick={() => setOpen((value) => !value)}
-        className="text-brand-brown-soft hover:bg-brand-yellow-light hover:text-foreground relative flex size-9 items-center justify-center rounded-lg transition-colors"
+        className="text-brand-brown-soft hover:bg-brand-yellow-light hover:text-brand-brown relative flex size-9 items-center justify-center rounded-lg transition-colors"
       >
         <Bell aria-hidden className="size-5" strokeWidth={1.5} />
         {unreadCount > 0 ? (
