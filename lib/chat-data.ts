@@ -1,7 +1,7 @@
 import { db } from "@/lib/db";
 import { scopedWhere } from "@/lib/tenant";
 import type { SessionActor } from "@/lib/permissions";
-import { chatMessageCutoff, otherParticipant } from "@/lib/chat";
+import { chatMessageCutoff, conversationPreview, otherParticipant } from "@/lib/chat";
 
 /**
  * Database access for chat (Phase 11).
@@ -144,7 +144,9 @@ export type LoadedConversation = {
     name: string;
     avatarUrl: string | null;
   };
-  lastMessage: { body: string; createdAt: Date } | null;
+  /** `preview` is `body`, or the attachment's name for a bare file share —
+   * see `conversationPreview` (`body` alone would render blank for one). */
+  lastMessage: { body: string; preview: string; createdAt: Date } | null;
   unread: boolean;
 };
 
@@ -164,7 +166,11 @@ export async function loadConversations(
       messages: {
         orderBy: { createdAt: "desc" },
         take: 1,
-        select: { body: true, createdAt: true },
+        select: {
+          body: true,
+          createdAt: true,
+          attachmentFile: { select: { name: true } },
+        },
       },
     },
   });
@@ -183,7 +189,17 @@ export async function loadConversations(
 
   return rows.map((row) => {
     const other = otherParticipant(row.participants, actor);
-    const lastMessage = row.messages[0] ?? null;
+    const rawLastMessage = row.messages[0] ?? null;
+    const lastMessage = rawLastMessage
+      ? {
+          body: rawLastMessage.body,
+          preview: conversationPreview(
+            rawLastMessage.body,
+            rawLastMessage.attachmentFile?.name ?? null
+          ),
+          createdAt: rawLastMessage.createdAt,
+        }
+      : null;
     const lastReadAt = lastReadByConversation.get(row.id) ?? null;
 
     return {
@@ -204,7 +220,17 @@ export type LoadedChatMessage = {
   body: string;
   createdAt: Date;
   fromMe: boolean;
+  attachment: {
+    id: string;
+    name: string;
+    mimeType: string;
+    sizeBytes: number;
+  } | null;
 };
+
+const messageAttachmentSelect = {
+  select: { id: true, name: true, mimeType: true, sizeBytes: true },
+} as const;
 
 export type MessagesResolution =
   | {
@@ -239,9 +265,7 @@ export async function loadMessages(
     return { ok: false, message: "Conversation not found.", status: 404 };
   }
 
-  await db.chatMessage.deleteMany({
-    where: { conversationId, createdAt: { lt: chatMessageCutoff(now) } },
-  });
+  await deleteExpiredMessages({ conversationId, createdAt: { lt: chatMessageCutoff(now) } });
 
   const rows = await db.chatMessage.findMany({
     where: { conversationId },
@@ -252,6 +276,7 @@ export async function loadMessages(
       createdAt: true,
       senderEmployeeId: true,
       senderAccountId: true,
+      attachmentFile: messageAttachmentSelect,
     },
   });
 
@@ -273,6 +298,7 @@ export async function loadMessages(
       id: row.id,
       body: row.body,
       createdAt: row.createdAt,
+      attachment: row.attachmentFile,
       fromMe:
         actor.accountType === "employee"
           ? row.senderEmployeeId === actor.id
@@ -285,11 +311,16 @@ export type SendMessageResolution =
   | { ok: true; message: LoadedChatMessage }
   | { ok: false; message: string; status: number };
 
-/** Send a message. Refused if the actor is not a participant. */
+/**
+ * Send a message. Refused if the actor is not a participant, or if
+ * `attachmentFileId` does not name a file in their own company — an id from
+ * another tenant must never become a message anyone can click through to.
+ */
 export async function sendMessage(
   actor: SessionActor,
   conversationId: string,
-  body: string
+  body: string,
+  attachmentFileId?: string
 ): Promise<SendMessageResolution> {
   const conversation = await db.conversation.findFirst({
     where: {
@@ -304,6 +335,16 @@ export async function sendMessage(
     return { ok: false, message: "Conversation not found.", status: 404 };
   }
 
+  if (attachmentFileId) {
+    const file = await db.storedFile.findFirst({
+      where: { id: attachmentFileId, companyId: actor.companyId },
+      select: { id: true },
+    });
+    if (!file) {
+      return { ok: false, message: "That attachment is no longer available.", status: 400 };
+    }
+  }
+
   const now = new Date();
 
   const [created] = await db.$transaction([
@@ -312,9 +353,15 @@ export async function sendMessage(
         companyId: actor.companyId,
         conversationId,
         body,
+        attachmentFileId: attachmentFileId ?? null,
         ...senderColumn(actor),
       },
-      select: { id: true, body: true, createdAt: true },
+      select: {
+        id: true,
+        body: true,
+        createdAt: true,
+        attachmentFile: messageAttachmentSelect,
+      },
     }),
     db.conversation.update({
       where: { id: conversationId },
@@ -330,7 +377,16 @@ export async function sendMessage(
     }),
   ]);
 
-  return { ok: true, message: { ...created, fromMe: true } };
+  return {
+    ok: true,
+    message: {
+      id: created.id,
+      body: created.body,
+      createdAt: created.createdAt,
+      attachment: created.attachmentFile,
+      fromMe: true,
+    },
+  };
 }
 
 /** How many of the actor's conversations have an unread message — for the nav badge. */
@@ -342,6 +398,42 @@ export async function unreadConversationCount(
 }
 
 /**
+ * Hard-delete the messages matching `where`, along with any files they were
+ * the only reason to keep.
+ *
+ * A message row is temporary by design (3 days), but a `StoredFile` is not —
+ * deleting only the message would leave its bytes in the table forever, with
+ * nothing left pointing at them. The FK is `onDelete: SetNull` precisely so
+ * that deleting a file can never cascade into deleting chat history; the
+ * clean-up therefore has to run the other way round, here, and is the reason
+ * both the lazy path and the sweep below funnel through this one function.
+ */
+async function deleteExpiredMessages(
+  where: NonNullable<Parameters<typeof db.chatMessage.deleteMany>[0]>["where"]
+): Promise<number> {
+  const doomed = await db.chatMessage.findMany({
+    where,
+    select: { id: true, attachmentFileId: true },
+  });
+
+  if (doomed.length === 0) return 0;
+
+  const fileIds = doomed
+    .map((message) => message.attachmentFileId)
+    .filter((id): id is string => Boolean(id));
+
+  const result = await db.chatMessage.deleteMany({
+    where: { id: { in: doomed.map((message) => message.id) } },
+  });
+
+  if (fileIds.length > 0) {
+    await db.storedFile.deleteMany({ where: { id: { in: fileIds } } });
+  }
+
+  return result.count;
+}
+
+/**
  * Hard-delete every expired message across every company — the
  * `/api/jobs/cleanup-chat-messages` sweep. The lazy cleanup in `loadMessages`
  * is the safety net if this is never wired to an external scheduler.
@@ -349,8 +441,58 @@ export async function unreadConversationCount(
 export async function cleanupExpiredChatMessages(
   now: Date = new Date()
 ): Promise<number> {
-  const result = await db.chatMessage.deleteMany({
-    where: { createdAt: { lt: chatMessageCutoff(now) } },
-  });
-  return result.count;
+  return deleteExpiredMessages({ createdAt: { lt: chatMessageCutoff(now) } });
+}
+
+export type ChatDirectoryEntry = {
+  kind: "employee" | "account";
+  id: string;
+  name: string;
+  role: string;
+  avatarUrl: string | null;
+};
+
+/**
+ * Everyone in the company the actor could start a conversation with — the
+ * actor themself excluded, since `findOrCreateConversation` refuses that
+ * target anyway and offering it would only produce an error.
+ */
+export async function loadChatDirectory(
+  actor: SessionActor
+): Promise<ChatDirectoryEntry[]> {
+  const [employees, accounts] = await Promise.all([
+    db.employee.findMany({
+      where: scopedWhere(actor, {
+        id: actor.accountType === "employee" ? { not: actor.id } : undefined,
+      }),
+      select: { id: true, fullName: true, jobRole: true, avatarUrl: true },
+      orderBy: { fullName: "asc" },
+    }),
+    db.companyAccount.findMany({
+      where: {
+        companyId: actor.companyId,
+        deletedAt: null,
+        ...(actor.accountType === "company" ? { id: { not: actor.id } } : {}),
+      },
+      select: { id: true, fullName: true, role: true, avatarUrl: true },
+      orderBy: { fullName: "asc" },
+    }),
+  ]);
+
+  return [
+    ...accounts.map((account) => ({
+      kind: "account" as const,
+      id: account.id,
+      name: account.fullName,
+      role: account.role,
+      avatarUrl: account.avatarUrl,
+    })),
+    ...employees.map((employee) => ({
+      kind: "employee" as const,
+      id: employee.id,
+      name: employee.fullName,
+      role: employee.jobRole ?? "Employee",
+      avatarUrl: employee.avatarUrl,
+    })),
+  ];
 }

@@ -68,7 +68,12 @@ export async function POST(
   if (!parsed.success) return validationError(parsed.error);
 
   try {
-    const resolved = await sendMessage(actor, conversationId, parsed.data.body);
+    const resolved = await sendMessage(
+      actor,
+      conversationId,
+      parsed.data.body,
+      parsed.data.attachmentFileId
+    );
     if (!resolved.ok) {
       return apiError(resolved.message, resolved.status, "not_found");
     }

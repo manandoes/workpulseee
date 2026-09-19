@@ -6,11 +6,12 @@ import { usePathname } from "next/navigation";
 import { cn } from "cn";
 import { Avatar } from "@/components/dashboard/avatar";
 import { EmptyState } from "@/components/dashboard/page-header";
+import { NewChatDialog } from "@/components/chat/new-chat-dialog";
 
 type Conversation = {
   id: string;
   other: { kind: "employee" | "account"; id: string; name: string; avatarUrl: string | null };
-  lastMessage: { body: string; createdAt: string } | null;
+  lastMessage: { body: string; preview: string; createdAt: string } | null;
   unread: boolean;
 };
 
@@ -53,10 +54,13 @@ export function ConversationList() {
 
   if (conversations.length === 0) {
     return (
-      <EmptyState
-        title="No conversations yet"
-        description="Message someone from the Squad page to start a conversation."
-      />
+      <div className="flex flex-col items-center gap-4">
+        <EmptyState
+          title="No conversations yet"
+          description="Pick anyone in the company to send the first message."
+        />
+        <NewChatDialog trigger="button" />
+      </div>
     );
   }
 
@@ -82,7 +86,7 @@ export function ConversationList() {
                 ) : null}
               </span>
               <span className="text-text-secondary text-meta block truncate">
-                {conversation.lastMessage?.body ?? "No messages yet"}
+                {conversation.lastMessage?.preview || "No messages yet"}
               </span>
             </span>
           </Link>

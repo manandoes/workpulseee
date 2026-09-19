@@ -7,7 +7,7 @@ import { PageHeader } from "@/components/dashboard/page-header";
 import { ConversationList } from "@/components/chat/conversation-list";
 import { MessageThread } from "@/components/chat/message-thread";
 
-export const metadata: Metadata = { title: "Chat — WorkPulse" };
+export const metadata: Metadata = { title: "Chat" };
 
 export default async function ConversationPage({
   params,

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   CHAT_MESSAGE_TTL_MS,
   chatMessageCutoff,
+  conversationPreview,
   isExpiredChatMessage,
   isSameParticipant,
   otherParticipant,
@@ -84,5 +85,22 @@ describe("otherParticipant", () => {
       { id: "e1", accountType: "employee" }
     );
     expect(other).toBeNull();
+  });
+});
+
+describe("conversationPreview", () => {
+  it("uses the message body when there is one", () => {
+    expect(conversationPreview("hey there", null)).toBe("hey there");
+    // Text wins even alongside an attachment.
+    expect(conversationPreview("see attached", "report.pdf")).toBe("see attached");
+  });
+
+  it("falls back to the attachment name for a bare file share", () => {
+    // body is "" (falsy but not nullish) - a naive `body ?? fallback` misses this.
+    expect(conversationPreview("", "photo.png")).toBe("📎 photo.png");
+  });
+
+  it("returns an empty string when there is neither", () => {
+    expect(conversationPreview("", null)).toBe("");
   });
 });

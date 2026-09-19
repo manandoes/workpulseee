@@ -58,3 +58,19 @@ export function otherParticipant<
     }) ?? null
   );
 }
+
+/**
+ * The conversation list's one-line preview of a message. A bare file share
+ * has `body: ""` (`sendMessageSchema` allows text or an attachment, not
+ * necessarily both) — `""` is falsy but not nullish, so a naive `body ?? "…"`
+ * fallback misses it and the row renders with an empty preview that looks
+ * like the conversation has nothing in it.
+ */
+export function conversationPreview(
+  body: string,
+  attachmentName: string | null
+): string {
+  if (body.length > 0) return body;
+  if (attachmentName) return `📎 ${attachmentName}`;
+  return "";
+}
