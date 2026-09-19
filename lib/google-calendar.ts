@@ -17,13 +17,17 @@
  * for colleagues who never connected Google at all.
  */
 
-const TOKEN_ENDPOINT = "https://oauth2.googleapis.com/token";
-const AUTH_ENDPOINT = "https://accounts.google.com/o/oauth2/v2/auth";
+import {
+  buildGoogleAuthUrl,
+  exchangeGoogleCode,
+  fetchGoogleUserEmail,
+  refreshGoogleAccessToken,
+  type ExchangedTokens,
+} from "@/lib/google-oauth";
+
 const EVENTS_ENDPOINT =
   "https://www.googleapis.com/calendar/v3/calendars/primary/events";
 const FREEBUSY_ENDPOINT = "https://www.googleapis.com/calendar/v3/freeBusy";
-
-const USERINFO_ENDPOINT = "https://www.googleapis.com/oauth2/v3/userinfo";
 
 // `openid email` alongside the calendar scope so the connect flow can learn
 // which Google address was just connected. `calendar.events` (not the
@@ -33,110 +37,34 @@ const USERINFO_ENDPOINT = "https://www.googleapis.com/oauth2/v3/userinfo";
 const SCOPE =
   "openid email https://www.googleapis.com/auth/calendar.events";
 
-function clientCredentials() {
-  const clientId = process.env.GOOGLE_CLIENT_ID;
-  const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
-  const redirectUri = process.env.GOOGLE_REDIRECT_URI;
-  if (!clientId || !clientSecret || !redirectUri) return null;
-  return { clientId, clientSecret, redirectUri };
-}
-
-/** The consent-screen URL to send someone to, carrying our signed `state`. */
+/**
+ * The consent-screen URL to send someone to, carrying our signed `state`.
+ *
+ * The handshake itself lives in `lib/google-oauth.ts`, shared with hiring's
+ * Forms integration; only the scope and redirect URI are calendar's own.
+ */
 export function buildAuthUrl(state: string): string | null {
-  const credentials = clientCredentials();
-  if (!credentials) return null;
-
-  const url = new URL(AUTH_ENDPOINT);
-  url.searchParams.set("client_id", credentials.clientId);
-  url.searchParams.set("redirect_uri", credentials.redirectUri);
-  url.searchParams.set("response_type", "code");
-  url.searchParams.set("scope", SCOPE);
-  // Guarantees a refresh token on first connect; without both, Google only
-  // hands one back the very first time an account ever consents at all.
-  url.searchParams.set("access_type", "offline");
-  url.searchParams.set("prompt", "consent");
-  url.searchParams.set("state", state);
-  return url.toString();
+  const redirectUri = process.env.GOOGLE_REDIRECT_URI;
+  if (!redirectUri) return null;
+  return buildGoogleAuthUrl({ scope: SCOPE, redirectUri, state });
 }
 
-export type ExchangedTokens = { refreshToken: string; accessToken: string };
+export type { ExchangedTokens };
 
 /** Trade a one-time OAuth `code` for a refresh token, never throws. */
 export async function exchangeCode(
   code: string
 ): Promise<ExchangedTokens | null> {
-  const credentials = clientCredentials();
-  if (!credentials) return null;
-
-  try {
-    const response = await fetch(TOKEN_ENDPOINT, {
-      method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: new URLSearchParams({
-        code,
-        client_id: credentials.clientId,
-        client_secret: credentials.clientSecret,
-        redirect_uri: credentials.redirectUri,
-        grant_type: "authorization_code",
-      }),
-    });
-
-    if (!response.ok) {
-      console.error("[google-calendar] Code exchange rejected", {
-        status: response.status,
-      });
-      return null;
-    }
-
-    const body = (await response.json()) as {
-      access_token?: string;
-      refresh_token?: string;
-    };
-    if (!body.access_token || !body.refresh_token) return null;
-
-    return { accessToken: body.access_token, refreshToken: body.refresh_token };
-  } catch (cause) {
-    console.error("[google-calendar] Could not reach Google's token endpoint", {
-      cause,
-    });
-    return null;
-  }
+  const redirectUri = process.env.GOOGLE_REDIRECT_URI;
+  if (!redirectUri) return null;
+  return exchangeGoogleCode(code, redirectUri);
 }
 
 /** Trade a stored refresh token for a fresh access token, never throws. */
 export async function refreshAccessToken(
   refreshToken: string
 ): Promise<string | null> {
-  const credentials = clientCredentials();
-  if (!credentials) return null;
-
-  try {
-    const response = await fetch(TOKEN_ENDPOINT, {
-      method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: new URLSearchParams({
-        refresh_token: refreshToken,
-        client_id: credentials.clientId,
-        client_secret: credentials.clientSecret,
-        grant_type: "refresh_token",
-      }),
-    });
-
-    if (!response.ok) {
-      console.error("[google-calendar] Token refresh rejected", {
-        status: response.status,
-      });
-      return null;
-    }
-
-    const body = (await response.json()) as { access_token?: string };
-    return body.access_token ?? null;
-  } catch (cause) {
-    console.error("[google-calendar] Could not reach Google's token endpoint", {
-      cause,
-    });
-    return null;
-  }
+  return refreshGoogleAccessToken(refreshToken);
 }
 
 export type GoogleEvent = {
@@ -204,20 +132,7 @@ export async function listOwnEvents(
 
 /** The Google account's own email address, for `GoogleCalendarConnection.googleEmail`. */
 export async function fetchUserEmail(accessToken: string): Promise<string | null> {
-  try {
-    const response = await fetch(USERINFO_ENDPOINT, {
-      headers: { Authorization: `Bearer ${accessToken}` },
-    });
-    if (!response.ok) return null;
-
-    const body = (await response.json()) as { email?: string };
-    return body.email ?? null;
-  } catch (cause) {
-    console.error("[google-calendar] Could not reach Google's userinfo API", {
-      cause,
-    });
-    return null;
-  }
+  return fetchGoogleUserEmail(accessToken);
 }
 
 export type BusyOnly = { start: Date; end: Date };
