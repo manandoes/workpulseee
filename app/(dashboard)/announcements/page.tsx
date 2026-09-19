@@ -11,7 +11,7 @@ import { Pagination } from "@/components/dashboard/pagination";
 import { AnnouncementCard } from "@/components/announcements/announcement-card";
 import { Button } from "@/components/ui/button";
 
-export const metadata: Metadata = { title: "Announcements — WorkPulse" };
+export const metadata: Metadata = { title: "Announcements" };
 
 /**
  * The company's announcement feed (Plan: top bar rework) — readable by

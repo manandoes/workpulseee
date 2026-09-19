@@ -33,7 +33,7 @@ import { GoalForm } from "@/components/performance/goal-form";
 import { FeedbackList } from "@/components/performance/feedback-views";
 import { FeedbackForm } from "@/components/performance/feedback-form";
 
-export const metadata: Metadata = { title: "Squad — WorkPulse" };
+export const metadata: Metadata = { title: "Squad" };
 
 /**
  * A Squad member's detail (Phase 11). Always shows the basic block; the

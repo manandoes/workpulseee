@@ -32,7 +32,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { cn } from "cn";
 
-export const metadata: Metadata = { title: "Tasks — WorkPulse" };
+export const metadata: Metadata = { title: "Tasks" };
 
 /**
  * Task board and list (Phases.md Phase 5).

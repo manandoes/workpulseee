@@ -4,7 +4,7 @@ import { Building2, UserRound } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 
 export const metadata: Metadata = {
-  title: "Sign in — WorkPulse",
+  title: "Sign in",
   description:
     "Sign in to WorkPulse as a company admin or as an employee of a company.",
 };

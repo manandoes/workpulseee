@@ -24,7 +24,7 @@ import { AttendanceTable } from "@/components/attendance/attendance-table";
 import { Button } from "@/components/ui/button";
 import { Panel, Detail } from "@/components/dashboard/detail-panel";
 
-export const metadata: Metadata = { title: "Employee — WorkPulse" };
+export const metadata: Metadata = { title: "Employee" };
 
 /**
  * Employee profile (PRD.md section 6.2).

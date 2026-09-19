@@ -23,7 +23,7 @@ import { WorkloadBar } from "@/components/dashboard/workload-bar";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 
-export const metadata: Metadata = { title: "Employees — WorkPulse" };
+export const metadata: Metadata = { title: "Employees" };
 
 /**
  * Employee directory (Phases.md Phase 3).

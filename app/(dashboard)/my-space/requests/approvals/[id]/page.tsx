@@ -6,7 +6,7 @@ import { scopedWhere } from "@/lib/tenant";
 import { canApproveRequests, canDecideOnRequest } from "@/lib/permissions";
 import { RequestDetail } from "@/components/requests/request-detail";
 
-export const metadata: Metadata = { title: "Request — WorkPulse" };
+export const metadata: Metadata = { title: "Request" };
 
 const requestDetailSelect = {
   id: true,
