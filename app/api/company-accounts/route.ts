@@ -17,7 +17,8 @@ import {
   hashInviteToken,
   inviteExpiryFrom,
 } from "@/lib/invites";
-import { accountInviteEmailBody, sendEmail } from "@/lib/mailer";
+import { sendEmail } from "@/lib/mailer";
+import { buildInviteEmail } from "@/lib/email-template-data";
 import { canManageCompanyAccounts } from "@/lib/permissions";
 import { inviteCompanyAccountSchema } from "@/lib/validations/employees";
 
@@ -138,15 +139,20 @@ export async function POST(request: NextRequest) {
     const baseUrl = process.env.NEXTAUTH_URL ?? request.nextUrl.origin;
     const inviteUrl = buildInviteUrl(baseUrl, token);
 
-    const { subject, text } = accountInviteEmailBody({
-      name: account.fullName,
-      companyName: company.name,
-      role: account.role,
-      inviteUrl,
-    });
+    // Same template fallback as the employee invite — see `buildInviteEmail`.
+    const { subject, text, attachments } = await buildInviteEmail(
+      actor.companyId,
+      "AccountInvite",
+      {
+        employeeName: account.fullName,
+        companyName: company.name,
+        role: account.role,
+        inviteUrl,
+      }
+    );
     const emailConfig = await loadEmailConfig(actor.companyId);
     const delivery = await sendEmail(
-      { to: account.workEmail, subject, text },
+      { to: account.workEmail, subject, text, attachments },
       emailConfig
     );
 

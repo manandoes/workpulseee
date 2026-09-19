@@ -12,6 +12,12 @@ import { scopedWhere } from "@/lib/tenant";
 import { db } from "@/lib/db";
 import { directoryFilter } from "@/lib/employees";
 import { resolveEmployeeWrite } from "@/lib/employee-data";
+import {
+  countBillableEmployees,
+  employeeCapFor,
+  loadSubscription,
+} from "@/lib/billing";
+import { EXTRA_SEAT_PRICE_PAISE } from "@/lib/plans";
 import { loadEmailConfig } from "@/lib/company-email-config";
 import {
   buildInviteUrl,
@@ -19,7 +25,8 @@ import {
   hashInviteToken,
   inviteExpiryFrom,
 } from "@/lib/invites";
-import { inviteEmailBody, sendEmail } from "@/lib/mailer";
+import { sendEmail } from "@/lib/mailer";
+import { buildInviteEmail } from "@/lib/email-template-data";
 import { canManageEmployees, canViewAllEmployees } from "@/lib/permissions";
 import {
   createEmployeeSchema,
@@ -109,6 +116,28 @@ export async function POST(request: NextRequest) {
     });
     if (!company) return apiError("Company not found.", 404, "not_found");
 
+    // Plan: Razorpay billing, requirement 3 — the plan's employee cap plus
+    // any extra seats purchased. `actor` only exists here because
+    // `getActor()` already proved the subscription is active, so a
+    // subscription row is guaranteed to exist.
+    const [subscription, employeeCount] = await Promise.all([
+      loadSubscription(actor.companyId),
+      countBillableEmployees(actor.companyId),
+    ]);
+    const cap = employeeCapFor(subscription);
+    if (employeeCount >= cap) {
+      const extraSeatPrice = (EXTRA_SEAT_PRICE_PAISE / 100).toLocaleString(
+        "en-IN"
+      );
+      return NextResponse.json(
+        {
+          error: `You've reached your plan's employee limit (${cap}). Upgrade your plan or buy extra seats for ₹${extraSeatPrice} each in Settings → Billing.`,
+          code: "seat_limit_reached",
+        },
+        { status: 409 }
+      );
+    }
+
     const resolved = await resolveEmployeeWrite(actor, parsed.data, {
       includePersonal: false,
     });
@@ -144,17 +173,25 @@ export async function POST(request: NextRequest) {
     const baseUrl = process.env.NEXTAUTH_URL ?? request.nextUrl.origin;
     const inviteUrl = buildInviteUrl(baseUrl, token);
 
-    const { subject, text } = inviteEmailBody({
-      employeeName: employee.fullName,
-      companyName: company.name,
-      inviteUrl,
-    });
+    // Falls back to `inviteEmailBody` when the company has not customised the
+    // invite (Plan: editable invite template), so this path is unchanged for
+    // every company that never opens that setting.
+    const { subject, text, attachments } = await buildInviteEmail(
+      actor.companyId,
+      "EmployeeInvite",
+      {
+        employeeName: employee.fullName,
+        companyName: company.name,
+        inviteUrl,
+      }
+    );
     const emailConfig = await loadEmailConfig(actor.companyId);
     const delivery = await sendEmail(
       {
         to: employee.companyEmail,
         subject,
         text,
+        attachments,
       },
       emailConfig
     );

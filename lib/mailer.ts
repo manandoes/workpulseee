@@ -23,10 +23,19 @@ export type SendResult =
   | { delivered: true }
   | { delivered: false; reason: "not_configured" | "provider_error" };
 
+/**
+ * A file to send with the message, already base64-encoded
+ * (`loadFilesForEmail` in lib/files-data.ts). Both providers take the bytes
+ * inline rather than a URL, which is what lets an attachment reach someone who
+ * has no account to sign in to yet — the invite case.
+ */
+export type EmailAttachment = { name: string; content: string };
+
 type SendArgs = {
   to: string;
   subject: string;
   text: string;
+  attachments?: EmailAttachment[];
 };
 
 /**
@@ -43,7 +52,7 @@ function parseFromAddress(from: string): { name?: string; email: string } {
 }
 
 export async function sendEmail(
-  { to, subject, text }: SendArgs,
+  { to, subject, text, attachments }: SendArgs,
   config?: CompanyEmailConfig | null
 ): Promise<SendResult> {
   const envBrevoKey = process.env.BREVO_API_KEY;
@@ -72,6 +81,18 @@ export async function sendEmail(
               to: [{ email: to }],
               subject,
               textContent: text,
+              // The two providers name these differently — Brevo wants
+              // `attachment: [{ content, name }]`, Resend
+              // `attachments: [{ content, filename }]` — so the mapping stays
+              // inside each branch rather than leaking into every caller.
+              ...(attachments?.length
+                ? {
+                    attachment: attachments.map((file) => ({
+                      content: file.content,
+                      name: file.name,
+                    })),
+                  }
+                : {}),
             }),
           })
         : await fetch("https://api.resend.com/emails", {
@@ -80,7 +101,20 @@ export async function sendEmail(
               Authorization: `Bearer ${apiKey}`,
               "Content-Type": "application/json",
             },
-            body: JSON.stringify({ from, to, subject, text }),
+            body: JSON.stringify({
+              from,
+              to,
+              subject,
+              text,
+              ...(attachments?.length
+                ? {
+                    attachments: attachments.map((file) => ({
+                      content: file.content,
+                      filename: file.name,
+                    })),
+                  }
+                : {}),
+            }),
           });
 
     if (!response.ok) {
@@ -99,6 +133,36 @@ export async function sendEmail(
     });
     return { delivered: false, reason: "provider_error" };
   }
+}
+
+/**
+ * The placeholders a company may use in a custom invite template
+ * (Plan: editable invite template). Listed here rather than in the form so the
+ * editor's help text and the substitution below can never drift apart.
+ */
+export const INVITE_TEMPLATE_VARIABLES = [
+  "employeeName",
+  "companyName",
+  "inviteUrl",
+  "role",
+] as const;
+
+/**
+ * Substitutes `{{variable}}` placeholders in a company's own template.
+ *
+ * Unknown placeholders are left verbatim rather than blanked: a typo then
+ * shows up in the preview as `{{emplyeeName}}` instead of silently sending an
+ * email with a hole in it. Values are inserted literally — these emails are
+ * plain text, so there is no markup for a value to escape into.
+ */
+export function renderTemplate(
+  template: string,
+  values: Partial<Record<(typeof INVITE_TEMPLATE_VARIABLES)[number], string>>
+): string {
+  return template.replace(/\{\{\s*(\w+)\s*\}\}/g, (match, name: string) => {
+    const value = values[name as keyof typeof values];
+    return value ?? match;
+  });
 }
 
 export function inviteEmailBody({
