@@ -25,9 +25,12 @@ type FormValues = {
  * Book a meeting (Plan.md Phase 17).
  *
  * `startAt`/`endAt` come from `<input type="datetime-local">`, which carries
- * no timezone — treated as UTC directly (appending `Z`), the same convention
- * `lib/calendar.ts`'s flat working-hours window already follows for this
- * schema, rather than converting through the browser's local zone.
+ * no timezone of its own — the browser treats a bare `"2026-03-15T15:00"` as
+ * *local* wall-clock time, so `new Date(...)` (no `Z` appended) already parses
+ * it as the viewer's local instant, and `.toISOString()` converts that to the
+ * correct UTC value to send. Appending `Z` directly, as this form used to,
+ * treated the typed time as UTC — a user in Kolkata typing 15:00 would book
+ * 15:00 UTC (20:30 IST), not 15:00 IST.
  */
 export function ProposeMeetingForm({
   members,
@@ -65,11 +68,14 @@ export function ProposeMeetingForm({
       return { kind: kind as "employee" | "account", id };
     });
 
+    const toInstant = (local: string) =>
+      local ? new Date(local).toISOString() : "";
+
     const payload: ProposeMeetingInput = {
       title: values.title,
       description: values.description,
-      startAt: values.startAt ? `${values.startAt}:00Z` : "",
-      endAt: values.endAt ? `${values.endAt}:00Z` : "",
+      startAt: toInstant(values.startAt),
+      endAt: toInstant(values.endAt),
       location: values.location,
       participants,
     };

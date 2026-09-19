@@ -13,6 +13,13 @@ export type BusyInterval = { start: Date; end: Date };
  * for either, and every other date-only field in this schema (task
  * `dueDate`, for instance) is already stored and compared in UTC. The one
  * place to widen this if it turns out to matter.
+ *
+ * TODO(timezone): now that `propose-meeting-form.tsx` books the instant the
+ * viewer actually typed (see its docstring), a flat UTC 9–18 window proposes
+ * slots outside a non-UTC user's real workday — e.g. 03:30–12:30 UTC for
+ * someone in Asia/Kolkata. Fixing that needs working hours to become a
+ * `Company` property (a new column + settings UI), not a viewer property, so
+ * it's out of scope here — flagged rather than silently left.
  */
 export const WORKING_HOURS_START_UTC = 9;
 export const WORKING_HOURS_END_UTC = 18;

@@ -72,6 +72,17 @@ export function formatPercent(value: number | null | undefined): string {
   return `${value.toFixed(1)}%`;
 }
 
+/** A signed score delta, e.g. `"+4.2"` / `"-3.0"` / `"0.0"` — for
+ * `scoreDelta` (`lib/performance.ts`), which is already a plain number, not
+ * a percentage. */
+export function formatSignedScore(value: number | null | undefined): string {
+  if (value === null || value === undefined || !Number.isFinite(value)) {
+    return "—";
+  }
+  const sign = value > 0 ? "+" : "";
+  return `${sign}${value.toFixed(1)}`;
+}
+
 /** `1,50,000` for prefilling a number input is wrong — it needs the raw value. */
 export function toAmountInputValue(
   value: { toString(): string } | null | undefined
@@ -83,13 +94,19 @@ export function toAmountInputValue(
 /**
  * A timestamp with the time of day, for a comment or an attachment.
  *
- * Rendered in UTC like `formatDate`, and for the same reason: these pages are
- * server-rendered, so formatting in "local" time would mean the server's
- * timezone, and the value would change under the reader when the page
- * re-rendered on the client. One stable zone is honest; two are a bug.
+ * Takes the viewer's resolved zone (`lib/timezone-request.ts`), defaulting to
+ * UTC so every existing call site keeps compiling and keeps its current
+ * behaviour until it's deliberately migrated. `timeZoneName: "short"` labels
+ * whichever zone is in effect, so a page with a mix of migrated and
+ * not-yet-migrated call sites stays legible rather than silently ambiguous.
+ *
+ * This is for *instants* (`createdAt`, `clockInAt`, a message timestamp) —
+ * for a date-only value stored as UTC midnight, use `formatDate`, which
+ * deliberately never takes a zone (see its docstring).
  */
 export function formatDateTime(
-  value: Date | string | null | undefined
+  value: Date | string | null | undefined,
+  timeZone: string = "UTC"
 ): string {
   if (!value) return "—";
   const date = value instanceof Date ? value : new Date(value);
@@ -101,9 +118,27 @@ export function formatDateTime(
     year: "numeric",
     hour: "2-digit",
     minute: "2-digit",
-    timeZone: "UTC",
+    timeZone,
     timeZoneName: "short",
   });
+}
+
+/**
+ * Formats an already zone-local `YYYY-MM-DD` day key (from
+ * `lib/timezone.ts`'s `dayKeyInZone`) for display, without ever constructing
+ * a `Date` from it — parsing `"2026-03-11"` back into a `Date` and formatting
+ * that would re-introduce exactly the UTC-vs-local mismatch this key exists
+ * to avoid.
+ */
+export function formatDayKey(dayKey: string): string {
+  const [year, month, day] = dayKey.split("-").map(Number);
+  if (!year || !month || !day) return "—";
+
+  const MONTHS = [
+    "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+    "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+  ];
+  return `${day} ${MONTHS[month - 1]} ${year}`;
 }
 
 /**
