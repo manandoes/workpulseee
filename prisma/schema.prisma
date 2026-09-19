@@ -176,6 +176,11 @@ enum GrantedPermission {
   ManageEmployees
   ManageProjects
   DecideRequests
+  /// Build hiring forms and work the applicant pipeline (Plan: hiring).
+  /// Lets an Owner hand an HR lead the hiring module without making them an
+  /// Admin, which is the whole reason this grant exists rather than a
+  /// hardcoded Owner/Admin check.
+  ManageRecruitment
 }
 
 /// What a notification is about.
@@ -280,6 +285,22 @@ model Company {
   polls                     Poll[]
   pollOptions               PollOption[]
   pollVotes                 PollVote[]
+  storedFiles               StoredFile[]
+  bulkEmails                BulkEmail[]
+  emailTemplates            EmailTemplate[]
+  salaryTemplate            SalaryTemplate?
+  salarySlips               SalarySlip[]
+  hiringForms               HiringForm[]
+  hiringQuestions           HiringQuestion[]
+  jobApplications           JobApplication[]
+  applicationAnswers        ApplicationAnswer[]
+  applicationNotes          ApplicationNote[]
+  googleFormsConnection     GoogleFormsConnection?
+
+  /// Billing (Plan: Razorpay subscriptions). At most one per company —
+  /// `companyId`'s own `@unique` on `Subscription`.
+  subscription Subscription?
+  payments     Payment[]
 
   @@index([deletedAt])
 }
@@ -346,6 +367,9 @@ model CompanyAccount {
   createdTasks     Task[]       @relation("TaskCreatedBy")
   comments         Comment[]    @relation("CommentAuthor")
   attachmentsAdded Attachment[] @relation("AttachmentAddedBy")
+  uploadedFiles    StoredFile[] @relation("StoredFileUploadedByAccount")
+  bulkEmailsSent   BulkEmail[]  @relation("BulkEmailSentBy")
+  salarySlipsMade  SalarySlip[] @relation("SalarySlipCreatedBy")
 
   /// Requests this account has approved or rejected (Phases.md Phase 7).
   decidedRequests Request[]      @relation("RequestApprover")
@@ -392,6 +416,12 @@ model CompanyAccount {
   /// the same "Employee or CompanyAccount" dual-FK shape `PollVote` uses.
   announcementsPosted Announcement[]
   pollVotes           PollVote[]
+
+  /// Hiring (Plan: hiring). Authorship only — who may open the section at all
+  /// is `canManageRecruitment` in lib/permissions.ts, not a relation.
+  hiringFormsCreated      HiringForm[]            @relation("HiringFormCreatedBy")
+  applicationNotesWritten ApplicationNote[]       @relation("ApplicationNoteAuthorAccount")
+  googleFormsConnected    GoogleFormsConnection[] @relation("GoogleFormsConnectedBy")
 
   /// Architecture.md section 4: work email is unique *per company*, not
   /// globally, so the same person can hold accounts in two tenants. The login
@@ -515,6 +545,8 @@ model Employee {
   notificationPrefs NotificationPreference? @relation("NotificationPrefEmployee")
   pushSubscriptions PushSubscription[]      @relation("PushSubscriptionEmployee")
   attachmentsAdded  Attachment[]            @relation("AttachmentAddedByEmployee")
+  uploadedFiles     StoredFile[]            @relation("StoredFileUploadedByEmployee")
+  salarySlips       SalarySlip[]
 
   /// Goals, feedback and score history (Phases.md Phase 8). Goals and feedback
   /// are manager-owned - an employee reads both on My Growth but never writes
@@ -546,6 +578,10 @@ model Employee {
   /// Powers the Owner has handed this employee on top of their role
   /// (Phase 11 — `hasGrant` in lib/permissions.ts).
   permissionGrants PermissionGrant[]
+
+  /// Notes left on applicants by an employee holding a `ManageRecruitment`
+  /// grant (Plan: hiring).
+  applicationNotesWritten ApplicationNote[] @relation("ApplicationNoteAuthorEmployee")
 
   /// Calendar (Plan.md Phase 17). At most one Google connection per person,
   /// enforced by `employeeId`'s own `@unique` on `GoogleCalendarConnection`.
@@ -1504,7 +1540,16 @@ model ChatMessage {
   senderAccountId String?
   senderAccount   CompanyAccount? @relation(fields: [senderAccountId], references: [id], onDelete: SetNull)
 
+  /// Empty string when the message is a bare file share - `sendMessageSchema`
+  /// requires text or an attachment, not necessarily both.
   body String
+
+  /// Plan: media/file sharing in chat. Nullable because most messages are
+  /// text. The 3-day hard delete above must delete the `StoredFile` too,
+  /// otherwise files outlive the messages that referenced them forever - see
+  /// `lib/chat-data.ts` and `jobs/cleanupChatMessages.ts`.
+  attachmentFileId String?
+  attachmentFile   StoredFile? @relation(fields: [attachmentFileId], references: [id], onDelete: SetNull)
 
   createdAt DateTime @default(now())
 
@@ -1644,4 +1689,607 @@ model MeetingParticipant {
   @@index([companyId])
   @@index([employeeId])
   @@index([accountId])
+}
+
+/// Binary file storage (Plan: file storage foundation).
+///
+/// Until now the app had no place to put a real file: avatars are base64
+/// strings on their own row and `Attachment` only ever held a pasted URL. Chat
+/// media, bulk-email attachments and uploaded salary slips all need actual
+/// bytes, so they share this one table rather than each inventing storage.
+///
+/// Bytes live in Postgres rather than an object store on purpose - it keeps
+/// deployment to a single dependency the app already has, and every row is
+/// tenant-scoped by the same `companyId` convention as the rest of the schema,
+/// so an authorization bug cannot leak across companies through a guessed
+/// object URL. `lib/files.ts` caps uploads (see `MAX_FILE_BYTES`) so the table
+/// stays a store for documents and images, not a media library.
+///
+/// `uploadedById`/`uploadedByEmployeeId` are the same "exactly one of a pair"
+/// shape `Attachment.addedById` uses, enforced in `lib/files.ts`.
+///
+/// Rows are referenced by feature tables (`ChatMessage.attachmentFileId`,
+/// `SalarySlip.uploadedFileId`, ...) via `onDelete: SetNull`, so deleting a
+/// file never cascades into deleting the record that pointed at it. The
+/// reverse - deleting the record - is what must clean up the file, which is
+/// why the chat cleanup job deletes both.
+model StoredFile {
+  id String @id @default(cuid())
+
+  companyId String
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  /// Original filename as the uploader's browser reported it, sanitized in
+  /// `lib/files.ts` - it is echoed back in a `Content-Disposition` header, so
+  /// it can never be trusted raw.
+  name      String
+  /// Validated against an allowlist (`ALLOWED_MIME_TYPES`); an arbitrary
+  /// client-supplied type would otherwise be served straight back to a
+  /// browser.
+  mimeType  String
+  sizeBytes Int
+  data      Bytes
+
+  uploadedById String?
+  uploadedBy   CompanyAccount? @relation("StoredFileUploadedByAccount", fields: [uploadedById], references: [id], onDelete: SetNull)
+
+  uploadedByEmployeeId String?
+  uploadedByEmployee   Employee? @relation("StoredFileUploadedByEmployee", fields: [uploadedByEmployeeId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+
+  chatMessages       ChatMessage[]
+  salarySlips        SalarySlip[]
+  /// Applicant document uploads (Plan: hiring). Both uploader columns above
+  /// stay null for these — an applicant is not a user of the app.
+  applicationAnswers ApplicationAnswer[] @relation("ApplicationAnswerFile")
+
+  @@index([companyId])
+}
+
+/// Who a bulk email went to (Plan: email the whole organisation).
+///
+/// `Everyone` and the two narrower slices are resolved to real addresses at
+/// send time by `lib/bulk-email.ts` rather than stored as a recipient list -
+/// the audience is the intent, and a list snapshot would go stale. `Specific`
+/// is the exception: it carries explicit ids, which are kept on the row.
+enum BulkEmailAudience {
+  Everyone
+  Employees
+  CompanyAccounts
+  Specific
+}
+
+/// A record of one mass email sent to the company (Plan: bulk email).
+///
+/// An HRMS needs to be able to answer "what was sent to staff, by whom, when"
+/// long after the fact, so this is an append-only audit row, not a draft - it
+/// is written once the send has been attempted. `deliveredCount` can be lower
+/// than `recipientCount`: `sendEmail` reports per-recipient success and a
+/// provider can reject individual addresses.
+model BulkEmail {
+  id String @id @default(cuid())
+
+  companyId String
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  sentById String?
+  sentBy   CompanyAccount? @relation("BulkEmailSentBy", fields: [sentById], references: [id], onDelete: SetNull)
+
+  subject String
+  body    String
+
+  audience BulkEmailAudience
+
+  /// Only meaningful for `Specific` - the employee and account ids the sender
+  /// picked. Stored as id arrays rather than a join table because they are
+  /// never queried across, only replayed for the audit view.
+  employeeIds String[] @default([])
+  accountIds  String[] @default([])
+
+  /// `StoredFile` ids attached to the send. A plain id array, not a relation:
+  /// the audit row must survive the files being deleted later.
+  attachmentIds String[] @default([])
+
+  recipientCount Int
+  deliveredCount Int
+
+  createdAt DateTime @default(now())
+
+  @@index([companyId, createdAt])
+}
+
+/// Which transactional email a company has customised.
+enum EmailTemplateKind {
+  EmployeeInvite
+  AccountInvite
+}
+
+/// A company's override for one of the built-in transactional emails
+/// (Plan: editable invite template).
+///
+/// Absence of a row is meaningful: `lib/mailer.ts` falls back to the built-in
+/// `inviteEmailBody`/`accountInviteEmailBody` copy, so a company that never
+/// visits this setting keeps today's behaviour exactly. `subject` and `body`
+/// support `{{variable}}` placeholders substituted by `renderTemplate`.
+model EmailTemplate {
+  id String @id @default(cuid())
+
+  companyId String
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  kind EmailTemplateKind
+
+  subject String
+  body    String
+
+  /// `StoredFile` ids sent with every email of this kind - an id array for
+  /// the same reason `BulkEmail.attachmentIds` is one.
+  attachmentIds String[] @default([])
+
+  updatedAt DateTime @updatedAt
+
+  @@unique([companyId, kind])
+  @@index([companyId])
+}
+
+/// The company's reusable salary-slip structure (Plan: salary slips).
+///
+/// `components` is the ordered list of earning and deduction lines a slip is
+/// built from - `[{ key, label, kind: "earning" | "deduction", defaultAmount }]`
+/// - kept as JSON rather than its own table because the whole list is always
+/// read and written together and is never queried across, the same reasoning
+/// `SalarySlip.components` follows.
+model SalaryTemplate {
+  id String @id @default(cuid())
+
+  companyId String  @unique
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  name       String @default("Default")
+  components Json
+
+  updatedAt DateTime @updatedAt
+}
+
+/// One employee's slip for one month (Plan: salary slips).
+///
+/// Two ways a slip comes to exist, and the row covers both: HR generates it
+/// from `SalaryTemplate` (amounts land in `components`, totals are computed
+/// and stored so a later template edit cannot silently restate a past month),
+/// or HR uploads a finished PDF (`uploadedFileId`). When a file is present it
+/// *is* the slip and the component breakdown is ignored on download.
+///
+/// Totals are stored in whole minor units (paise/cents) to keep money out of
+/// floating point.
+model SalarySlip {
+  id String @id @default(cuid())
+
+  companyId String
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  employeeId String
+  employee   Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  /// 1-12, with `year`, forms the period this slip covers.
+  month Int
+  year  Int
+
+  components Json
+
+  grossMinor     Int
+  deductionMinor Int
+  netMinor       Int
+
+  /// Set when HR uploaded a finished slip instead of generating one.
+  uploadedFileId String?
+  uploadedFile   StoredFile? @relation(fields: [uploadedFileId], references: [id], onDelete: SetNull)
+
+  /// Employees only ever see `Published` slips; `Draft` lets HR prepare a
+  /// month before releasing it.
+  published Boolean @default(false)
+
+  createdById String?
+  createdBy   CompanyAccount? @relation("SalarySlipCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([employeeId, year, month])
+  @@index([companyId, year, month])
+}
+
+/// What a hiring form is doing right now (Plan: hiring).
+///
+/// `Draft` is editable and invisible to the public; `Live` is the only state
+/// the public route will render; `Closed` keeps the form and every application
+/// on it readable while refusing new submissions. There is no "deleted" state
+/// here — that is `deletedAt`, the same soft-delete every other module uses.
+enum HiringFormStatus {
+  Draft
+  Live
+  Closed
+}
+
+/// Where applicants actually answer a published form.
+///
+/// `Hosted` renders it at `/{companySlug}/recruitmentform/{formSlug}`;
+/// `GoogleForm` creates the real thing on the company's connected Google
+/// account and pulls responses back. The choice is per form, made at publish
+/// time, because a company can reasonably want its engineering roles on the
+/// hosted page and a one-off internship drive on a Google Form.
+enum HiringFormDestination {
+  Hosted
+  GoogleForm
+}
+
+/// The question vocabulary a form builder may use.
+///
+/// Deliberately closed: every type here has a defined renderer on the public
+/// page, a defined Zod rule, a defined Google Forms mapping, and a defined way
+/// of showing up in the applicant detail view. A free-form "custom" type would
+/// have none of those.
+enum HiringQuestionType {
+  ShortText
+  LongText
+  SingleChoice
+  MultiChoice
+  Dropdown
+  Email
+  Phone
+  Number
+  Date
+  Document
+}
+
+/// Where an applicant stands. Ordered as the pipeline reads left to right;
+/// `Hired` and `Rejected` are both terminal.
+enum ApplicationStage {
+  New
+  Shortlisted
+  Interview
+  Offer
+  Hired
+  Rejected
+}
+
+/// An opening's application form (Plan: hiring).
+model HiringForm {
+  id String @id @default(cuid())
+
+  companyId String
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  /// The role being hired for — this is the page's h1 on the public form.
+  title String
+  /// URL segment under `/{companySlug}/recruitmentform/`. Unique per company
+  /// rather than globally: two companies may both be hiring a "designer", and
+  /// the company slug already namespaces the path.
+  slug  String
+
+  /// One line under the title on the public form. Not a job description — the
+  /// facts strip below it carries the specifics.
+  summary String?
+
+  /// What the applicant reads after submitting, in the company's own words —
+  /// usually what happens next and by when. Null falls back to a neutral
+  /// default on the public page, so a company that never wrote one still
+  /// closes the loop rather than showing an empty panel.
+  confirmationMessage String?
+
+  /// The facts strip on the public form. All optional: a company posting a
+  /// single generic "join us" form should not be forced to invent a location.
+  team           String?
+  location       String?
+  employmentType EmploymentType?
+
+  status      HiringFormStatus      @default(Draft)
+  destination HiringFormDestination @default(Hosted)
+
+  /// Set once a `GoogleForm` destination has been published. `googleFormId`
+  /// is what the Forms API is called with; `googleResponderUrl` is what an
+  /// applicant opens; `googleEditUrl` is where the owner edits it in Google's
+  /// own UI.
+  googleFormId       String?
+  googleResponderUrl String?
+  googleEditUrl      String?
+  /// The Google question ids of the three identity questions WorkPulse adds
+  /// ahead of the authored ones, in order: full name, email, phone. Stored
+  /// rather than re-derived by title at sync time, so an owner renaming a
+  /// question in Google's own editor cannot quietly detach every applicant
+  /// from their name.
+  googleIdentityIds  String[]  @default([])
+  /// When responses were last pulled in. Null means "never synced".
+  googleSyncedAt     DateTime?
+
+  publishedAt DateTime?
+  /// After this instant the public form refuses submissions even while `Live`,
+  /// so a company can set a deadline without having to remember to close it.
+  closesAt    DateTime?
+
+  createdById String?
+  createdBy   CompanyAccount? @relation("HiringFormCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  questions    HiringQuestion[]
+  applications JobApplication[]
+
+  @@unique([companyId, slug])
+  @@index([companyId, status])
+  @@index([deletedAt])
+}
+
+/// One authored question on a hiring form.
+model HiringQuestion {
+  id String @id @default(cuid())
+
+  companyId String
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  formId String
+  form   HiringForm @relation(fields: [formId], references: [id], onDelete: Cascade)
+
+  /// Position on the form, 0-based. Rewritten wholesale on every save, so
+  /// there are never gaps or ties.
+  order Int
+
+  type     HiringQuestionType
+  label    String
+  /// Shown under the label on the public form — the place to say "PDF only"
+  /// or "roughly 200 words".
+  helpText String?
+  required Boolean            @default(false)
+
+  /// Choices for `SingleChoice` / `MultiChoice` / `Dropdown`, empty otherwise.
+  options String[] @default([])
+
+  /// The matching item on the Google Form, when this form was published there.
+  /// Needed to map a Google response back onto the right question.
+  googleItemId String?
+
+  answers ApplicationAnswer[]
+
+  @@index([formId, order])
+  @@index([companyId])
+}
+
+/// A submitted application.
+///
+/// Name, email and phone are columns rather than authored questions: the
+/// pipeline has to be able to contact and identify an applicant no matter how
+/// the company built the rest of the form, so those three are collected by the
+/// public page itself and are never the company's to remove.
+model JobApplication {
+  id String @id @default(cuid())
+
+  companyId String
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  formId String
+  form   HiringForm @relation(fields: [formId], references: [id], onDelete: Cascade)
+
+  fullName String
+  email    String
+  phone    String?
+
+  stage ApplicationStage @default(New)
+
+  /// Which destination this arrived through, so the pipeline can show a
+  /// Google-sourced application honestly rather than implying it was typed
+  /// into WorkPulse.
+  source           HiringFormDestination @default(Hosted)
+  /// Google's own response id. Unique so re-running a sync updates the row it
+  /// already created instead of duplicating the applicant.
+  googleResponseId String?               @unique
+
+  /// SHA-256 of the submitting IP, salted per company. Never the raw address:
+  /// this exists only to rate-limit a public endpoint, so the reversible form
+  /// would be personal data the feature has no use for.
+  submitterIpHash String?
+
+  submittedAt DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  answers ApplicationAnswer[]
+  notes   ApplicationNote[]
+
+  @@index([companyId, formId, stage])
+  @@index([formId, submittedAt])
+  @@index([companyId, submitterIpHash, submittedAt])
+}
+
+/// One applicant's answer to one question.
+model ApplicationAnswer {
+  id String @id @default(cuid())
+
+  companyId String
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  applicationId String
+  application   JobApplication @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+
+  questionId String
+  question   HiringQuestion @relation(fields: [questionId], references: [id], onDelete: Cascade)
+
+  /// Everything single-valued: text, a number, an ISO date, one choice.
+  value  String?
+  /// `MultiChoice` only.
+  values String[] @default([])
+
+  /// `Document` only. The bytes live in `StoredFile` like every other upload,
+  /// with both uploader columns null — an applicant is not a user of the app.
+  fileId String?
+  file   StoredFile? @relation("ApplicationAnswerFile", fields: [fileId], references: [id], onDelete: SetNull)
+
+  @@unique([applicationId, questionId])
+  @@index([companyId])
+}
+
+/// An internal note on an applicant. Never shown to the applicant.
+model ApplicationNote {
+  id String @id @default(cuid())
+
+  companyId String
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  applicationId String
+  application   JobApplication @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+
+  /// The same "exactly one of a pair" author shape `Comment` uses, so an HR
+  /// lead holding a `ManageRecruitment` grant can leave notes too.
+  authorId         String?
+  author           CompanyAccount? @relation("ApplicationNoteAuthorAccount", fields: [authorId], references: [id], onDelete: SetNull)
+  authorEmployeeId String?
+  authorEmployee   Employee?       @relation("ApplicationNoteAuthorEmployee", fields: [authorEmployeeId], references: [id], onDelete: SetNull)
+
+  body String
+
+  createdAt DateTime @default(now())
+
+  @@index([applicationId, createdAt])
+  @@index([companyId])
+}
+
+/// The company's Google account for the Forms API (Plan: hiring).
+///
+/// Company-level, not per-user, unlike `GoogleCalendarConnection`: a hiring
+/// form belongs to the company and must keep working when the admin who
+/// connected it leaves. Same AES-256-GCM refresh-token storage
+/// (`lib/google-calendar-crypto.ts`), same never-returned-to-a-client rule.
+model GoogleFormsConnection {
+  id String @id @default(cuid())
+
+  companyId String  @unique
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  googleEmail String
+
+  /// AES-256-GCM ciphertext, never returned to any client.
+  refreshTokenEncrypted String @db.Text
+  scope                 String
+
+  connectedById String?
+  connectedBy   CompanyAccount? @relation("GoogleFormsConnectedBy", fields: [connectedById], references: [id], onDelete: SetNull)
+
+  connectedAt DateTime @default(now())
+}
+
+/// The three self-serve tiers (PRD.md pricing section / `lib/plans.ts` — the
+/// single source of truth for names, caps and prices). `Enterprise`, shown on
+/// the marketing pricing page, is deliberately not a member here: it is a
+/// "contact us" tier with no self-serve checkout, so it never becomes a
+/// `Subscription.plan` value.
+enum SubscriptionPlan {
+  Starter
+  Growth
+  Scale
+}
+
+/// Whether a company currently has paid access. Deliberately just two values —
+/// there is no `Expired` member, because "expired" is not a state anyone
+/// writes, it is `currentPeriodEnd` having passed. `lib/billing.ts`'s
+/// `hasActiveSubscription` derives access from `status === Active &&
+/// currentPeriodEnd` in the future, so no sweep job is needed to keep this
+/// column truthful — see that function's own comment.
+enum SubscriptionStatus {
+  Inactive
+  Active
+}
+
+/// A company's paid access (Plan: Razorpay billing). Manual monthly renewal,
+/// not Razorpay's recurring-mandate Subscriptions API: `currentPeriodEnd` is
+/// set 30 days out on each successful payment, and the Owner pays again to
+/// extend it — no auto-charge, no webhook required to keep this row correct.
+///
+/// One-to-one with `Company` (`companyId` is `@unique`), the same sidecar
+/// shape as `GoogleCalendarConnection` / `GoogleFormsConnection` — created
+/// lazily on the first plan purchase, not at registration, so there is no
+/// nullable `plan` column to account for before a company has chosen one.
+model Subscription {
+  id String @id @default(cuid())
+
+  companyId String  @unique
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  plan   SubscriptionPlan
+  status SubscriptionStatus @default(Inactive)
+
+  /// Seats purchased beyond the plan's own cap, ₹200/$2.5 each
+  /// (`EXTRA_SEAT_PRICE_PAISE` in lib/plans.ts), one-time and cumulative —
+  /// they never expire or reset on renewal, unlike `currentPeriodEnd`.
+  extraSeats Int @default(0)
+
+  /// Null until the first successful payment. Compared against `now()` at
+  /// read time by `hasActiveSubscription` rather than swept by a job.
+  currentPeriodEnd DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  payments Payment[]
+
+  @@index([status])
+}
+
+/// What a `Payment` was for. `ExtraSeats` carries `seats` instead of `plan`
+/// below — exactly one of the two is set, the same "one of a pair" shape this
+/// schema uses elsewhere (e.g. `Employee.managerId`/`managerAccountId`),
+/// enforced in `lib/billing-data.ts` rather than the database.
+enum PaymentPurpose {
+  PlanSubscription
+  ExtraSeats
+}
+
+/// A Razorpay order's lifecycle. `Created` is written before the client opens
+/// Checkout; `Paid`/`Failed` are written by `POST /api/billing/verify` once
+/// the signature is checked — this row is never trusted before that.
+enum PaymentStatus {
+  Created
+  Paid
+  Failed
+}
+
+/// One Razorpay order, and what it bought (Plan: Razorpay billing). Kept as a
+/// real history — like `TaskTimeEntry`, rows are never edited except the one
+/// status transition from `Created` — so a company's billing history and a
+/// failed/abandoned checkout are both visible, not just the current
+/// `Subscription` snapshot.
+model Payment {
+  id String @id @default(cuid())
+
+  companyId String
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  subscriptionId String
+  subscription   Subscription @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+
+  purpose PaymentPurpose
+  /// `PlanSubscription` only.
+  plan    SubscriptionPlan?
+  /// `ExtraSeats` only — how many seats this order bought.
+  seats   Int?
+
+  /// Minor units (paise), like every other money column in this schema
+  /// (`Project.value`, `Request.amount`) — never a float.
+  amount   Int
+  currency String @default("INR")
+
+  /// Razorpay's own ids. `razorpayOrderId` is written when the order is
+  /// created and is this row's natural key for `POST /api/billing/verify` to
+  /// look itself up by; the other two are null until the payment completes.
+  razorpayOrderId   String  @unique
+  razorpayPaymentId String?
+  razorpaySignature String?
+
+  status PaymentStatus @default(Created)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([companyId])
+  @@index([subscriptionId])
+  @@index([status])
 }
