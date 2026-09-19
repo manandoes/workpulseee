@@ -441,6 +441,67 @@ export function canManageAnnouncements(actor: SessionActor): boolean {
 }
 
 /**
+ * Who may email the whole organisation (Plan: bulk email).
+ *
+ * Narrower than `canManageAnnouncements`, which any company account holds: a
+ * mass email leaves the app and lands in inboxes, so a Manager scoped to one
+ * delivery team is not the right audience for it. Owner/Admin/HR — the three
+ * roles whose remit is company-wide people communication.
+ */
+export function canSendBulkEmail(actor: SessionActor): boolean {
+  return (
+    actor.accountType === "company" &&
+    (actor.role === "Owner" || actor.role === "Admin" || actor.role === "HR")
+  );
+}
+
+/**
+ * Who may define the salary structure, generate slips and upload them
+ * (Plan: salary slips). Same Owner/Admin/HR payroll remit as
+ * `canSendBulkEmail`; an employee reads their own slips instead, via
+ * `canViewSalarySlip`.
+ */
+export function canManagePayroll(actor: SessionActor): boolean {
+  return (
+    actor.accountType === "company" &&
+    (actor.role === "Owner" || actor.role === "Admin" || actor.role === "HR")
+  );
+}
+
+/**
+ * Who may build hiring forms and work the applicant pipeline (Plan: hiring).
+ *
+ * Owner and Admin by default, and — unlike `canManagePayroll` — delegable,
+ * because an HR lead who is not an Admin is exactly the person who runs
+ * hiring. That is what `ManageRecruitment` is for: the Owner hands over the
+ * module at `/settings` without handing over the company.
+ *
+ * Deliberately *not* extended to every Manager: an application carries a
+ * stranger's phone number, salary expectations and CV, and a manager scoped to
+ * one delivery team has no reason to read the whole company's candidates.
+ */
+export function canManageRecruitment(actor: SessionActor): boolean {
+  return isCompanyAdmin(actor) || hasGrant(actor, "ManageRecruitment");
+}
+
+/**
+ * Who may read one slip: the employee it belongs to, or anyone who runs
+ * payroll. An unpublished slip is payroll-only — that draft state is what lets
+ * HR prepare a month before releasing it.
+ */
+export function canViewSalarySlip(
+  actor: SessionActor,
+  slip: { employeeId: string; published: boolean }
+): boolean {
+  if (canManagePayroll(actor)) return true;
+  return (
+    actor.accountType === "employee" &&
+    actor.id === slip.employeeId &&
+    slip.published
+  );
+}
+
+/**
  * Where a user lands after signing in (Architecture.md section 3).
  * Employees get their own self-service space; everyone else gets the dashboard.
  */
@@ -507,6 +568,16 @@ export function canManageEmailSettings(actor: SessionActor): boolean {
 }
 
 /**
+ * Owner-only billing (Settings -> Billing, and `/billing` itself — Plan:
+ * Razorpay billing). Financial and hard-to-reverse, the same Owner-only shape
+ * as `canManageBranding` and `canManageEmailSettings` — an Admin can run the
+ * company day-to-day but does not hold its payment method.
+ */
+export function canManageBilling(actor: SessionActor): boolean {
+  return actor.accountType === "company" && actor.role === "Owner";
+}
+
+/**
  * Sidebar navigation per role, filtered by `mode` for a company actor.
  * Employees never see company-wide sections and ignore `mode` entirely — see
  * `DashboardMode`.
@@ -545,6 +616,13 @@ export function navigationFor(
         label: "Announcements",
         icon: "Megaphone",
       },
+      // The one grant that opens a company-wide *section* rather than widening
+      // a page an Employee already had. Without this the Owner could hand an
+      // HR lead `ManageRecruitment` and they would have no way to reach
+      // `/hiring` but to type the URL.
+      ...(hasGrant(actor, "ManageRecruitment")
+        ? [{ href: "/hiring", label: "Hiring", icon: "UserRoundSearch" }]
+        : []),
       // Plan: theme toggle — the only reason an Employee opens /settings is
       // the personal Appearance card; every company-only card there
       // (Workload/Alerts/Branding/Employee permissions) still checks its own
@@ -596,10 +674,31 @@ export function navigationFor(
     label: "Settings",
     icon: "Settings",
   };
+  // Plan: bulk email and salary slips — both are people-administration, so
+  // they sit in the HRMS slice beside Employees rather than in PMS, and each
+  // is gated by its own predicate the way Projects/Tasks already are.
+  const payroll: NavItem = {
+    href: "/payroll",
+    label: "Payroll",
+    icon: "ReceiptText",
+  };
+  const communications: NavItem = {
+    href: "/communications",
+    label: "Email",
+    icon: "Mail",
+  };
+  const hiring: NavItem = {
+    href: "/hiring",
+    label: "Hiring",
+    icon: "UserRoundSearch",
+  };
 
   return [
     dashboard,
     ...(mode === "hrms" ? [employees, performance, requests] : []),
+    ...(mode === "hrms" && canManageRecruitment(actor) ? [hiring] : []),
+    ...(mode === "hrms" && canManagePayroll(actor) ? [payroll] : []),
+    ...(mode === "hrms" && canSendBulkEmail(actor) ? [communications] : []),
     ...(mode === "pms" && canViewProjects(actor) ? [projects] : []),
     ...(mode === "pms" && canViewTasks(actor) ? [tasks] : []),
     ...(mode === "pms" ? [squad, chat, calendar] : []),

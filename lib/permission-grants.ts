@@ -34,4 +34,10 @@ export const GRANTABLE_PERMISSIONS: readonly {
     label: "Decide on requests",
     description: "Approve or reject any employee request from My Space.",
   },
+  {
+    value: "ManageRecruitment",
+    label: "Run hiring",
+    description:
+      "Build recruitment forms, publish them, and work the applicant pipeline. Applications carry a candidate's contact details and CV.",
+  },
 ] as const;

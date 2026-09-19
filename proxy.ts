@@ -25,6 +25,11 @@ const PROTECTED_PREFIXES = [
   "/chat",
   "/calendar",
   "/announcements",
+  "/payroll",
+  "/communications",
+  "/salary-slips",
+  "/hiring",
+  "/billing",
 ];
 
 /** Reachable by both account types, like `/my-space` — excluded from the
@@ -36,6 +41,18 @@ const SHARED_PREFIXES = [
   "/chat",
   "/calendar",
   "/announcements",
+  // Plan: Razorpay billing — every actor of an unsubscribed company is
+  // redirected here (`app/(dashboard)/layout.tsx`), employee and company
+  // account alike, so this cannot be company-area-only routing.
+  "/billing",
+  // An employee opens their own slip here from Settings; the page itself
+  // re-checks `canViewSalarySlip`, which is what actually keeps them to their
+  // own (Rules.md section 3 — this split is routing, not authorization).
+  "/salary-slips",
+  // An Employee holding a `ManageRecruitment` grant works hiring here, so this
+  // cannot be company-accounts-only routing. The page itself re-checks
+  // `canManageRecruitment`, which is what actually keeps everyone else out.
+  "/hiring",
 ];
 
 /** Signed-in users have no reason to see these again. */
@@ -95,6 +112,9 @@ export default auth((request) => {
 });
 
 export const config = {
-  // Skip Next internals, the auth API, and static assets.
-  matcher: ["/((?!api/auth|_next/static|_next/image|favicon.ico).*)"],
+  // Skip Next internals, the auth API, static assets, and the SEO/metadata
+  // routes a crawler hits directly — none of these need a JWT verified.
+  matcher: [
+    "/((?!api/auth|_next/static|_next/image|favicon.ico|sitemap.xml|robots.txt|opengraph-image|icon.png|apple-icon.png).*)",
+  ],
 };

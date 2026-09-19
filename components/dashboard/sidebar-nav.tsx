@@ -9,10 +9,13 @@ import {
   FolderKanban,
   LayoutDashboard,
   ListChecks,
+  Mail,
   Megaphone,
   MessageCircle,
+  ReceiptText,
   Settings,
   TrendingUp,
+  UserRoundSearch,
   Users,
   type LucideIcon,
 } from "lucide-react";
@@ -36,6 +39,9 @@ const ICONS: Record<string, LucideIcon> = {
   Contact,
   CalendarDays,
   Megaphone,
+  Mail,
+  ReceiptText,
+  UserRoundSearch,
 };
 
 export function SidebarNav({ items }: { items: NavItem[] }) {
@@ -57,16 +63,21 @@ export function SidebarNav({ items }: { items: NavItem[] }) {
             href={item.href}
             aria-current={isActive ? "page" : undefined}
             className={cn(
-              "flex items-center gap-3 rounded-lg px-3 py-2 transition-colors",
+              "flex items-center gap-2 rounded-lg px-1.5 py-1 transition-colors",
               isActive
                 ? // Box-shadow tinted with the same --brand-yellow variable
                   // the active fill uses, so it follows whatever color the
                   // Owner picks (Plan: brand color) with no JS needed.
-                  "bg-brand-yellow text-foreground shadow-[0_2px_10px_-2px_var(--brand-yellow)] font-medium"
-                : "text-brand-brown-soft hover:bg-brand-yellow-light hover:text-foreground"
+                  "bg-brand-yellow text-primary-foreground shadow-[0_2px_10px_-2px_var(--brand-yellow)] font-medium"
+                : "text-brand-brown-soft hover:bg-brand-yellow-light hover:text-brand-brown"
             )}
           >
-            <Icon aria-hidden className="size-5 shrink-0" strokeWidth={1.5} />
+            {/* Fixed-size box rather than a bare icon: collapsed, the sidebar
+                leaves exactly this much room, so the icon stays centred and
+                does not shift horizontally as the label appears on hover. */}
+            <span className="flex size-9 shrink-0 items-center justify-center">
+              <Icon aria-hidden className="size-5" strokeWidth={1.5} />
+            </span>
             <span className="hidden truncate group-hover:inline-block">
               {item.label}
             </span>

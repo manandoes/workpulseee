@@ -3,6 +3,7 @@ import Credentials from "next-auth/providers/credentials";
 import { authConfig } from "@/lib/auth.config";
 import { db } from "@/lib/db";
 import { equalizeTiming, verifyPassword } from "@/lib/passwords";
+import { hasActiveSubscription, loadSubscription } from "@/lib/billing";
 import type { SessionActor } from "@/lib/permissions";
 import { stopRunningEntries } from "@/lib/task-timer-data";
 import { closeOpenBreakOnSignOut } from "@/lib/attendance-data";
@@ -252,8 +253,14 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
  * dev database reset/reseed, or the company being deleted). Treat that as
  * "not signed in" rather than letting every `companyId`-scoped query 500 with
  * `findUniqueOrThrow`.
+ *
+ * Deliberately does NOT check the company's subscription — see `getActor`
+ * below, which wraps this for every other call site. This raw form exists
+ * only for `/api/billing/*` (Plan: Razorpay billing): the Owner must be able
+ * to pay while their company is unsubscribed, so those routes cannot use the
+ * gated `getActor` or they could never reach checkout in the first place.
  */
-export async function getActor(): Promise<SessionActor | null> {
+export async function getRawActor(): Promise<SessionActor | null> {
   const session = await auth();
   if (!session?.user?.companyId) return null;
 
@@ -286,4 +293,27 @@ export async function getActor(): Promise<SessionActor | null> {
     accountType: session.user.accountType,
     grants,
   };
+}
+
+/**
+ * The signed-in caller, or null — additionally gated on the company holding
+ * an active subscription (Plan: Razorpay billing, requirement 2: "no
+ * user/owner can login without having the subscription").
+ *
+ * Every existing API route already calls this and treats `null` as
+ * "unauthorized" (Rules.md section 3 — the server check is the real
+ * boundary, `app/(dashboard)/layout.tsx`'s redirect is the UX for it). Gating
+ * here rather than in each of those ~30 routes means every one of them is
+ * protected with no per-route change, and the one place that must bypass the
+ * gate (billing itself, so an Owner can actually pay) uses `getRawActor`
+ * instead.
+ */
+export async function getActor(): Promise<SessionActor | null> {
+  const actor = await getRawActor();
+  if (!actor) return null;
+
+  const subscription = await loadSubscription(actor.companyId);
+  if (!hasActiveSubscription(subscription)) return null;
+
+  return actor;
 }

@@ -8,6 +8,7 @@ export const setGrantSchema = z.object({
     "ManageEmployees",
     "ManageProjects",
     "DecideRequests",
+    "ManageRecruitment",
   ]),
   granted: z.boolean(),
 });

@@ -74,7 +74,9 @@ export function RegisterCompanyForm() {
       return;
     }
 
-    router.push("/dashboard");
+    // No trial (Plan: Razorpay billing, requirement 2) — every new company
+    // must choose a plan and pay before reaching the dashboard.
+    router.push("/billing");
     router.refresh();
   });
 
