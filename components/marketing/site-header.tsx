@@ -14,7 +14,10 @@ import { BrandMark } from "@/components/marketing/brand-mark";
  * authenticate against different schemas and land in different experiences.
  *
  * Section links are absolute (`/#features`) so they work from the standalone
- * /features, /pricing and /faq pages as well as the landing page.
+ * /features, /pricing and /faq pages as well as the landing page. Rendered as
+ * a roster tab strip — bold, tracked, with a bottom rule that fills on hover
+ * — rather than plain text links, matching the rest of the page's card-frame
+ * language.
  */
 const NAV_LINKS = [
   { href: "/#features", label: "Features" },
@@ -28,7 +31,7 @@ export function SiteHeader() {
 
   return (
     <header className="border-border bg-background/95 sticky top-0 z-50 w-full border-b backdrop-blur-sm">
-      <div className="mx-auto flex h-16 w-full max-w-[1200px] items-center justify-between gap-6 px-6">
+      <div className="mx-auto flex h-20 w-full max-w-[1200px] items-center justify-between gap-6 px-6">
         <Link href="/" aria-label="WorkPulse home">
           <BrandMark />
         </Link>
@@ -38,9 +41,10 @@ export function SiteHeader() {
             <Link
               key={link.href}
               href={link.href}
-              className="text-text-secondary hover:text-brand-brown rounded-sm transition-colors"
+              className="text-brand-brown group relative py-1 text-sm font-bold tracking-wide uppercase"
             >
               {link.label}
+              <span className="bg-brand-yellow absolute right-0 -bottom-1 left-0 h-0.5 origin-left scale-x-0 transition-transform duration-200 group-hover:scale-x-100" />
             </Link>
           ))}
         </nav>
@@ -81,7 +85,7 @@ export function SiteHeader() {
                 key={link.href}
                 href={link.href}
                 onClick={() => setMobileMenuOpen(false)}
-                className="text-text-secondary hover:text-brand-brown hover:bg-surface-muted rounded-lg px-2 py-2 transition-colors"
+                className="text-brand-brown hover:bg-surface-muted rounded-lg px-2 py-2 text-sm font-bold tracking-wide uppercase transition-colors"
               >
                 {link.label}
               </Link>

@@ -4,18 +4,26 @@ import { cn } from "cn";
 import { Button } from "@/components/ui/button";
 import { Section, SectionHeading } from "@/components/marketing/section";
 import { detectPricingCurrency, type Currency } from "@/lib/pricing";
+import { PLAN_CONFIG } from "@/lib/plans";
 
 /**
  * Pricing (PRD.md section 6.0). Flat monthly fee per company, based on the
  * employee-count bracket — not per-user. Currency is picked by the visitor's
  * IP-derived country (India -> INR, everywhere else -> USD); see
  * `lib/pricing.ts`.
+ *
+ * The three self-serve tiers' names/caps/INR prices come from `lib/plans.ts`
+ * — the same config `/billing` checkout actually charges — so this page can
+ * never quote a number checkout disagrees with. USD display prices (shown to
+ * non-Indian visitors) and the non-self-serve Enterprise tier stay local:
+ * Razorpay checkout only ever charges in INR (see `lib/plans.ts`'s own
+ * comment), so there is nothing in `lib/plans.ts` for a USD price to match.
  */
 const PLANS = [
   {
-    name: "Starter",
-    upToEmployees: 10,
-    price: { INR: "₹2,000", USD: "$25" },
+    name: PLAN_CONFIG.Starter.name,
+    upToEmployees: PLAN_CONFIG.Starter.maxEmployees,
+    price: { INR: PLAN_CONFIG.Starter.priceLabel, USD: "$25" },
     description: "For small teams putting their operations in one place.",
     features: [
       "Up to 10 employees",
@@ -27,9 +35,9 @@ const PLANS = [
     featured: false,
   },
   {
-    name: "Growth",
-    upToEmployees: 20,
-    price: { INR: "₹3,200", USD: "$40" },
+    name: PLAN_CONFIG.Growth.name,
+    upToEmployees: PLAN_CONFIG.Growth.maxEmployees,
+    price: { INR: PLAN_CONFIG.Growth.priceLabel, USD: "$40" },
     discountLabel: "20% off",
     description: "For growing teams that need workload and performance visibility.",
     features: [
@@ -43,9 +51,9 @@ const PLANS = [
     featured: true,
   },
   {
-    name: "Scale",
-    upToEmployees: 50,
-    price: { INR: "₹6,000", USD: "$75" },
+    name: PLAN_CONFIG.Scale.name,
+    upToEmployees: PLAN_CONFIG.Scale.maxEmployees,
+    price: { INR: PLAN_CONFIG.Scale.priceLabel, USD: "$75" },
     discountLabel: "40% off",
     description: "For larger agencies with custom process and security needs.",
     features: [
@@ -79,12 +87,11 @@ export async function PricingSection() {
   return (
     <Section id="pricing" className="bg-surface">
       <SectionHeading
-        eyebrow="Pricing"
         title="Simple plans that grow with your team"
         description="Every plan includes your own isolated company workspace. Flat monthly price per company, billed in your local currency."
       />
 
-      <div className="mt-12 grid gap-6 lg:grid-cols-4">
+      <div className="mt-14 grid gap-6 lg:grid-cols-4">
         {PLANS.map((plan) => {
           const isCustom = plan.price.INR === "Custom";
           const price = plan.price[currency];
@@ -93,21 +100,19 @@ export async function PricingSection() {
             <div
               key={plan.name}
               className={cn(
-                "border-border bg-surface flex flex-col gap-6 rounded-xl border p-6",
-                plan.featured && "border-brand-yellow"
+                "border-brand-brown-light bg-surface relative flex flex-col gap-6 rounded-lg border-2 p-6",
+                plan.featured && "border-brand-brown"
               )}
             >
+              {plan.featured ? (
+                <span className="bg-brand-yellow text-brand-brown absolute -top-3.5 left-6 rounded-full px-3 py-1 text-xs font-bold tracking-wide uppercase">
+                  Most picked
+                </span>
+              ) : null}
               <div className="flex flex-col gap-2">
-                <div className="flex items-center justify-between gap-3">
-                  <h3 className="text-h3 text-brand-brown font-semibold">
-                    {plan.name}
-                  </h3>
-                  {plan.featured ? (
-                    <span className="bg-brand-yellow-light text-brand-brown text-meta rounded-full px-2.5 py-1 font-medium">
-                      Most popular
-                    </span>
-                  ) : null}
-                </div>
+                <h3 className="text-brand-brown text-xl font-bold tracking-tight">
+                  {plan.name}
+                </h3>
                 <p className="text-text-secondary">{plan.description}</p>
               </div>
 

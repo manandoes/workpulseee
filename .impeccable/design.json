@@ -1,0 +1,231 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-09-19T00:00:00Z",
+  "title": "Design System: WorkPulse",
+  "extensions": {
+    "colorMeta": {
+      "brand-yellow": {
+        "role": "primary",
+        "displayName": "Signal Yellow",
+        "canonical": "#F2B705",
+        "tonalRamp": ["#291F00", "#4D3B00", "#735800", "#9A7600", "#C29400", "#F2B705", "#F7D35F", "#FDF3D7"]
+      },
+      "brand-brown": {
+        "role": "neutral",
+        "displayName": "Roasted Brown",
+        "canonical": "#4A3A2C",
+        "tonalRamp": ["#1B1510", "#2E2317", "#4A3A2C", "#6A5440", "#8A7055", "#A99172", "#C9B8A4", "#EDE4D7"]
+      },
+      "brand-brown-soft": {
+        "role": "neutral",
+        "displayName": "Muted Bark",
+        "canonical": "#7A6653",
+        "tonalRamp": ["#1E1811", "#33291F", "#4C3E30", "#635141", "#7A6653", "#9C8974", "#C9B8A4", "#EFE8DE"]
+      },
+      "background": {
+        "role": "neutral",
+        "displayName": "Warm Paper",
+        "canonical": "#FFFBF2",
+        "tonalRamp": ["#221E16", "#3C362B", "#5A5244", "#7C7362", "#A49B88", "#CDC4B1", "#F0EADC", "#FFFBF2"]
+      },
+      "surface-muted": {
+        "role": "neutral",
+        "displayName": "Oat Panel",
+        "canonical": "#F5EFE3",
+        "tonalRamp": ["#221D14", "#3B3426", "#574D3A", "#766B54", "#9A8E75", "#C1B59B", "#E0D7C4", "#F5EFE3"]
+      },
+      "border": {
+        "role": "neutral",
+        "displayName": "Warm Rule",
+        "canonical": "#E9DFCB",
+        "tonalRamp": ["#201B11", "#382F1F", "#544830", "#726444", "#95855F", "#BBAC85", "#D8CBB0", "#E9DFCB"]
+      },
+      "success": {
+        "role": "tertiary",
+        "displayName": "Field Green",
+        "canonical": "#2F9E44",
+        "tonalRamp": ["#0A2610", "#11401B", "#185C27", "#207B34", "#2F9E44", "#57BC6B", "#8FD69D", "#D3F0D9"]
+      },
+      "warning": {
+        "role": "tertiary",
+        "displayName": "Flag Orange",
+        "canonical": "#E8590C",
+        "tonalRamp": ["#2B1002", "#471B04", "#672706", "#8B3508", "#BB480A", "#E8590C", "#F48A4F", "#FBD5BC"]
+      },
+      "danger": {
+        "role": "tertiary",
+        "displayName": "Overdue Red",
+        "canonical": "#D64545",
+        "tonalRamp": ["#2C0C0C", "#491515", "#6A2020", "#8E2C2C", "#B03A3A", "#D64545", "#E68585", "#F7D6D6"]
+      },
+      "info": {
+        "role": "secondary",
+        "displayName": "Slate Blue",
+        "canonical": "#3B6E91",
+        "tonalRamp": ["#0B1721", "#132738", "#1D3B52", "#2A546F", "#3B6E91", "#6493B3", "#98B9D1", "#D8E6EF"]
+      },
+      "dashboard-brand-yellow": {
+        "role": "primary",
+        "displayName": "Dashboard Yellow",
+        "canonical": "#FFCC00",
+        "tonalRamp": ["#2B2200", "#4A3B00", "#6B5500", "#8F7200", "#B38F00", "#D9AD00", "#FFCC00", "#FFF3B0"]
+      },
+      "file-accent": {
+        "role": "primary",
+        "displayName": "Company Accent (runtime)",
+        "canonical": "var(--file-accent)",
+        "tonalRamp": []
+      },
+      "file-muted": {
+        "role": "neutral",
+        "displayName": "File Muted Ink",
+        "canonical": "#7A6653",
+        "tonalRamp": ["#1E1811", "#33291F", "#4C3E30", "#635141", "#7A6653", "#9C8974", "#C9B8A4", "#EFE8DE"]
+      },
+      "file-required": {
+        "role": "tertiary",
+        "displayName": "Required Mark",
+        "canonical": "#B03A3A",
+        "tonalRamp": ["#240A0A", "#3D1212", "#591B1B", "#7A2626", "#B03A3A", "#CF6161", "#E49A9A", "#F6DCDC"]
+      }
+    },
+    "typographyMeta": {
+      "display": { "displayName": "Display", "purpose": "Landing hero only — 32px semibold." },
+      "h1": { "displayName": "Page Title", "purpose": "24px semibold, brand-brown; PageHeader owns it in the dashboard." },
+      "h2": { "displayName": "Section Header", "purpose": "20px semibold." },
+      "h3": { "displayName": "Card Title", "purpose": "16px semibold." },
+      "body": { "displayName": "Body", "purpose": "14px regular — the product default; measures capped near 68ch on reading surfaces." },
+      "meta": { "displayName": "Meta / Label", "purpose": "12px regular or medium — timestamps, pill labels, uppercase field labels." }
+    },
+    "shadows": [
+      {
+        "name": "flat",
+        "value": "none",
+        "purpose": "The default. Surfaces are separated by a 1px warm border and a tonal step, not by depth."
+      },
+      {
+        "name": "card-hint",
+        "value": "0 1px 2px rgba(74, 58, 44, 0.06)",
+        "purpose": "The ceiling. shadow-sm at most on cards; never a drop shadow used for emphasis."
+      }
+    ],
+    "motion": [
+      { "name": "state", "value": "150ms ease", "purpose": "Color and border transitions on hover/focus for buttons, rows, controls." },
+      { "name": "check", "value": "200ms ease-out", "purpose": "The contents-rail completeness dot filling; disabled under prefers-reduced-motion." }
+    ],
+    "breakpoints": [
+      { "name": "sm", "value": "640px" },
+      { "name": "lg", "value": "1024px" },
+      { "name": "container", "value": "1280px" }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "The one filled action on a dashboard view — brand yellow with brown text.",
+      "html": "<button class=\"ds-btn-primary\">New form</button>",
+      "css": ".ds-btn-primary { display: inline-flex; align-items: center; justify-content: center; gap: 6px; height: 32px; padding: 0 10px; border: 1px solid transparent; border-radius: 10px; background: #F2B705; color: #4A3A2C; font-family: Inter, ui-sans-serif, system-ui, sans-serif; font-size: 14px; font-weight: 500; white-space: nowrap; cursor: pointer; transition: background 150ms ease, border-color 150ms ease; } .ds-btn-primary:hover { background: #D9A400; } .ds-btn-primary:focus-visible { outline: none; border-color: #F2B705; box-shadow: 0 0 0 3px rgba(242, 183, 5, 0.5); } .ds-btn-primary:active { transform: translateY(1px); }"
+    },
+    {
+      "name": "Secondary Button",
+      "kind": "button",
+      "refersTo": "button-outline",
+      "description": "Outlined in warm brown-light for the second action beside a primary.",
+      "html": "<button class=\"ds-btn-outline\">Preview</button>",
+      "css": ".ds-btn-outline { display: inline-flex; align-items: center; justify-content: center; gap: 6px; height: 32px; padding: 0 10px; border: 1px solid #C9B8A4; border-radius: 10px; background: transparent; color: #4A3A2C; font-family: Inter, ui-sans-serif, system-ui, sans-serif; font-size: 14px; font-weight: 500; cursor: pointer; transition: background 150ms ease; } .ds-btn-outline:hover { background: #FDF3D7; } .ds-btn-outline:focus-visible { outline: none; border-color: #F2B705; box-shadow: 0 0 0 3px rgba(242, 183, 5, 0.5); }"
+    },
+    {
+      "name": "Status Pill",
+      "kind": "chip",
+      "refersTo": "status-pill",
+      "description": "Every module's state marker. Status palette only, never brand; a dot in the fill hue, a label in the darkened text hue.",
+      "html": "<span class=\"ds-pill\" title=\"In conversation\"><span class=\"ds-pill-dot\"></span>Interview</span>",
+      "css": ".ds-pill { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 999px; background: #F5EFE3; color: #BB480A; font-family: Inter, ui-sans-serif, system-ui, sans-serif; font-size: 12px; font-weight: 500; } .ds-pill-dot { width: 6px; height: 6px; border-radius: 999px; background: #E8590C; }"
+    },
+    {
+      "name": "Card",
+      "kind": "card",
+      "refersTo": "card",
+      "description": "Flat white panel lifted off the cream page by a thin warm border, never by a shadow.",
+      "html": "<div class=\"ds-card\"><h3 class=\"ds-card-title\">Google Forms</h3><p class=\"ds-card-body\">Connected as hiring@company.com.</p></div>",
+      "css": ".ds-card { background: #FFFFFF; border: 1px solid #E9DFCB; border-radius: 12px; padding: 20px; font-family: Inter, ui-sans-serif, system-ui, sans-serif; } .ds-card-title { margin: 0 0 8px; font-size: 16px; font-weight: 600; color: #4A3A2C; } .ds-card-body { margin: 0; font-size: 14px; color: #7A6653; }"
+    },
+    {
+      "name": "Empty State",
+      "kind": "card",
+      "refersTo": "empty-state",
+      "description": "A dashed warm border, a friendly line, and one primary action — never a blank panel.",
+      "html": "<div class=\"ds-empty\"><h2 class=\"ds-empty-title\">No openings yet</h2><p class=\"ds-empty-body\">Build one and publish it when you are ready.</p><button class=\"ds-btn-primary\">Build your first form</button></div>",
+      "css": ".ds-empty { display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 56px 24px; border: 1px dashed #E9DFCB; border-radius: 12px; background: #FFFFFF; text-align: center; font-family: Inter, ui-sans-serif, system-ui, sans-serif; } .ds-empty-title { margin: 0; font-size: 16px; font-weight: 600; color: #4A3A2C; } .ds-empty-body { margin: 0; max-width: 28rem; font-size: 14px; color: #7A6653; }"
+    },
+    {
+      "name": "Sidebar Nav Item",
+      "kind": "nav",
+      "refersTo": "nav-item",
+      "description": "Dashboard rail item — white at rest, brand tint when active, never a wall of yellow.",
+      "html": "<nav class=\"ds-nav\"><a class=\"ds-nav-item ds-nav-item-active\" href=\"#\">Hiring</a><a class=\"ds-nav-item\" href=\"#\">Payroll</a></nav>",
+      "css": ".ds-nav { display: flex; flex-direction: column; gap: 2px; width: 240px; padding: 8px; background: #FFFFFF; border-right: 1px solid #E4E4E4; font-family: Inter, ui-sans-serif, system-ui, sans-serif; } .ds-nav-item { display: block; padding: 8px 12px; border-radius: 10px; color: #3F3F3F; font-size: 14px; font-weight: 500; text-decoration: none; transition: background 150ms ease, color 150ms ease; } .ds-nav-item:hover { background: #FFF3B0; color: #000000; } .ds-nav-item-active { background: #FFF3B0; color: #000000; } .ds-nav-item:focus-visible { outline: 2px solid #FFCC00; outline-offset: 2px; }"
+    },
+    {
+      "name": "Application File Field",
+      "kind": "input",
+      "refersTo": "file-input",
+      "description": "The applicant surface's text control: white on paper, warm rule stroke, focus in the company accent, sized to its content class rather than the column.",
+      "html": "<div class=\"ds-file-field\"><label class=\"ds-file-label\" for=\"ds-email\">Email address <span class=\"ds-file-req\">*</span></label><p class=\"ds-file-help\">This is where any reply will go.</p><input class=\"ds-file-input\" id=\"ds-email\" type=\"email\" /></div>",
+      "css": ".ds-file-field { display: flex; flex-direction: column; gap: 6px; padding: 20px 0; font-family: Inter, ui-sans-serif, system-ui, sans-serif; } .ds-file-label { font-size: 14px; font-weight: 500; color: #4A3A2C; } .ds-file-req { color: #B03A3A; } .ds-file-help { margin: 0; max-width: 68ch; font-size: 14px; color: #7A6653; } .ds-file-input { width: 100%; max-width: 28rem; padding: 8px 12px; border: 1px solid #E9DFCB; border-radius: 10px; background: #FFFFFF; color: #2E2317; font-size: 14px; outline: none; transition: border-color 150ms ease, box-shadow 150ms ease; } .ds-file-input::placeholder { color: #7A6653; } .ds-file-input:focus-visible { border-color: var(--file-accent, #F2B705); box-shadow: 0 0 0 2px color-mix(in srgb, var(--file-accent, #F2B705) 40%, transparent); }"
+    },
+    {
+      "name": "Docked Attachment",
+      "kind": "custom",
+      "refersTo": "file-attachment",
+      "description": "Signature of the applicant surface: a chosen file docks as a named row with size and a remove control — never a dashed drop-zone, never the browser's own file chrome.",
+      "html": "<div class=\"ds-dock\"><svg class=\"ds-dock-clip\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48\"/></svg><span class=\"ds-dock-name\">portfolio-2026.pdf</span><span class=\"ds-dock-size\">2.4 MB</span></div>",
+      "css": ".ds-dock { display: flex; align-items: center; gap: 12px; max-width: 34rem; padding: 10px 12px; border: 1px solid #E9DFCB; border-radius: 10px; background: #FFFFFF; font-family: Inter, ui-sans-serif, system-ui, sans-serif; font-size: 14px; } .ds-dock-clip { width: 14px; height: 14px; flex-shrink: 0; color: #7A6653; } .ds-dock-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #2E2317; } .ds-dock-size { flex-shrink: 0; color: #7A6653; font-variant-numeric: tabular-nums; }"
+    },
+    {
+      "name": "Contents Rail",
+      "kind": "custom",
+      "refersTo": "file-rail",
+      "description": "The applicant surface's one card: section counts, docked attachments, and the accent submit. Collapses to a fixed bottom bar below 1024px.",
+      "html": "<aside class=\"ds-rail\"><h2 class=\"ds-rail-title\">Your file</h2><div class=\"ds-rail-row\"><span>About you</span><span class=\"ds-rail-count\">0/2</span></div><button class=\"ds-rail-submit\">Submit application</button><p class=\"ds-rail-note\">Nothing is sent until you press submit.</p></aside>",
+      "css": ".ds-rail { width: 320px; padding: 20px; border: 1px solid #E9DFCB; border-radius: 12px; background: #FFFFFF; font-family: Inter, ui-sans-serif, system-ui, sans-serif; } .ds-rail-title { margin: 0 0 16px; font-size: 14px; font-weight: 600; color: #4A3A2C; } .ds-rail-row { display: flex; justify-content: space-between; gap: 12px; margin-bottom: 12px; font-size: 14px; color: #2E2317; } .ds-rail-count { color: #7A6653; font-variant-numeric: tabular-nums; } .ds-rail-submit { width: 100%; padding: 10px 16px; border: none; border-radius: 10px; background: var(--file-accent, #F2B705); color: var(--file-on-accent, #2E2317); font-size: 14px; font-weight: 500; cursor: pointer; transition: opacity 150ms ease; } .ds-rail-submit:hover { opacity: 0.9; } .ds-rail-submit:focus-visible { outline: none; box-shadow: 0 0 0 2px #FFFFFF, 0 0 0 4px var(--file-accent, #F2B705); } .ds-rail-note { margin: 12px 0 0; font-size: 12px; color: #7A6653; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "Warm Operations Paper",
+    "overview": "Modern, sleek, minimalist: generous whitespace, few borders, flat surfaces, no unnecessary shadows or gradients. Warm but professional — the yellow/brown palette feels approachable without tipping into playful, because this is still a tool handling HR, performance and financial data. Clarity over decoration: managers need to scan and act fast, so brand color is used purposefully on accents, CTAs and active states rather than everywhere.\n\nTwo palettes share one token set. The marketing site and auth pages keep the warm cream/brown identity; the authenticated dashboard swaps in a yellow/white/black theme via a `.dashboard-theme` class on the app shell rather than by touching `:root`. Every token name is identical between them, so no component knows which palette it is rendering in. The public applicant surface extends that same move a third time with a `--file-*` set scoped to its own layout root and tinted at runtime by the company's brand color.\n\nStatus lives in its own palette and never borrows brand yellow or brown, so a brand accent can never be mistaken for an alert.",
+    "keyCharacteristics": [
+      "Warm off-white ground (#FFFBF2), not stark white",
+      "Flat surfaces separated by 1px warm borders, shadow-sm at most",
+      "One typeface (Inter) at a fixed six-step scale from 32px down to 12px",
+      "Brand yellow reserved for the single primary action and active state",
+      "A separate status palette with darkened text hues that clear AA",
+      "Per-surface token scoping: .dashboard-theme, --file-*, never :root"
+    ],
+    "rules": [
+      { "name": "The Surface-Root Scoping Rule", "body": "A palette that only one surface needs is declared on that surface's own layout root, never on :root. The dashboard does this with the .dashboard-theme class; the applicant surface does it with a --file-* custom-property set as an inline style on its layout. Either way the global tokens stay untouched, and nothing outside the scope can inherit a value meant for one page.", "section": "colors" },
+      { "name": "The Muted-Ink Floor Rule", "body": "On the cream ground, text-secondary (#8A7A66) measures ~4.2:1 and misses the AA floor. Secondary text on cream uses brand-brown-soft (#7A6653, ~5.3:1) instead.", "section": "colors" },
+      { "name": "The Computed Foreground Rule", "body": "When a color enters the product at runtime — an owner picking a brand color from a plain color input, with no contrast check attached — the foreground on it is computed, never assumed. readableTextOn() takes WCAG relative luminance and returns #2E2317 or #FFFFFF, so a dark brand and a pale brand both land readable.", "section": "colors" },
+      { "name": "The Status Separation Rule", "body": "Brand yellow/brown is never reused to signal status. This avoids ambiguity between 'this is a brand accent' and 'this needs your attention.'", "section": "colors" },
+      { "name": "The Shared Pill Rule", "body": "One shared pill owns the markup — surface-muted fill, full radius, 12px medium label in a darkened *-text token, a 6px dot in the matching fill hue — and each module declares its own vocabulary as a PillStyle map beside its feature. A new status set inherits the shape and the contrast floor; it never re-invents them.", "section": "components" }
+    ],
+    "dos": [
+      "Do scope a one-surface palette to that surface's layout root, the way .dashboard-theme and --file-* both do, and keep :root for the shared world.",
+      "Do compute the foreground on any color the product did not choose at build time.",
+      "Do size controls to their content class rather than to the column — 13rem for a date, 34rem for a short answer.",
+      "Do separate sections with a 1px warm rule and vertical rhythm rather than by wrapping each one in a card.",
+      "Do dock a chosen file as a named row with its size and a remove control.",
+      "Do pair every status color with a text label, and use the darkened *-text tokens for that label."
+    ],
+    "donts": [
+      "Don't introduce a second palette on a public surface. Everything but the company accent is the marketing/auth palette under a local name.",
+      "Don't place a small muted label directly above a heading as a kicker or eyebrow. Where the company's name has to appear above the role title, it sits on its own ruled letterhead band, separated by a rule.",
+      "Don't paint status color or brand yellow onto the applicant surface. The company's accent is the only accent.",
+      "Don't use a drop shadow for emphasis; surfaces are flat and separated by a warm 1px border.",
+      "Don't ship the browser's own file-input chrome, or a dashed drop-zone rectangle, in place of a drawn control.",
+      "Don't put status text directly on a solid brand-yellow fill — it lands near 3.5:1. Status stays on white or surface-muted."
+    ]
+  }
+}

@@ -16,7 +16,7 @@ export function Section({
   children: React.ReactNode;
 }) {
   return (
-    <section id={id} className={cn("w-full px-6 py-16 sm:py-20", className)}>
+    <section id={id} className={cn("w-full px-6 py-20 sm:py-28", className)}>
       <div className={cn("mx-auto w-full max-w-[1200px]", containerClassName)}>
         {children}
       </div>
@@ -25,15 +25,15 @@ export function Section({
 }
 
 /**
- * Eyebrow + title + optional description, used at the top of each section.
+ * A section's heading, on its own — no eyebrow/kicker line above it. The
+ * heading carries its own weight at a committed display scale; a label
+ * floating above it would only repeat what the heading already says.
  */
 export function SectionHeading({
-  eyebrow,
   title,
   description,
   align = "center",
 }: {
-  eyebrow?: string;
   title: string;
   description?: string;
   align?: "center" | "start";
@@ -41,20 +41,17 @@ export function SectionHeading({
   return (
     <div
       className={cn(
-        "flex flex-col gap-3",
+        "flex flex-col gap-4",
         align === "center" ? "items-center text-center" : "items-start"
       )}
     >
-      {eyebrow ? (
-        <p className="text-meta text-brand-brown-soft font-medium tracking-wide uppercase">
-          {eyebrow}
-        </p>
-      ) : null}
-      <h2 className="text-h2 text-brand-brown font-semibold">{title}</h2>
+      <h2 className="text-brand-brown max-w-3xl text-4xl font-semibold tracking-tight text-balance sm:text-5xl">
+        {title}
+      </h2>
       {description ? (
         <p
           className={cn(
-            "text-text-secondary max-w-2xl",
+            "text-text-secondary max-w-2xl text-lg text-pretty",
             align === "center" && "mx-auto"
           )}
         >
@@ -62,5 +59,29 @@ export function SectionHeading({
         </p>
       ) : null}
     </div>
+  );
+}
+
+/**
+ * Scoreboard-style all-caps label — a roster position, a plan division, a
+ * step count. Used inline beside content it names (a card's own header, a
+ * nav tab), never floating above a heading as a kicker.
+ */
+export function LabelTag({
+  children,
+  className,
+}: {
+  children: React.ReactNode;
+  className?: string;
+}) {
+  return (
+    <span
+      className={cn(
+        "border-brand-brown text-brand-brown inline-flex items-center gap-1.5 rounded-full border-2 px-3 py-1 text-xs font-bold tracking-wide uppercase",
+        className
+      )}
+    >
+      {children}
+    </span>
   );
 }

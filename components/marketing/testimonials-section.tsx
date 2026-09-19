@@ -8,29 +8,27 @@ import { Section, SectionHeading } from "@/components/marketing/section";
  *
  * Deliberately left as an honest empty state rather than filled with invented
  * quotes or logos: publishing fabricated testimonials would misrepresent real
- * customers. Replace the placeholder cards with real, attributed quotes once
- * they exist. Styled per Design.md section 11 (friendly message + primary CTA).
+ * customers. Styled as open roster slots — donated from the "sticker album"
+ * concept weighed during this page's direction round: a ghosted outline
+ * showing exactly what belongs there, rather than a skeleton loader
+ * pretending content is still arriving.
  */
 export function TestimonialsSection() {
   return (
     <Section id="customers" className="bg-background">
       <SectionHeading
-        eyebrow="Customers"
         title="Customer stories are on the way"
         description="We're onboarding our first agencies now. As teams go live, their results will appear here."
       />
 
-      <div className="mt-12 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+      <div className="mt-14 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
         {[0, 1, 2].map((index) => (
           <div
             key={index}
             aria-hidden
-            className="border-border bg-surface-muted flex flex-col gap-4 rounded-xl border border-dashed p-6"
+            className="border-brand-brown-light text-brand-brown-light flex flex-col gap-4 rounded-lg border-2 border-dashed p-6"
           >
-            <MessageSquareQuote
-              className="text-brand-brown-light size-5"
-              strokeWidth={1.5}
-            />
+            <MessageSquareQuote className="size-6" strokeWidth={1.5} />
             <div className="flex flex-col gap-2">
               <span className="bg-brand-brown-light/40 h-2 w-full rounded-full" />
               <span className="bg-brand-brown-light/40 h-2 w-11/12 rounded-full" />
@@ -41,8 +39,8 @@ export function TestimonialsSection() {
         ))}
       </div>
 
-      <div className="mt-8 flex justify-center">
-        <Button asChild variant="outline">
+      <div className="mt-10 flex justify-center">
+        <Button asChild variant="outline" size="lg">
           <Link href="/register">Become an early customer</Link>
         </Button>
       </div>

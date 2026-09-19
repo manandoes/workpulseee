@@ -14,7 +14,10 @@ import { Section, SectionHeading } from "@/components/marketing/section";
  * Design.md section 8: accordion, brand-brown question text, text-secondary
  * answers, thin divider between items.
  */
-const FAQS = [
+// Exported so `app/(marketing)/layout.tsx` can build `FAQPage` JSON-LD from
+// this exact copy rather than retyping it — hand-copied structured data that
+// drifts from the visible text is a structured-data violation.
+export const FAQS = [
   {
     question: "Is this an HRMS replacement?",
     answer:
@@ -51,15 +54,20 @@ export function FaqSection() {
   return (
     <Section id="faq" className="bg-surface">
       <div className="mx-auto flex max-w-3xl flex-col gap-10">
-        <SectionHeading eyebrow="FAQ" title="Questions, answered" />
+        <SectionHeading title="Questions, answered" />
 
-        <Accordion type="single" collapsible className="w-full">
+        <Accordion
+          type="single"
+          collapsible
+          defaultValue={FAQS[0].question}
+          className="border-brand-brown-light w-full border-t-2"
+        >
           {FAQS.map((faq) => (
             <AccordionItem key={faq.question} value={faq.question}>
-              <AccordionTrigger className="text-brand-brown text-h3 py-4 font-semibold hover:no-underline">
+              <AccordionTrigger className="text-brand-brown py-5 text-lg font-bold tracking-tight hover:no-underline">
                 {faq.question}
               </AccordionTrigger>
-              <AccordionContent className="text-text-secondary pb-4">
+              <AccordionContent className="text-text-secondary pb-5">
                 {faq.answer}
               </AccordionContent>
             </AccordionItem>

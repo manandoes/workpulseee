@@ -34,12 +34,12 @@ const FOOTER_COLUMNS = [
 
 export function SiteFooter() {
   return (
-    <footer className="border-border bg-surface-muted border-t">
-      <div className="mx-auto w-full max-w-[1200px] px-6 py-12">
+    <footer className="border-brand-brown bg-surface-muted border-t-2">
+      <div className="mx-auto w-full max-w-[1200px] px-6 py-14">
         <div className="flex flex-col gap-10 md:flex-row md:justify-between">
           <div className="flex max-w-xs flex-col gap-3">
             <BrandMark />
-            <p className="text-text-secondary text-meta">
+            <p className="text-text-secondary text-sm">
               Agency operations, employee management, and performance in one
               place.
             </p>
@@ -48,7 +48,7 @@ export function SiteFooter() {
           <div className="grid grid-cols-2 gap-8 sm:grid-cols-3 md:gap-16">
             {FOOTER_COLUMNS.map((column) => (
               <div key={column.heading} className="flex flex-col gap-3">
-                <h3 className="text-brand-brown text-meta font-semibold tracking-wide uppercase">
+                <h3 className="text-brand-brown text-xs font-bold tracking-wide uppercase">
                   {column.heading}
                 </h3>
                 <ul className="flex flex-col gap-2">
@@ -68,8 +68,8 @@ export function SiteFooter() {
           </div>
         </div>
 
-        <div className="border-border mt-10 border-t pt-6">
-          <p className="text-text-secondary text-meta">
+        <div className="border-brand-brown-light mt-10 border-t-2 pt-6">
+          <p className="text-text-secondary text-sm">
             &copy; {new Date().getFullYear()} WorkPulse. All rights reserved.
           </p>
         </div>

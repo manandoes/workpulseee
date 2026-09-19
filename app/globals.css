@@ -274,6 +274,28 @@
 
   --border: #2a2a2a;
   --input: #2a2a2a;
+
+  /* The light theme derives this by mixing the brand color toward *white*,
+     which reads as a pale peach chip — correct on a white page, but it used
+     to leak into dark mode unchanged (it was defined only in `:root` and
+     `.dashboard-theme`), painting light peach boxes across a black UI on
+     every hover/active state and behind `--sidebar-accent`. Mixing toward the
+     dark background instead keeps the same brand tint at the same role while
+     staying a dark surface, so no component needs to know which theme is on. */
+  --brand-yellow-light: color-mix(in srgb, var(--brand-yellow) 18%, #0a0a0a);
+
+  /* Both accents carry text; pin them to `--brand-brown` (near-white here)
+     rather than letting anything inherit `--foreground`, whose light gray was
+     what disappeared against the old peach fill. */
+  --accent-foreground: var(--brand-brown);
+  --sidebar-accent-foreground: var(--brand-brown);
+
+  /* The *solid* brand fill is the one surface that does not change with the
+     theme — it stays the Owner's bright brand color in both. So its text has
+     to stay dark here instead of following `--brand-brown` up to near-white,
+     which would put pale gray on yellow. */
+  --primary-foreground: #0a0a0a;
+  --sidebar-primary-foreground: #0a0a0a;
 }
 
 @layer base {

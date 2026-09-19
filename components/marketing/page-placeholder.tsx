@@ -19,10 +19,12 @@ export function PagePlaceholder({
   return (
     <Section className="bg-background">
       <div className="mx-auto flex max-w-2xl flex-col items-start gap-5 py-8">
-        <h1 className="text-h1 text-brand-brown font-semibold">{title}</h1>
-        <p className="text-text-secondary">{description}</p>
+        <h1 className="text-brand-brown text-4xl font-bold tracking-tight sm:text-5xl">
+          {title}
+        </h1>
+        <p className="text-text-secondary text-lg">{description}</p>
         {note ? (
-          <p className="border-border bg-surface-muted text-text-secondary text-meta rounded-xl border px-4 py-3">
+          <p className="border-brand-brown-light text-text-secondary rounded-lg border-2 border-dashed px-4 py-3 text-sm">
             {note}
           </p>
         ) : null}
