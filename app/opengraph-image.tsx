@@ -43,7 +43,7 @@ export default function OpengraphImage() {
           WorkPulse
         </div>
         <div style={{ display: "flex", fontSize: 64, fontWeight: 700, lineHeight: 1.15 }}>
-          Run your whole agency
+          Run your whole company
         </div>
         <div style={{ display: "flex", fontSize: 64, fontWeight: 700, lineHeight: 1.15 }}>
           from one dashboard.

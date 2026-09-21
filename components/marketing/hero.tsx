@@ -1,7 +1,6 @@
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { RosterCards } from "@/components/marketing/roster-cards";
-import { LabelTag } from "@/components/marketing/section";
 
 /**
  * Hero section (PRD.md section 6.0). Refuses the standard SaaS hero-plus-
@@ -15,10 +14,8 @@ export function Hero() {
     <section className="bg-background w-full px-6 pt-14 pb-16 sm:pt-20 sm:pb-24">
       <div className="mx-auto grid w-full max-w-[1200px] items-center gap-14 lg:grid-cols-[1.15fr_1fr] lg:gap-16">
         <div className="flex flex-col items-start gap-7">
-          <LabelTag>Agency operations roster</LabelTag>
-
           <h1 className="text-brand-brown max-w-2xl text-5xl leading-[1.05] font-bold tracking-tight text-balance sm:text-6xl lg:text-7xl">
-            Run your whole agency from one dashboard.
+            Run your whole company from one dashboard
           </h1>
 
           <p className="text-text-secondary max-w-xl text-lg text-pretty">

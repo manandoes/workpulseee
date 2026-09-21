@@ -27,8 +27,8 @@ export const PLAN_CONFIG: Record<
   Growth: {
     name: "Growth",
     maxEmployees: 20,
-    priceInPaise: 320_000,
-    priceLabel: "₹3,200",
+    priceInPaise: 350_000,
+    priceLabel: "₹3,500",
   },
   Scale: {
     name: "Scale",

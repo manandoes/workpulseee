@@ -18,6 +18,12 @@ import { PLAN_CONFIG } from "@/lib/plans";
  * non-Indian visitors) and the non-self-serve Enterprise tier stay local:
  * Razorpay checkout only ever charges in INR (see `lib/plans.ts`'s own
  * comment), so there is nothing in `lib/plans.ts` for a USD price to match.
+ *
+ * There's no "most picked" badge — which plan fits is driven by company
+ * size, not popularity, so pushing one tier as the default pick would be
+ * misleading. Growth and Scale instead carry a limited-time offer: their
+ * `originalPrice` (struck through) is shown next to the current
+ * `PLAN_CONFIG` price, which is what checkout actually charges.
  */
 const PLANS = [
   {
@@ -32,13 +38,13 @@ const PLANS = [
       "Email support",
     ],
     cta: "Get started",
-    featured: false,
+    onOffer: false,
   },
   {
     name: PLAN_CONFIG.Growth.name,
     upToEmployees: PLAN_CONFIG.Growth.maxEmployees,
     price: { INR: PLAN_CONFIG.Growth.priceLabel, USD: "$40" },
-    discountLabel: "20% off",
+    originalPrice: { INR: "₹4,000", USD: "$45" },
     description: "For growing teams that need workload and performance visibility.",
     features: [
       "Up to 20 employees",
@@ -48,13 +54,13 @@ const PLANS = [
       "Early-warning alerts",
     ],
     cta: "Get started",
-    featured: true,
+    onOffer: true,
   },
   {
     name: PLAN_CONFIG.Scale.name,
     upToEmployees: PLAN_CONFIG.Scale.maxEmployees,
     price: { INR: PLAN_CONFIG.Scale.priceLabel, USD: "$75" },
-    discountLabel: "40% off",
+    originalPrice: { INR: "₹10,000", USD: "$125" },
     description: "For larger agencies with custom process and security needs.",
     features: [
       "Up to 50 employees",
@@ -63,7 +69,7 @@ const PLANS = [
       "Priority support",
     ],
     cta: "Get started",
-    featured: false,
+    onOffer: true,
   },
   {
     name: "Enterprise",
@@ -77,7 +83,7 @@ const PLANS = [
       "Dedicated support",
     ],
     cta: "Contact us",
-    featured: false,
+    onOffer: false,
   },
 ] as const;
 
@@ -95,18 +101,20 @@ export async function PricingSection() {
         {PLANS.map((plan) => {
           const isCustom = plan.price.INR === "Custom";
           const price = plan.price[currency];
+          const originalPrice =
+            "originalPrice" in plan ? plan.originalPrice[currency] : null;
 
           return (
             <div
               key={plan.name}
               className={cn(
                 "border-brand-brown-light bg-surface relative flex flex-col gap-6 rounded-lg border-2 p-6",
-                plan.featured && "border-brand-brown"
+                plan.onOffer && "border-brand-brown"
               )}
             >
-              {plan.featured ? (
+              {plan.onOffer ? (
                 <span className="bg-brand-yellow text-brand-brown absolute -top-3.5 left-6 rounded-full px-3 py-1 text-xs font-bold tracking-wide uppercase">
-                  Most picked
+                  Limited-time offer
                 </span>
               ) : null}
               <div className="flex flex-col gap-2">
@@ -118,6 +126,11 @@ export async function PricingSection() {
 
               <div className="flex flex-col gap-1">
                 <div className="flex items-baseline gap-2">
+                  {originalPrice ? (
+                    <span className="text-text-secondary text-meta line-through">
+                      {originalPrice}
+                    </span>
+                  ) : null}
                   <span className="text-brand-brown text-display font-semibold">
                     {price}
                   </span>
@@ -127,11 +140,6 @@ export async function PricingSection() {
                     </span>
                   ) : null}
                 </div>
-                {"discountLabel" in plan ? (
-                  <span className="text-brand-brown-soft text-meta font-medium">
-                    {plan.discountLabel} applied
-                  </span>
-                ) : null}
               </div>
 
               <ul className="flex flex-1 flex-col gap-3">
@@ -150,7 +158,7 @@ export async function PricingSection() {
               <Button
                 asChild
                 size="lg"
-                variant={plan.featured ? "default" : "outline"}
+                variant={plan.onOffer ? "default" : "outline"}
               >
                 <Link href={isCustom ? "/contact" : "/register"}>
                   {plan.cta}
