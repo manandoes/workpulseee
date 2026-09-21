@@ -88,6 +88,13 @@ export function CheckoutButton({
         },
       });
 
+      razorpay.on("payment.failed", (response: RazorpayPaymentFailedResponse) => {
+        toast.error(
+          response.error?.description ?? "Payment failed. Please try again."
+        );
+        setLoading(false);
+      });
+
       razorpay.open();
     } catch {
       toast.error("Could not start checkout. Please try again.");
@@ -112,10 +119,18 @@ type RazorpayCheckoutResponse = {
   razorpay_signature: string;
 };
 
+type RazorpayPaymentFailedResponse = {
+  error?: { description?: string };
+};
+
 declare global {
   interface Window {
     Razorpay: new (options: Record<string, unknown>) => {
       open: () => void;
+      on: (
+        event: "payment.failed",
+        handler: (response: RazorpayPaymentFailedResponse) => void
+      ) => void;
     };
   }
 }
