@@ -6,6 +6,7 @@ import Link from "next/link";
 import { Bell } from "lucide-react";
 import { cn } from "cn";
 import { formatDateTime } from "@/lib/format";
+import { LogoutReminderActions } from "@/components/attendance/logout-reminder-actions";
 
 /**
  * The notification bell (Architecture.md section 7 — "user sees notification
@@ -19,6 +20,7 @@ import { formatDateTime } from "@/lib/format";
  */
 type Notification = {
   id: string;
+  type: string;
   message: string;
   link: string | null;
   readAt: string | null;
@@ -126,14 +128,16 @@ export function NotificationBell({ className }: { className?: string }) {
             ) : (
               <ul className="divide-border divide-y">
                 {notifications.map((notification) => (
-                  <li key={notification.id}>
+                  <li
+                    key={notification.id}
+                    className={cn(
+                      !notification.readAt && "bg-brand-yellow-light/40"
+                    )}
+                  >
                     <button
                       type="button"
                       onClick={() => openNotification(notification)}
-                      className={cn(
-                        "hover:bg-surface-muted flex w-full flex-col gap-1 px-4 py-3 text-left transition-colors",
-                        !notification.readAt && "bg-brand-yellow-light/40"
-                      )}
+                      className="hover:bg-surface-muted flex w-full flex-col gap-1 px-4 py-3 text-left transition-colors"
                     >
                       <span className="text-foreground">
                         {notification.message}
@@ -142,6 +146,16 @@ export function NotificationBell({ className }: { className?: string }) {
                         {formatDateTime(notification.createdAt)}
                       </span>
                     </button>
+                    {/* An unanswered logout reminder is the one notification
+                        you act on from inside the bell rather than by
+                        navigating — see `LogoutReminderActions`. */}
+                    {notification.type === "LogoutReminder" &&
+                    !notification.readAt ? (
+                      <LogoutReminderActions
+                        notificationId={notification.id}
+                        onAnswered={refresh}
+                      />
+                    ) : null}
                   </li>
                 ))}
               </ul>

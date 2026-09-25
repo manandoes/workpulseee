@@ -25,6 +25,7 @@ self.addEventListener("push", (event) => {
   }
 
   const title = payload.title || "WorkPulse";
+  const actions = Array.isArray(payload.actions) ? payload.actions : [];
 
   event.waitUntil(
     self.registration.showNotification(title, {
@@ -37,7 +38,22 @@ self.addEventListener("push", (event) => {
        * three copies of the same sentence.
        */
       tag: payload.notificationId || undefined,
-      data: { link: payload.link || "/notifications" },
+      /**
+       * Only the button's own identifier and label go to the browser; the
+       * endpoint each one posts to is kept in `data` and looked up on click,
+       * since `actions` entries are a fixed shape the browser defines.
+       */
+      actions: actions.map((entry) => ({
+        action: entry.action,
+        title: entry.title,
+      })),
+      /**
+       * A reminder that can be answered should not vanish the moment the
+       * screen is glanced at — it stays until it is acted on, or until the
+       * next delivery replaces it by `tag`.
+       */
+      requireInteraction: actions.length > 0,
+      data: { link: payload.link || "/notifications", actions: actions },
     })
   );
 });
@@ -45,7 +61,36 @@ self.addEventListener("push", (event) => {
 self.addEventListener("notificationclick", (event) => {
   event.notification.close();
 
-  const link = (event.notification.data && event.notification.data.link) || "/";
+  const data = event.notification.data || {};
+
+  /**
+   * A button was pressed rather than the notification body. Answer it from
+   * here with a same-origin POST — the session cookie rides along, so the
+   * route authenticates it exactly as it would from a tab — and do not open
+   * a window: the whole point of the button is not having to.
+   *
+   * A failure is swallowed deliberately. There is no UI here to report into,
+   * and every action these buttons take is also available in the app; the
+   * server-side sweep is what guarantees the outcome either way.
+   */
+  if (event.action) {
+    const chosen = (data.actions || []).find(
+      (entry) => entry.action === event.action
+    );
+
+    if (chosen && chosen.endpoint) {
+      event.waitUntil(
+        fetch(new URL(chosen.endpoint, self.location.origin).href, {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+        }).catch(() => undefined)
+      );
+      return;
+    }
+  }
+
+  const link = data.link || "/";
   const url = new URL(link, self.location.origin).href;
 
   /**

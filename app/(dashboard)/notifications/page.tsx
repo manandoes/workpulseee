@@ -82,6 +82,7 @@ export default async function NotificationsPage({
                   key={notification.id}
                   notification={{
                     id: notification.id,
+                    type: notification.type,
                     message: notification.message,
                     link: notification.link,
                     readAt: notification.readAt?.toISOString() ?? null,

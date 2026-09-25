@@ -9,7 +9,7 @@ name: Scheduled jobs
 # that calls them — chosen over Vercel Cron so the schedule is not tied to one
 # host and is not capped to one run a day.
 #
-# Only the deadline sweep is scheduled here. The four older job endpoints —
+# Two sweeps are scheduled here. The four older job endpoints —
 # generate-alerts, recalculate-workload, recalculate-performance and
 # cleanup-chat-messages — have never had a scheduler either, and wiring them up
 # is a separate decision about how often each should run; the dashboard
@@ -25,11 +25,25 @@ on:
     # users. Deadlines are stored at UTC midnight, so a morning run warns about
     # work due "today" at the start of that day rather than the end of it.
     - cron: "30 3 * * *"
-  # So the sweep can be run by hand after a deploy, or to verify the secrets.
+    # Every quarter hour, for the logout sweep only. Its half-hour grace period
+    # is a floor measured from when a reminder was sent, so a coarser schedule
+    # would not close anyone's session early — it would only make every
+    # reminder and every automatic logout later than it should be.
+    #
+    # GitHub's scheduler is explicitly best-effort and runs late under load,
+    # which this job tolerates by design (`jobs/remindLogout.ts`): nothing is a
+    # timer, every decision is recomputed from stored timestamps. If the drift
+    # ever becomes visible to customers, this is the piece to move to a real
+    # scheduler — the endpoint itself would not change.
+    - cron: "*/15 * * * *"
+  # So the sweeps can be run by hand after a deploy, or to verify the secrets.
   workflow_dispatch:
 
 jobs:
   notify-deadlines:
+    # The quarter-hourly trigger is for the logout sweep alone; warning about
+    # deadlines 96 times a day would be pointless work, deduped or not.
+    if: github.event.schedule != '*/15 * * * *'
     runs-on: ubuntu-latest
     steps:
       - name: Warn assignees whose deadlines are close
@@ -43,6 +57,30 @@ jobs:
             --request POST \
             --header "Authorization: Bearer ${CRON_SECRET}" \
             "${APP_URL%/}/api/jobs/notify-deadlines")
+
+          echo "HTTP ${status}"
+          cat response.json
+        env:
+          APP_URL: ${{ secrets.APP_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+
+  remind-logout:
+    # Skipped on the daily deadline trigger — the quarter-hourly one already
+    # covers every run this sweep needs.
+    if: github.event.schedule != '30 3 * * *'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Remind anyone still clocked in, and close unanswered sessions
+        run: |
+          set -euo pipefail
+
+          status=$(curl --silent --show-error --fail-with-body \
+            --max-time 300 \
+            --write-out '%{http_code}' \
+            --output response.json \
+            --request POST \
+            --header "Authorization: Bearer ${CRON_SECRET}" \
+            "${APP_URL%/}/api/jobs/remind-logout")
 
           echo "HTTP ${status}"
           cat response.json

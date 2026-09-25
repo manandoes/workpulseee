@@ -3,17 +3,24 @@ import type { SessionActor } from "@/lib/permissions";
 import { daysFromToday, OPEN_STATUSES } from "@/lib/tasks";
 import {
   announcementPostedMessage,
+  autoLoggedOutMessage,
+  autoLogoutDedupeKey,
   DEADLINE_WARNING_DAYS,
   deadlineDedupeKey,
   deadlineMessage,
+  DEFAULT_CHANNEL_PREFERENCES,
+  isDeliverablePhone,
   meetingScheduledMessage,
   requestDecidedMessage,
+  logoutReminderDedupeKey,
+  logoutReminderMessage,
   requestSubmittedMessage,
   resolveApproversFor,
   resolveChannels,
   resolveCompletionWatchers,
   taskAssignedMessage,
   taskCompletedMessage,
+  whatsappTestMessage,
   type ChannelPreferences,
 } from "@/lib/notifications";
 import {
@@ -23,7 +30,7 @@ import {
 } from "@/lib/mailer";
 import { loadEmailConfig } from "@/lib/company-email-config";
 import { sendWhatsApp } from "@/lib/whatsapp";
-import { sendPush } from "@/lib/push";
+import { sendPush, type PushAction } from "@/lib/push";
 import { paginationMeta, type PaginationMeta } from "@/lib/pagination";
 import type {
   NotificationType,
@@ -79,6 +86,13 @@ type DeliverArgs = {
    * decision, which carries the approver's note.
    */
   email?: { subject: string; text: string };
+  /**
+   * Buttons to put on the push notification, for the one type that asks a
+   * question rather than reporting something (`LogoutReminder`). The in-app
+   * bell renders its own buttons from the notification's type; this is the
+   * push channel's equivalent.
+   */
+  pushActions?: PushAction[];
 };
 
 /** Everything delivery needs to know about who it is reaching. */
@@ -192,6 +206,13 @@ const EMAIL_SUBJECTS: Record<NotificationType, string> = {
   RequestDecided: "Your request has been decided",
   MeetingScheduled: "You've been invited to a meeting",
   AnnouncementPosted: "A new company announcement was posted",
+  /**
+   * Never actually sent — `LogoutReminder` resolves to in-app and push only
+   * (`CHANNELS_BY_TYPE`). The entry exists because this map is exhaustive
+   * over `NotificationType`, and push reads it for the notification title,
+   * which is where this string is really seen.
+   */
+  LogoutReminder: "You're still logged in",
 };
 
 /**
@@ -212,6 +233,7 @@ async function deliver({
   link,
   dedupeKey,
   email,
+  pushActions,
 }: DeliverArgs): Promise<void> {
   let notificationId: string;
 
@@ -302,6 +324,7 @@ async function deliver({
               body: message,
               link: link ?? null,
               notificationId,
+              actions: pushActions,
             });
             return;
         }
@@ -653,6 +676,107 @@ export async function notifyAnnouncementPosted(announcement: {
   }
 }
 
+/**
+ * The two buttons a logout reminder carries on push, matching the two the
+ * bell renders in-app (`components/attendance/logout-reminder-actions.tsx`).
+ *
+ * The endpoints are the same ones the in-app buttons post to — there is one
+ * implementation of "I'm here" and one of "log out", and both surfaces call
+ * it. `public/sw.js` reads `endpoint` straight off the payload rather than
+ * knowing these routes, so a route that moves does not strand the service
+ * workers already installed in people's browsers.
+ */
+const LOGOUT_REMINDER_ACTIONS: PushAction[] = [
+  {
+    action: "presence",
+    title: "I'm here",
+    endpoint: "/api/attendance/presence",
+  },
+  {
+    action: "logout",
+    title: "Log out",
+    endpoint: "/api/attendance/clock-out",
+  },
+];
+
+/**
+ * Where a logout reminder points: whichever page shows this recipient their
+ * own attendance widget. An employee's is on My Space; a company account is
+ * redirected off that page (`app/(dashboard)/my-space/page.tsx`) and has the
+ * same widget on the dashboard instead.
+ */
+function attendanceLinkFor(recipient: Recipient): string {
+  return recipient.employeeId ? "/my-space" : "/dashboard";
+}
+
+/**
+ * Somebody is still clocked in past the end of the working day — ask them
+ * whether they mean to be.
+ *
+ * Carries a dedupe key naming the reminder slot, for the reason
+ * `notifyDeadlineApproaching` does: this comes from a sweep, and a sweep that
+ * runs every fifteen minutes would otherwise ask the same question four times
+ * an hour.
+ */
+export async function notifyLogoutDue(reminder: {
+  companyId: string;
+  attendanceRecordId: string;
+  recipient: Recipient;
+  dueAt: Date;
+  /** The clock time their day would be recorded as ending at. */
+  recordedEndLabel: string;
+}): Promise<void> {
+  try {
+    await deliver({
+      companyId: reminder.companyId,
+      recipient: reminder.recipient,
+      type: "LogoutReminder",
+      message: logoutReminderMessage(reminder.recordedEndLabel),
+      link: attendanceLinkFor(reminder.recipient),
+      dedupeKey: logoutReminderDedupeKey(
+        reminder.attendanceRecordId,
+        reminder.dueAt
+      ),
+      pushActions: LOGOUT_REMINDER_ACTIONS,
+    });
+  } catch (cause) {
+    console.error("[notifications] Could not send a logout reminder", { cause });
+  }
+}
+
+/**
+ * Their session was closed for them — say so, and say what was recorded.
+ *
+ * Not optional politeness: the clock-out is backdated to their last confirmed
+ * presence, so somebody who was genuinely working late has lost hours they
+ * would otherwise never know to query. This notification is how they find
+ * out. No buttons — there is nothing left to answer.
+ *
+ * Keyed on the session alone, which can only be closed once, so the key is
+ * really an assertion: one of these per session, ever.
+ */
+export async function notifyAutoLoggedOut(event: {
+  companyId: string;
+  attendanceRecordId: string;
+  recipient: Recipient;
+  recordedEndLabel: string;
+}): Promise<void> {
+  try {
+    await deliver({
+      companyId: event.companyId,
+      recipient: event.recipient,
+      type: "LogoutReminder",
+      message: autoLoggedOutMessage(event.recordedEndLabel),
+      link: attendanceLinkFor(event.recipient),
+      dedupeKey: autoLogoutDedupeKey(event.attendanceRecordId),
+    });
+  } catch (cause) {
+    console.error("[notifications] Could not report an automatic logout", {
+      cause,
+    });
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Channel preferences
 // ---------------------------------------------------------------------------
@@ -763,6 +887,66 @@ export async function saveChannelSettings(
   }
 }
 
+/**
+ * Why a test message could not be sent, in the four shapes the person reading
+ * the screen can actually do something about: add a number, switch the channel
+ * on, ask an admin to finish the Meta setup, or try again.
+ */
+export type WhatsAppTestResult =
+  | { ok: true; phone: string }
+  | { ok: false; reason: "no_phone" | "channel_off" | "not_configured" | "failed" };
+
+/**
+ * Send the signed-in person a WhatsApp message on their own stored number.
+ *
+ * Push can be confirmed by the browser the moment it subscribes; a phone
+ * number cannot. It is typed by hand, and a number that is wrong but still
+ * valid E.164 fails silently — every notification goes to a stranger and the
+ * person who typed it never finds out. This is the missing acknowledgement:
+ * the WhatsApp counterpart of the "turn on push in this browser" button.
+ *
+ * It reaches the caller's *own* number, read from their record here, and takes
+ * no recipient from the request. A `to` parameter would turn an authenticated
+ * route into a relay for sending WhatsApp messages to arbitrary numbers, billed
+ * to the company's Meta account — the one thing this endpoint must not be.
+ *
+ * The channel toggle is honoured rather than bypassed, so a passing test means
+ * exactly what it appears to mean: a real notification would arrive right now.
+ * Sending anyway while the channel is off would prove only that Meta is
+ * reachable, which is not what the person clicking is asking.
+ */
+export async function sendWhatsAppTest(
+  actor: SessionActor
+): Promise<WhatsAppTestResult> {
+  const person = await loadRecipient(actor.companyId, recipientColumns(actor));
+
+  // A signed-in actor whose record is gone: exceptional, and not worth its own
+  // message on screen, since retrying is the only sensible response to it.
+  if (!person) return { ok: false, reason: "failed" };
+
+  const prefs = person.preferences ?? DEFAULT_CHANNEL_PREFERENCES;
+  if (!prefs.whatsappEnabled) return { ok: false, reason: "channel_off" };
+
+  // The same gate `resolveChannels` applies, so the test cannot pass on a
+  // number a real notification would have refused to dial.
+  if (!isDeliverablePhone(person.phone)) {
+    return { ok: false, reason: "no_phone" };
+  }
+
+  const result = await sendWhatsApp({
+    to: person.phone,
+    recipientName: person.name,
+    message: whatsappTestMessage(person.phone),
+  });
+
+  if (result.delivered) return { ok: true, phone: person.phone };
+
+  return {
+    ok: false,
+    reason: result.reason === "not_configured" ? "not_configured" : "failed",
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Push subscriptions
 // ---------------------------------------------------------------------------
@@ -822,6 +1006,8 @@ export async function deletePushSubscription(
 
 export type LoadedNotification = {
   id: string;
+  /** What happened — the bell renders buttons on a `LogoutReminder`. */
+  type: NotificationType;
   message: string;
   link: string | null;
   readAt: Date | null;
@@ -839,6 +1025,7 @@ export function loadNotifications(
     take: limit,
     select: {
       id: true,
+      type: true,
       message: true,
       link: true,
       readAt: true,
@@ -870,6 +1057,7 @@ export async function loadNotificationsPage(
     orderBy: { createdAt: "desc" },
     select: {
       id: true,
+      type: true,
       message: true,
       link: true,
       readAt: true,

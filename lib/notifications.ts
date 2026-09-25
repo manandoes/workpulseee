@@ -113,6 +113,16 @@ const CHANNELS_BY_TYPE: Record<
   // A company-wide broadcast, the same weight as `MeetingScheduled` — a
   // direct message everyone in the company gets, so it earns the full set.
   AnnouncementPosted: ["InApp", "Push", "Email", "WhatsApp"],
+  /**
+   * Deliberately the same narrow set as `RequestSubmitted`, for a different
+   * reason: this one expires. It asks a question worth half an hour, and the
+   * two channels that can carry its buttons — the bell and a push
+   * notification — are the two that arrive inside that window. An email or a
+   * WhatsApp message read the next morning would be asking about a session
+   * already closed, and WhatsApp would bill a conversation per person per
+   * evening to do it.
+   */
+  LogoutReminder: ["InApp", "Push"],
 };
 
 /**
@@ -323,6 +333,22 @@ export function meetingScheduledMessage(
   return `${organizerName} scheduled "${title}" with you on ${formatDate(startAt)}.`;
 }
 
+/**
+ * What a test message says.
+ *
+ * Kept here with every other notification sentence, for the reason
+ * `lib/whatsapp.ts` explains: the wording is a template *variable*, so it can
+ * change without another approval round-trip with Meta.
+ *
+ * Deliberately says which number it reached. The whole point of the test is to
+ * find out whether the number on file is the right one, and a message that
+ * arrives on the wrong phone proves nothing unless it says which number was
+ * dialled.
+ */
+export function whatsappTestMessage(phone: string): string {
+  return `This is a test message from WorkPulse. Notifications for your account will be sent to this number (${phone}).`;
+}
+
 // ---------------------------------------------------------------------------
 // Announcements
 // ---------------------------------------------------------------------------
@@ -333,4 +359,47 @@ export function announcementPostedMessage(
   title: string
 ): string {
   return `${authorName} posted an announcement: "${title}"`;
+}
+
+// ---------------------------------------------------------------------------
+// The end-of-day logout nudge
+// ---------------------------------------------------------------------------
+
+/**
+ * What somebody still clocked in past the end of the working day sees.
+ *
+ * Says what will happen and what time will be recorded, because this
+ * notification is the only warning before the session is closed on their
+ * behalf and their day is backdated. A nudge that said only "you are still
+ * logged in" would leave the person who ignored it with no way to know why
+ * they lost the evening.
+ */
+export function logoutReminderMessage(recordedEndAtLabel: string): string {
+  return `You are still logged in. Choose "I'm here" to stay clocked in — otherwise you'll be logged out automatically, with your day recorded as ending at ${recordedEndAtLabel}.`;
+}
+
+/** What they see once the sweep has closed the session for them. */
+export function autoLoggedOutMessage(recordedEndAtLabel: string): string {
+  return `You were logged out automatically — there was no answer to your logout reminder. Your day was recorded as ending at ${recordedEndAtLabel}.`;
+}
+
+/**
+ * The key that stops a re-run of the sweep sending the same reminder twice.
+ *
+ * Scoped to the session and the slot the reminder is *for* (the `dueAt` that
+ * `resolveLogoutNudge` computed), not to when the sweep happened to notice —
+ * the same reasoning as `deadlineDedupeKey`. A sweep running every fifteen
+ * minutes therefore delivers one reminder per slot, however many of its runs
+ * see the slot as due before the write lands.
+ */
+export function logoutReminderDedupeKey(
+  attendanceRecordId: string,
+  dueAt: Date
+): string {
+  return `logout-reminder:${attendanceRecordId}:${dueAt.toISOString()}`;
+}
+
+/** The same, for the single notification that follows an automatic logout. */
+export function autoLogoutDedupeKey(attendanceRecordId: string): string {
+  return `auto-logout:${attendanceRecordId}`;
 }

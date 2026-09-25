@@ -71,3 +71,114 @@ export function netWorkedMs(
     totalDurationMs(sessions, now) - breakDurationMs(breaks, now)
   );
 }
+
+// ---------------------------------------------------------------------------
+// The end-of-day logout nudge
+// ---------------------------------------------------------------------------
+
+/**
+ * Clocking out is a thing people forget, and a session left open overnight
+ * quietly inflates every worked-hours figure derived from it. So: an hour
+ * after the company's working day ends (`Company.endOfDayMinutes`), a session
+ * that is still open earns a reminder. "I'm here" keeps it open and buys
+ * another two hours; ignoring it closes the session automatically.
+ *
+ * Nothing here is a timer. Every decision is recomputed from stored timestamps
+ * against `now`, so a sweep that runs late, twice, or not at all for an hour
+ * reaches the same conclusion it would have reached on time — the same
+ * property `warnCompanyDeadlines` relies on, and the reason the whole rule can
+ * live in a pure function.
+ */
+
+/** How long after the working day ends the first reminder goes out. */
+export const FIRST_REMINDER_AFTER_END_MS = 60 * 60 * 1000;
+
+/** How long after an answered reminder the next one goes out. */
+export const REMINDER_INTERVAL_MS = 2 * 60 * 60 * 1000;
+
+/**
+ * How long an unanswered reminder waits before the session is closed for them.
+ *
+ * A floor, not a promise: the sweep runs on a schedule, so the real wait is
+ * this plus however long until the next run. Erring long is the right way for
+ * this one to be wrong — closing somebody's session early is a data loss they
+ * cannot undo from the UI.
+ */
+export const AUTO_LOGOUT_GRACE_MS = 30 * 60 * 1000;
+
+/** An open session, as much of it as the nudge rule needs. */
+export type LogoutNudgeState = {
+  clockInAt: Date;
+  /** When this company's working day ended, for this session's day. */
+  endOfDayAt: Date;
+  /** Their last "I'm here", or null if they have not answered one. */
+  presenceConfirmedAt: Date | null;
+  /** When the last reminder was sent, or null if none has been. */
+  logoutReminderAt: Date | null;
+};
+
+export type LogoutNudge =
+  /** Nothing is due yet. */
+  | { action: "none" }
+  /** Send a reminder. `dueAt` is the slot it is for — a stable dedupe key. */
+  | { action: "remind"; dueAt: Date; recordedEndAt: Date }
+  /** Close the session, stamped at the last moment they were known present. */
+  | { action: "autoLogout"; clockOutAt: Date };
+
+/**
+ * The last moment this person is known to have been working.
+ *
+ * Their most recent "I'm here" if they gave one, and otherwise the end of the
+ * working day — the last point at which we had any reason to believe they were
+ * at their desk. Never earlier than the clock-in, which matters only for a
+ * session that started *after* the working day was already over: there the
+ * clock-in is itself the most recent evidence of presence.
+ *
+ * This is what an automatic clock-out is stamped with, so time nobody
+ * confirmed is never credited as worked. Someone who really was at their desk
+ * says so by pressing "I'm here", and the reminder tells them what happens if
+ * they do not.
+ */
+function lastKnownPresence(state: LogoutNudgeState): Date {
+  if (state.presenceConfirmedAt) return state.presenceConfirmedAt;
+  return state.endOfDayAt > state.clockInAt ? state.endOfDayAt : state.clockInAt;
+}
+
+/**
+ * What, if anything, this open session is due for as of `now`.
+ *
+ * A reminder counts as answered when the presence confirmation is not older
+ * than it — so the sweep can tell "they said they are here" from "nobody has
+ * touched this", without a separate answered flag to keep in step.
+ */
+export function resolveLogoutNudge(
+  state: LogoutNudgeState,
+  now: Date
+): LogoutNudge {
+  const presence = lastKnownPresence(state);
+
+  if (!state.logoutReminderAt) {
+    const dueAt = new Date(presence.getTime() + FIRST_REMINDER_AFTER_END_MS);
+    return now >= dueAt
+      ? { action: "remind", dueAt, recordedEndAt: presence }
+      : { action: "none" };
+  }
+
+  const answered =
+    state.presenceConfirmedAt !== null &&
+    state.presenceConfirmedAt >= state.logoutReminderAt;
+
+  if (!answered) {
+    const deadline = new Date(
+      state.logoutReminderAt.getTime() + AUTO_LOGOUT_GRACE_MS
+    );
+    return now >= deadline
+      ? { action: "autoLogout", clockOutAt: presence }
+      : { action: "none" };
+  }
+
+  const dueAt = new Date(state.logoutReminderAt.getTime() + REMINDER_INTERVAL_MS);
+  return now >= dueAt
+    ? { action: "remind", dueAt, recordedEndAt: presence }
+    : { action: "none" };
+}

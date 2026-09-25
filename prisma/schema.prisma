@@ -197,6 +197,10 @@ enum NotificationType {
   RequestDecided
   MeetingScheduled
   AnnouncementPosted
+  /// "You are still logged in" - the end-of-day nudge swept by
+  /// `jobs/remindLogout.ts`. The one notification type carrying actions
+  /// rather than only a link: answering it is what keeps the session open.
+  LogoutReminder
 }
 
 /// Where an in-app meeting stands (Plan.md Phase 17). No further states —
@@ -224,6 +228,21 @@ model Company {
   /// deadlines", and it is the number `lib/workload.ts` divides by. Editable
   /// by Owner/Admin/Manager at `/settings`.
   weeklyCapacityHours Int @default(40)
+
+  /// When the working day is expected to end, as minutes from local midnight
+  /// (1080 = 18:00), and the zone that "local" means. Together they are the
+  /// baseline `lib/attendance.ts`'s `resolveLogoutNudge` counts from: an
+  /// attendance session still open an hour past this time earns a logout
+  /// reminder, and an unanswered one is closed automatically.
+  ///
+  /// Company-wide rather than per-person, and a clock time rather than a
+  /// duration, because "the logging out time" is a property of the working
+  /// day, not of when any one person happened to clock in. A zone is stored
+  /// beside it because a clock time means nothing without one - and unlike
+  /// `lib/timezone.ts`'s viewer zone (a cookie, resolved per request), this
+  /// one must be readable by a cron sweep where no viewer exists.
+  endOfDayMinutes Int    @default(1080)
+  timeZone        String @default("Asia/Kolkata")
 
   /// Early-warning thresholds (Phases.md Phase 9 - "configurable thresholds
   /// per company"), editable by Owner/Admin only (`canManageCompanySettings`)
@@ -1376,6 +1395,23 @@ model AttendanceRecord {
   clockInAt  DateTime  @default(now())
   clockOutAt DateTime?
 
+  /// How this session ended. Null while it is still open. `Manual` is somebody
+  /// pressing Log out; `AutoNoResponse` is `jobs/remindLogout.ts` closing a
+  /// session whose logout reminder went unanswered - which also backdates
+  /// `clockOutAt` to the last confirmed presence, so the marker is what
+  /// explains a clock-out stamped earlier than the row was written.
+  clockOutReason AttendanceEndReason?
+
+  /// The last moment we know this person was still working: set by "I'm here"
+  /// on a logout reminder. Null means they have not confirmed since clocking
+  /// in, and `resolveLogoutNudge` falls back to the end of the working day.
+  presenceConfirmedAt DateTime?
+
+  /// When the most recent logout reminder was sent. Never cleared: the sweep
+  /// compares it against `presenceConfirmedAt` to tell an answered reminder
+  /// from an outstanding one, and counts the next reminder's 2 hours from it.
+  logoutReminderAt DateTime?
+
   breaks BreakRecord[]
 
   createdAt DateTime @default(now())
@@ -1384,6 +1420,18 @@ model AttendanceRecord {
   @@index([companyId])
   @@index([employeeId, clockInAt])
   @@index([accountId, clockInAt])
+  /// The logout sweep reads every still-open session across every tenant, so
+  /// its filter is `clockOutAt: null` with no company to narrow it first.
+  @@index([clockOutAt])
+}
+
+/// Why an attendance session ended - the same "closed, and here is why" shape
+/// `TimeEntryEndReason` gives a task timer, and for the same reason: a session
+/// the system closed on somebody's behalf must be distinguishable from one
+/// they closed themselves.
+enum AttendanceEndReason {
+  Manual
+  AutoNoResponse
 }
 
 /// One break taken during an open attendance session (Plan.md Phase 15). A

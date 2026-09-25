@@ -40,6 +40,7 @@ export function NotificationSettingsForm({ settings }: { settings: Settings }) {
   const router = useRouter();
   const [formError, setFormError] = useState<string | null>(null);
   const [pushState, setPushState] = useState<PushState>("unsubscribed");
+  const [testingWhatsApp, setTestingWhatsApp] = useState(false);
 
   const vapidPublicKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
 
@@ -129,6 +130,37 @@ export function NotificationSettingsForm({ settings }: { settings: Settings }) {
     toast.success("Notification settings saved.");
     router.refresh();
   });
+
+  /**
+   * Send a real WhatsApp message to the saved number.
+   *
+   * Reads the *saved* number, not the one in the input, which is why the hint
+   * below tells people to save first: the server sends to what it has on file,
+   * and a test that used an unsaved value would confirm a number that no
+   * notification will ever use.
+   */
+  async function sendWhatsAppTest() {
+    setTestingWhatsApp(true);
+
+    try {
+      const response = await fetch("/api/notifications/whatsapp", {
+        method: "POST",
+      });
+      const body = await response.json().catch(() => null);
+
+      if (!response.ok) {
+        toast.error(body?.error ?? "Could not send the test message.");
+        return;
+      }
+
+      toast.success(`Test message sent to ${body.phone}.`);
+    } catch (cause) {
+      console.error("[whatsapp] Could not send a test message", cause);
+      toast.error("Could not send the test message.");
+    } finally {
+      setTestingWhatsApp(false);
+    }
+  }
 
   async function enablePush() {
     if (!vapidPublicKey) return;
@@ -228,7 +260,7 @@ export function NotificationSettingsForm({ settings }: { settings: Settings }) {
       <FormField
         id="phone"
         label="Mobile number for WhatsApp"
-        hint="Include the country code, for example +919876543210. Leave empty to stop WhatsApp messages."
+        hint="Include the country code, for example +919876543210. Leave empty to stop WhatsApp messages. Save, then send a test to check it reaches you."
         inputMode="tel"
         fieldClassName="max-w-xs"
         error={errors.phone?.message}
@@ -238,6 +270,15 @@ export function NotificationSettingsForm({ settings }: { settings: Settings }) {
       <div className="flex flex-wrap items-center gap-3">
         <Button type="submit" disabled={isSubmitting}>
           {isSubmitting ? "Saving…" : "Save"}
+        </Button>
+
+        <Button
+          type="button"
+          variant="outline"
+          disabled={testingWhatsApp}
+          onClick={sendWhatsAppTest}
+        >
+          {testingWhatsApp ? "Sending…" : "Send a test WhatsApp"}
         </Button>
 
         <PushButton

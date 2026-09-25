@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { isValidTimeZone, timeInputToMinutes } from "@/lib/timezone";
 
 /**
  * Validation for company-wide settings (Rules.md section 4 — every request
@@ -56,6 +57,32 @@ export const alertSettingsSchema = z.object({
 });
 
 export type AlertSettingsInput = z.infer<typeof alertSettingsSchema>;
+
+/**
+ * When the working day ends, and the zone that means something in
+ * (`Company.endOfDayMinutes` / `Company.timeZone`) — the baseline the logout
+ * reminder sweep counts its hour from (`lib/attendance.ts`).
+ *
+ * `endOfDay` arrives as the `HH:MM` an `<input type="time">` holds and is
+ * converted to minutes at the route, the same string-all-the-way-to-the-column
+ * shape the schemas above use. The zone is checked against ICU rather than a
+ * list, so it accepts any zone the runtime can actually format — the same
+ * gate `lib/timezone.ts` applies to the viewer's cookie, and for the same
+ * reason: an unparseable zone would throw inside the sweep, where there is no
+ * form to report it on.
+ */
+export const workingDaySettingsSchema = z.object({
+  endOfDay: z
+    .string()
+    .trim()
+    .refine(
+      (value) => timeInputToMinutes(value) !== null,
+      "Enter a time like 18:00"
+    ),
+  timeZone: z.string().trim().refine(isValidTimeZone, "Pick a timezone"),
+});
+
+export type WorkingDaySettingsInput = z.infer<typeof workingDaySettingsSchema>;
 
 /**
  * The HRMS/PMS sidebar mode (Plan: dashboard-mode toggle) — a display

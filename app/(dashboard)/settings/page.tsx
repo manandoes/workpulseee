@@ -22,6 +22,7 @@ import { PageHeader } from "@/components/dashboard/page-header";
 import { Card, CardContent } from "@/components/ui/card";
 import { WorkloadSettingsForm } from "@/components/dashboard/workload-settings-form";
 import { AlertSettingsForm } from "@/components/dashboard/alert-settings-form";
+import { WorkingDaySettingsForm } from "@/components/dashboard/working-day-settings-form";
 import { PermissionGrantsTable } from "@/components/dashboard/permission-grants-table";
 import { ThemeToggle } from "@/components/dashboard/theme-toggle";
 import { BrandingForm } from "@/components/dashboard/branding-form";
@@ -54,6 +55,8 @@ export default async function SettingsPage() {
     where: { id: actor.companyId },
     select: {
       weeklyCapacityHours: true,
+      endOfDayMinutes: true,
+      timeZone: true,
       overloadThresholdPercent: true,
       stalledProjectDays: true,
       agingApprovalDays: true,
@@ -257,6 +260,29 @@ export default async function SettingsPage() {
               overloadThresholdPercent={company.overloadThresholdPercent}
               stalledProjectDays={company.stalledProjectDays}
               agingApprovalDays={company.agingApprovalDays}
+            />
+          </CardContent>
+        </Card>
+      ) : null}
+
+      {canManageCompanySettings(actor) ? (
+        <Card>
+          <CardContent className="flex flex-col gap-4 py-2">
+            <div className="flex flex-col gap-1">
+              <h2 className="text-h3 text-brand-brown font-semibold">
+                Working day
+              </h2>
+              <p className="text-text-secondary text-meta">
+                When the day is expected to end. An hour past it, anyone still
+                logged in is reminded to log out; if nobody answers, the
+                session is closed after another half hour and their day is
+                recorded as ending at the last time they confirmed they were
+                there.
+              </p>
+            </div>
+            <WorkingDaySettingsForm
+              endOfDayMinutes={company.endOfDayMinutes}
+              timeZone={company.timeZone}
             />
           </CardContent>
         </Card>

@@ -32,6 +32,19 @@ export type PushResult = {
   pruned: number;
 };
 
+/**
+ * A button on a push notification, answered in the service worker without
+ * opening the app. `action` is the identifier `public/sw.js` switches on;
+ * `endpoint` is the app route it POSTs to, which keeps the decision about
+ * what a button *does* here on the server rather than hard-coded into a
+ * cached service worker that updates on its own schedule.
+ */
+export type PushAction = {
+  action: string;
+  title: string;
+  endpoint: string;
+};
+
 /** What a push notification renders as. Read by `public/sw.js`. */
 export type PushPayload = {
   title: string;
@@ -40,6 +53,12 @@ export type PushPayload = {
   link: string | null;
   /** Ties the click back to the bell so it can be marked read. */
   notificationId: string;
+  /**
+   * Buttons on the notification itself. Only the logout reminder sets these:
+   * everything else is a sentence you click through to. Browsers cap how many
+   * they render (two, in practice) and silently drop the rest.
+   */
+  actions?: PushAction[];
 };
 
 /**

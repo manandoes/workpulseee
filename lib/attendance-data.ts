@@ -6,6 +6,17 @@ import {
 } from "@/lib/api";
 import { db } from "@/lib/db";
 import type { SessionActor } from "@/lib/permissions";
+import { resolveLogoutNudge } from "@/lib/attendance";
+import {
+  notifyAutoLoggedOut,
+  notifyLogoutDue,
+} from "@/lib/notification-data";
+import { stopRunningEntries } from "@/lib/task-timer-data";
+import {
+  dayKeyInZone,
+  formatTimeInZone,
+  instantForLocalTime,
+} from "@/lib/timezone";
 
 /**
  * Database access for attendance (clock in / clock out / break).
@@ -135,7 +146,7 @@ export async function clockOut(actor: SessionActor): Promise<ClockResolution> {
   const [record] = await db.$transaction([
     db.attendanceRecord.update({
       where: { id: open.id },
-      data: { clockOutAt: now },
+      data: { clockOutAt: now, clockOutReason: "Manual" },
       select: recordSelect,
     }),
     ...(openBreak
@@ -361,4 +372,207 @@ export function loadPersonAttendance(
     take: limit,
     select: recordWithBreaksSelect,
   });
+}
+
+// ---------------------------------------------------------------------------
+// The end-of-day logout nudge
+// ---------------------------------------------------------------------------
+
+/**
+ * Record that the caller is still at their desk — the "I'm here" answer to a
+ * logout reminder.
+ *
+ * Deliberately does not require an outstanding reminder. The button exists on
+ * the notification, but the meaning of the write is "this person was present
+ * at this moment", which is true whenever they press it, and an answer that
+ * arrived a second after the sweep closed the session should fail as "not
+ * clocked in" rather than as "nothing to answer".
+ */
+export async function confirmPresence(
+  actor: SessionActor
+): Promise<ClockResolution> {
+  const open = await loadOpenSession(actor);
+  if (!open) {
+    return invalidReference("presenceConfirmedAt", "You are not clocked in.");
+  }
+
+  const record = await db.attendanceRecord.update({
+    where: { id: open.id },
+    data: { presenceConfirmedAt: new Date() },
+    select: recordSelect,
+  });
+
+  return { ok: true, record };
+}
+
+/** One still-open session, with everything the nudge rule needs to judge it. */
+const OPEN_SESSION_SWEEP_SELECT = {
+  id: true,
+  companyId: true,
+  employeeId: true,
+  accountId: true,
+  clockInAt: true,
+  presenceConfirmedAt: true,
+  logoutReminderAt: true,
+  company: { select: { endOfDayMinutes: true, timeZone: true } },
+} as const;
+
+/**
+ * Close a session the sweep has decided nobody is going to answer for.
+ *
+ * `clockOutAt` is backdated to the last confirmed presence, so the hours
+ * nobody vouched for are never credited — which is also why the row is marked
+ * `AutoNoResponse`: a clock-out stamped two hours before it was written needs
+ * to say why.
+ *
+ * Everything the working day was holding open is closed with it, exactly as a
+ * manual clock-out does: the open break, and — for an employee — any task
+ * timer still ticking. A break is clamped to its own start rather than
+ * backdated past it, since a break that began after the recorded end of the
+ * day still happened and would otherwise be stored as negative time.
+ */
+async function autoClockOut(
+  session: {
+    id: string;
+    companyId: string;
+    employeeId: string | null;
+    accountId: string | null;
+  },
+  clockOutAt: Date
+): Promise<void> {
+  const openBreak = await db.breakRecord.findFirst({
+    where: { attendanceRecordId: session.id, endedAt: null },
+    select: { id: true, startedAt: true },
+  });
+
+  await db.$transaction([
+    db.attendanceRecord.update({
+      where: { id: session.id },
+      data: { clockOutAt, clockOutReason: "AutoNoResponse" },
+    }),
+    ...(openBreak
+      ? [
+          db.breakRecord.update({
+            where: { id: openBreak.id },
+            data: {
+              endedAt:
+                openBreak.startedAt > clockOutAt ? openBreak.startedAt : clockOutAt,
+            },
+          }),
+        ]
+      : []),
+  ]);
+
+  if (session.employeeId) {
+    await stopRunningEntries(session.companyId, session.employeeId, clockOutAt);
+  }
+}
+
+export type LogoutSweepResult = {
+  /** Still-open sessions the sweep looked at. */
+  examined: number;
+  /** Reminders it decided were due. */
+  reminded: number;
+  /** Sessions it closed because nobody answered. */
+  loggedOut: number;
+};
+
+/**
+ * Remind everyone still clocked in past the end of their working day, and
+ * close the sessions whose reminders went unanswered.
+ *
+ * Crosses tenants deliberately, like `jobs/notifyDeadlines.ts`: no user is
+ * driving it, and every session carries its own company's end-of-day setting,
+ * so one pass over the open sessions is enough — there is no per-company work
+ * to fan out. Open sessions are the people currently clocked in, not the
+ * attendance history, so this stays small however long the table grows.
+ *
+ * One session's failure is caught and logged rather than abandoning the sweep:
+ * a company with a broken timezone string must not leave everybody else
+ * clocked in overnight.
+ */
+export async function sweepLogoutReminders(
+  now: Date = new Date()
+): Promise<LogoutSweepResult> {
+  const sessions = await db.attendanceRecord.findMany({
+    where: { clockOutAt: null, company: { deletedAt: null } },
+    select: OPEN_SESSION_SWEEP_SELECT,
+  });
+
+  const result: LogoutSweepResult = {
+    examined: sessions.length,
+    reminded: 0,
+    loggedOut: 0,
+  };
+
+  for (const session of sessions) {
+    try {
+      const { timeZone, endOfDayMinutes } = session.company;
+
+      // The working day this session belongs to is the one it started on,
+      // read in the company's zone — the same "attributed to its clock-in
+      // day" rule `lib/attendance-days.ts` buckets by.
+      const endOfDayAt = instantForLocalTime(
+        dayKeyInZone(session.clockInAt, timeZone),
+        endOfDayMinutes,
+        timeZone
+      );
+
+      const nudge = resolveLogoutNudge(
+        {
+          clockInAt: session.clockInAt,
+          endOfDayAt,
+          presenceConfirmedAt: session.presenceConfirmedAt,
+          logoutReminderAt: session.logoutReminderAt,
+        },
+        now
+      );
+
+      if (nudge.action === "none") continue;
+
+      // Exactly one of the two is set on every row (`subjectColumns`).
+      const recipient = session.employeeId
+        ? { employeeId: session.employeeId }
+        : { accountId: session.accountId! };
+
+      if (nudge.action === "remind") {
+        await notifyLogoutDue({
+          companyId: session.companyId,
+          attendanceRecordId: session.id,
+          recipient,
+          dueAt: nudge.dueAt,
+          recordedEndLabel: formatTimeInZone(nudge.recordedEndAt, timeZone),
+        });
+
+        // Stamped with when the reminder actually went out, not the slot it
+        // was due in: the half-hour someone gets to answer has to start when
+        // they could first have seen it, or a sweep running late would close
+        // the session with no window to answer at all.
+        await db.attendanceRecord.update({
+          where: { id: session.id },
+          data: { logoutReminderAt: now },
+        });
+
+        result.reminded += 1;
+        continue;
+      }
+
+      await autoClockOut(session, nudge.clockOutAt);
+      await notifyAutoLoggedOut({
+        companyId: session.companyId,
+        attendanceRecordId: session.id,
+        recipient,
+        recordedEndLabel: formatTimeInZone(nudge.clockOutAt, timeZone),
+      });
+
+      result.loggedOut += 1;
+    } catch (cause) {
+      console.error("[attendance] Could not sweep an open session", {
+        attendanceRecordId: session.id,
+        cause,
+      });
+    }
+  }
+
+  return result;
 }
