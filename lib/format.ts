@@ -92,35 +92,48 @@ export function toAmountInputValue(
 }
 
 /**
- * A timestamp with the time of day, for a comment or an attachment.
+ * An instant (`createdAt`, `clockInAt`, a message timestamp) split into its
+ * date and 12-hour time, in the viewer's zone, with no zone label — the
+ * viewer only ever sees their own zone, so naming it is noise.
  *
- * Takes the viewer's resolved zone (`lib/timezone-request.ts`), defaulting to
- * UTC so every existing call site keeps compiling and keeps its current
- * behaviour until it's deliberately migrated. `timeZoneName: "short"` labels
- * whichever zone is in effect, so a page with a mix of migrated and
- * not-yet-migrated call sites stays legible rather than silently ambiguous.
- *
- * This is for *instants* (`createdAt`, `clockInAt`, a message timestamp) —
- * for a date-only value stored as UTC midnight, use `formatDate`, which
+ * Returned as two parts rather than one string so `components/ui/date-time.tsx`
+ * can style them differently; that component is how the dashboard renders an
+ * instant, and resolves the zone from context so call sites never pass it.
+ * For a date-only value stored as UTC midnight, use `formatDate`, which
  * deliberately never takes a zone (see its docstring).
  */
+export function dateTimeParts(
+  value: Date | string | null | undefined,
+  timeZone: string
+): { date: string; time: string } | null {
+  if (!value) return null;
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+
+  return {
+    date: date.toLocaleDateString("en-GB", {
+      day: "numeric",
+      month: "short",
+      year: "numeric",
+      timeZone,
+    }),
+    time: date.toLocaleTimeString("en-US", {
+      hour: "numeric",
+      minute: "2-digit",
+      hour12: true,
+      timeZone,
+    }),
+  };
+}
+
+/** `dateTimeParts` as one plain string, for the rare place markup can't go
+ * (an attribute, a toast). Prefer `<DateTime>` wherever JSX is possible. */
 export function formatDateTime(
   value: Date | string | null | undefined,
-  timeZone: string = "UTC"
+  timeZone: string
 ): string {
-  if (!value) return "—";
-  const date = value instanceof Date ? value : new Date(value);
-  if (Number.isNaN(date.getTime())) return "—";
-
-  return date.toLocaleString("en-GB", {
-    day: "numeric",
-    month: "short",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-    timeZone,
-    timeZoneName: "short",
-  });
+  const parts = dateTimeParts(value, timeZone);
+  return parts ? `${parts.date}, ${parts.time}` : "—";
 }
 
 /**
@@ -135,8 +148,18 @@ export function formatDayKey(dayKey: string): string {
   if (!year || !month || !day) return "—";
 
   const MONTHS = [
-    "Jan", "Feb", "Mar", "Apr", "May", "Jun",
-    "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+    "Jan",
+    "Feb",
+    "Mar",
+    "Apr",
+    "May",
+    "Jun",
+    "Jul",
+    "Aug",
+    "Sep",
+    "Oct",
+    "Nov",
+    "Dec",
   ];
   return `${day} ${MONTHS[month - 1]} ${year}`;
 }
@@ -177,4 +200,20 @@ export function formatElapsed(milliseconds: number): string {
 
   const pad = (value: number) => value.toString().padStart(2, "0");
   return `${pad(hours)}:${pad(minutes)}:${pad(seconds)}`;
+}
+
+/**
+ * `HH:MM:SS` for a countdown that may run past zero — `-00:04:12` once it
+ * has. `formatElapsed` clamps at zero because elapsed time can't be negative;
+ * time *remaining* can, and hiding that would hide the overrun.
+ */
+export function formatCountdown(milliseconds: number): string {
+  // Round toward the limit (ceil while positive) so the display reads
+  // 00:00:00 exactly as it crosses zero, then -00:00:01 one second later.
+  const totalSeconds =
+    milliseconds >= 0
+      ? Math.ceil(milliseconds / 1000)
+      : Math.floor(milliseconds / 1000);
+  const sign = totalSeconds < 0 ? "-" : "";
+  return `${sign}${formatElapsed(Math.abs(totalSeconds) * 1000)}`;
 }

@@ -28,7 +28,7 @@ const SAMPLE = {
   employeeName: "Priya Sharma",
   companyName: "Your company",
   inviteUrl: "https://workpulse.app/invite/sample-token",
-  role: "HR",
+  role: "HR Head",
 };
 
 const DEFAULT_BODY = [

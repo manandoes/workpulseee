@@ -2,7 +2,7 @@ import { db } from "@/lib/db";
 import { generateAlerts } from "@/lib/alerts";
 import { completionPercent, isOverdue } from "@/lib/tasks";
 import { performanceBand, type PerformanceBand } from "@/lib/performance";
-import type { SessionActor } from "@/lib/permissions";
+import { isHrLevel, type SessionActor } from "@/lib/permissions";
 
 /**
  * Database access for the early-warning engine (Phases.md Phase 9).
@@ -156,7 +156,7 @@ export function loadAlertsFor(actor: SessionActor): Promise<LoadedAlert[]> {
     });
   }
 
-  if (actor.role === "HR") {
+  if (isHrLevel(actor)) {
     return db.alert.findMany({
       where: { companyId: actor.companyId, type: "AgingApproval" },
       orderBy: { createdAt: "desc" },
@@ -208,7 +208,7 @@ export async function loadDashboardMetrics(
   actor: SessionActor
 ): Promise<DashboardMetrics> {
   const isManager = actor.role === "Manager";
-  const isHR = actor.role === "HR";
+  const isHR = isHrLevel(actor);
 
   const employeeWhere = isManager
     ? {

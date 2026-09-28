@@ -1,4 +1,4 @@
-import { formatDateTime } from "@/lib/format";
+import { DateTime } from "@/components/ui/date-time";
 import { Card, CardContent } from "@/components/ui/card";
 import { PollVoting } from "@/components/announcements/poll-voting";
 import type { LoadedAnnouncement } from "@/lib/announcement-data";
@@ -17,7 +17,7 @@ export function AnnouncementCard({
           </h2>
           <p className="text-text-secondary text-meta">
             {announcement.authorName} ·{" "}
-            {formatDateTime(announcement.createdAt)}
+            <DateTime value={announcement.createdAt} />
           </p>
         </div>
 

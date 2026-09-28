@@ -13,10 +13,10 @@ import { cleanupChatMessages } from "@/jobs/cleanupChatMessages";
  * compared in constant time with `tokenHashMatches`. `lib/chat-data.ts`'s
  * `loadMessages` already deletes a conversation's own stale messages lazily
  * whenever it is fetched — this sweep is the safety net for conversations
- * nobody has opened, so messages don't outlive the 3-day retention window
+ * nobody has opened, so messages don't outlive the 31-day retention window
  * just because no scheduler was ever wired up... except that without one,
  * this route is simply never called. Set `CRON_SECRET` and schedule this
- * route to make the 3-day guarantee exact rather than "eventually, next time
+ * route to make the 31-day guarantee exact rather than "eventually, next time
  * someone opens the thread".
  */
 export async function POST(request: NextRequest) {

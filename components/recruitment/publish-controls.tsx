@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { Check, Copy, ExternalLink, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import { formatDateTime } from "@/lib/format";
+import { DateTime } from "@/components/ui/date-time";
 import type {
   HiringFormDestination,
   HiringFormStatus,
@@ -161,9 +161,10 @@ export function PublishControls({
           <div className="border-border bg-surface flex flex-col gap-2 rounded-lg border p-4">
             <h3 className="text-brand-brown font-medium">On your own URL</h3>
             <p className="text-text-secondary flex-1">
-              Applicants answer at <code className="break-all">{publicUrl}</code>,
-              in your company&rsquo;s colours. Document uploads work, and
-              everything lands in this pipeline the moment it is submitted.
+              Applicants answer at{" "}
+              <code className="break-all">{publicUrl}</code>, in your
+              company&rsquo;s colours. Document uploads work, and everything
+              lands in this pipeline the moment it is submitted.
             </p>
             <Button
               className="self-start"
@@ -224,9 +225,13 @@ export function PublishControls({
         </a>
         {destination === "GoogleForm" ? (
           <p className="text-text-secondary text-meta">
-            {googleSyncedAt
-              ? `Responses last pulled in ${formatDateTime(googleSyncedAt)}.`
-              : "Responses have never been pulled in."}
+            {googleSyncedAt ? (
+              <>
+                Responses last pulled in <DateTime value={googleSyncedAt} />.
+              </>
+            ) : (
+              "Responses have never been pulled in."
+            )}
           </p>
         ) : null}
       </div>

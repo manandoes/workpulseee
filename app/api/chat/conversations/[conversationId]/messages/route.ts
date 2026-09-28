@@ -12,7 +12,7 @@ import { sendMessageSchema } from "@/lib/validations/chat";
 
 /**
  * GET /api/chat/conversations/[conversationId]/messages — a conversation's
- * messages, newest last. Also where the lazy 3-day cleanup happens
+ * messages, newest last. Also where the lazy 31-day cleanup happens
  * (`lib/chat-data.ts`'s `loadMessages`) and where the actor's own read marker
  * is bumped.
  */

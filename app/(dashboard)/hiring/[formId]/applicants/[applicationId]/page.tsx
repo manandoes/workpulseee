@@ -6,8 +6,7 @@ import { getActor } from "@/lib/auth";
 import { canManageRecruitment } from "@/lib/permissions";
 import { loadApplicant } from "@/lib/recruitment-data";
 import { formatFileSize } from "@/lib/files";
-import { formatDateTime } from "@/lib/format";
-import { resolveRequestTimeZone } from "@/lib/timezone-request";
+import { DateTime } from "@/components/ui/date-time";
 import { PageHeader } from "@/components/dashboard/page-header";
 import { Card, CardContent } from "@/components/ui/card";
 import { StageBadge } from "@/components/recruitment/status-badges";
@@ -34,8 +33,6 @@ export default async function ApplicantPage({
   const applicant = await loadApplicant(actor, applicationId);
   if (!applicant || applicant.formId !== formId) notFound();
 
-  const timeZone = await resolveRequestTimeZone();
-
   return (
     <>
       <Link
@@ -59,7 +56,7 @@ export default async function ApplicantPage({
             </a>
             {applicant.phone ? <span>{applicant.phone}</span> : null}
             <span>
-              Applied {formatDateTime(applicant.submittedAt, timeZone)}
+              Applied <DateTime value={applicant.submittedAt} />
               {applicant.source === "GoogleForm" ? " via Google Forms" : ""}
             </span>
           </span>
@@ -152,7 +149,7 @@ export default async function ApplicantPage({
                       </p>
                       <p className="text-text-secondary text-meta">
                         {note.authorName} ·{" "}
-                        {formatDateTime(note.createdAt, timeZone)}
+                        <DateTime value={note.createdAt} />
                       </p>
                     </li>
                   ))}

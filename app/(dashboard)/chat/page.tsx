@@ -3,13 +3,15 @@ import { redirect } from "next/navigation";
 import { getActor } from "@/lib/auth";
 import { PageHeader } from "@/components/dashboard/page-header";
 import { ConversationList } from "@/components/chat/conversation-list";
+import { CHAT_MESSAGE_RETENTION_DAYS } from "@/lib/chat";
 
 export const metadata: Metadata = { title: "Chat" };
 
 /**
  * Chat list (Phase 11). Reachable by both account types — start a
  * conversation from a Squad member's card, or continue one already listed
- * here. Messages are removed automatically 3 days after they are sent.
+ * here. Messages are removed automatically `CHAT_MESSAGE_RETENTION_DAYS`
+ * (31) days after they are sent.
  */
 export default async function ChatPage() {
   const actor = await getActor();
@@ -19,7 +21,7 @@ export default async function ChatPage() {
     <>
       <PageHeader
         title="Chat"
-        description="Message anyone at the company. Messages are removed automatically after 3 days."
+        description={`Message anyone at the company. Messages are removed automatically after ${CHAT_MESSAGE_RETENTION_DAYS} days.`}
       />
       <ConversationList />
     </>

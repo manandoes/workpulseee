@@ -4,9 +4,10 @@ import { useEffect, useRef, useState } from "react";
 import { Download, Paperclip, Send, X } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "cn";
-import { formatDateTime } from "@/lib/format";
+import { DateTime } from "@/components/ui/date-time";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
+import { CHAT_MESSAGE_RETENTION_DAYS } from "@/lib/chat";
 import {
   ALLOWED_MIME_TYPES,
   MAX_FILE_BYTES,
@@ -67,9 +68,13 @@ export function MessageThread({ conversationId }: { conversationId: string }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [conversationId]);
 
+  // Every poll hands back a fresh array, so keying the scroll on `messages`
+  // itself would yank anyone reading older history back to the bottom every
+  // few seconds. Only a new newest message (or the first load) should scroll.
+  const newestMessageId = messages?.at(-1)?.id;
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ block: "end" });
-  }, [messages]);
+  }, [newestMessageId]);
 
   /**
    * Uploads immediately on pick rather than on send, so the composer only ever
@@ -144,7 +149,7 @@ export function MessageThread({ conversationId }: { conversationId: string }) {
         ) : messages.length === 0 ? (
           <p className="text-text-secondary">
             No messages yet — say hello. Messages here are removed automatically
-            after 3 days.
+            after {CHAT_MESSAGE_RETENTION_DAYS} days.
           </p>
         ) : (
           messages.map((message) => (
@@ -166,7 +171,7 @@ export function MessageThread({ conversationId }: { conversationId: string }) {
                 ) : null}
               </span>
               <span className="text-text-secondary text-meta mt-0.5">
-                {formatDateTime(message.createdAt)}
+                <DateTime value={message.createdAt} />
               </span>
             </div>
           ))

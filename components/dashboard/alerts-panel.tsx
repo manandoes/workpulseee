@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { CircleCheck } from "lucide-react";
-import { formatDateTime } from "@/lib/format";
+import { DateTime } from "@/components/ui/date-time";
 import { StatusPill, type PillStyle } from "@/components/dashboard/status-pill";
 import { Card, CardContent } from "@/components/ui/card";
 
@@ -70,7 +70,7 @@ export function AlertsPanel({ alerts }: { alerts: AlertRow[] }) {
                   </p>
                 )}
                 <p className="text-text-secondary text-meta">
-                  {formatDateTime(alert.createdAt)}
+                  <DateTime value={alert.createdAt} />
                 </p>
               </div>
               <StatusPill

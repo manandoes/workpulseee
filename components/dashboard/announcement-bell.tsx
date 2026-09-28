@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { Megaphone } from "lucide-react";
 import { cn } from "cn";
-import { formatDateTime } from "@/lib/format";
+import { DateTime } from "@/components/ui/date-time";
 
 /**
  * The announcement bell (Plan: top bar rework) — sits beside
@@ -103,7 +103,7 @@ export function AnnouncementBell({
                       </span>
                       <span className="text-text-secondary text-meta">
                         {announcement.authorName} ·{" "}
-                        {formatDateTime(announcement.createdAt)}
+                        <DateTime value={announcement.createdAt} />
                       </span>
                     </Link>
                   </li>

@@ -4,7 +4,7 @@ import { getActor } from "@/lib/auth";
 import { canSendBulkEmail } from "@/lib/permissions";
 import { loadBulkEmails } from "@/lib/bulk-email-data";
 import { AUDIENCE_LABELS } from "@/lib/bulk-email";
-import { formatDateTime } from "@/lib/format";
+import { DateTime } from "@/components/ui/date-time";
 import { PageHeader } from "@/components/dashboard/page-header";
 import { BulkEmailForm } from "@/components/communications/bulk-email-form";
 import { Card, CardContent } from "@/components/ui/card";
@@ -58,7 +58,7 @@ export default async function CommunicationsPage() {
                   <span className="text-text-secondary text-meta">
                     {AUDIENCE_LABELS[email.audience]}
                     {email.sentBy ? ` · ${email.sentBy.fullName}` : ""} ·{" "}
-                    {formatDateTime(email.createdAt)}
+                    <DateTime value={email.createdAt} />
                   </span>
                 </span>
                 <span className="text-text-secondary text-meta shrink-0">

@@ -5,8 +5,11 @@
  * (`lib/attendance.ts`/`attendance-data.ts`, `lib/tasks.ts`/`task-data.ts`).
  */
 
+/** How many days a chat message is kept before it is hard-deleted. */
+export const CHAT_MESSAGE_RETENTION_DAYS = 31;
+
 /** Messages are hard-deleted this long after they are sent. */
-export const CHAT_MESSAGE_TTL_MS = 3 * 24 * 60 * 60 * 1000;
+export const CHAT_MESSAGE_TTL_MS = CHAT_MESSAGE_RETENTION_DAYS * 24 * 60 * 60 * 1000;
 
 /** A message with `createdAt` older than this cutoff has expired. */
 export function chatMessageCutoff(now: Date): Date {
