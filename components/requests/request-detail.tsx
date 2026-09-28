@@ -1,10 +1,12 @@
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
-import { formatDate, formatDateTime, formatMoney } from "@/lib/format";
+import { formatDate, formatMoney } from "@/lib/format";
+import { DateTime } from "@/components/ui/date-time";
 import { canDecideOnRequest, type SessionActor } from "@/lib/permissions";
 import type { LoadedRequest } from "@/lib/request-data";
 import { PageHeader } from "@/components/dashboard/page-header";
 import { requestTypeDisplay } from "@/lib/requests";
+import { attachmentHref } from "@/lib/tasks";
 import { RequestStatusBadge } from "@/components/requests/status-badge";
 import { DecisionForm } from "@/components/requests/decision-form";
 import {
@@ -36,7 +38,8 @@ export function RequestDetail({
   attachments: {
     id: string;
     label: string;
-    url: string;
+    url: string | null;
+    fileId: string | null;
     createdAt: Date;
     addedById: string | null;
     addedByEmployeeId: string | null;
@@ -53,8 +56,8 @@ export function RequestDetail({
   const attachmentList: RequestAttachment[] = attachments.map((a) => ({
     id: a.id,
     label: a.label,
-    url: a.url,
-    createdAt: formatDateTime(a.createdAt),
+    url: attachmentHref(a),
+    createdAt: a.createdAt,
     addedByName: a.addedBy?.fullName ?? a.addedByEmployee?.fullName ?? null,
     canDelete:
       (actor.accountType === "employee" && a.addedByEmployeeId === actor.id) ||
@@ -106,7 +109,7 @@ export function RequestDetail({
             <>
               <Detail
                 label="Decided"
-                value={formatDateTime(request.decidedAt)}
+                value={<DateTime value={request.decidedAt} />}
               />
               <Detail
                 label="Decided by"
@@ -181,7 +184,7 @@ function Detail({
   value,
 }: {
   label: string;
-  value: string | null | undefined;
+  value: React.ReactNode;
 }) {
   return (
     <div className="flex flex-col gap-0.5">

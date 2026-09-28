@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useForm, useWatch } from "react-hook-form";
@@ -28,13 +28,15 @@ import {
 } from "@/lib/validations/requests";
 
 /**
- * Submit a request (Phases.md Phase 7).
- *
- * One form for all eight types: which extra fields show follows the selected
- * type, the same way `lib/requests.ts`'s `requestNeedsDateRange`/
- * `requestNeedsAmount` decide what the server requires, so the two can never
- * disagree about what a type needs.
+ * An approver option for the request form (Phase 21).
  */
+type ApproverOption = {
+  id: string;
+  name: string;
+  kind: "account" | "employee";
+  roleOrJobRole: string;
+};
+
 const TYPE_OPTIONS = REQUEST_TYPES.map((type) => ({
   value: type,
   label: requestTypeLabel(type),
@@ -48,13 +50,18 @@ const DAY_PART_OPTIONS = LEAVE_DAY_PARTS.map((dayPart) => ({
 export function RequestForm() {
   const router = useRouter();
   const [formError, setFormError] = useState<string | null>(null);
+  const [approvers, setApprovers] = useState<ApproverOption[]>([]);
+  const [loadingApprovers, setLoadingApprovers] = useState(true);
+  // "account:<id>" / "employee:<id>" — one picker feeding the two form fields.
+  const [approverChoice, setApproverChoice] = useState("");
 
   const {
     register,
     handleSubmit,
     setError,
+    setValue,
     control,
-    formState: { errors, isSubmitting },
+    formState: { errors, isSubmitted, isSubmitting },
   } = useForm<CreateRequestInput>({
     resolver: zodResolver(createRequestSchema),
     defaultValues: {
@@ -65,6 +72,8 @@ export function RequestForm() {
       endDate: "",
       dayPart: "FullDay",
       amount: "",
+      requestedApproverAccountId: "",
+      requestedApproverEmployeeId: "",
     },
   });
 
@@ -72,6 +81,26 @@ export function RequestForm() {
   const needsDateRange = requestNeedsDateRange(type);
   const needsAmount = requestNeedsAmount(type);
   const needsDayPart = requestNeedsDayPart(type);
+
+  // Fetch approvers on mount
+  useEffect(() => {
+    async function fetchApprovers() {
+      try {
+        const response = await fetch("/api/requests/approvers");
+        if (response.ok) {
+          const body = await response.json();
+          setApprovers(body.approvers || []);
+        } else {
+          toast.error("Could not load approvers.");
+        }
+      } catch {
+        toast.error("Could not load approvers.");
+      } finally {
+        setLoadingApprovers(false);
+      }
+    }
+    fetchApprovers();
+  }, []);
 
   const onSubmit = handleSubmit(async (values) => {
     setFormError(null);
@@ -100,6 +129,40 @@ export function RequestForm() {
     router.push(`/my-space/requests/${body.request.id}`);
     router.refresh();
   });
+
+  if (loadingApprovers) {
+    return (
+      <div className="flex flex-col gap-6">
+        <div className="animate-pulse space-y-4">
+          <div className="h-10 bg-muted" />
+          <div className="h-10 bg-muted" />
+          <div className="h-10 bg-muted" />
+          <div className="h-32 bg-muted" />
+          <div className="h-10 bg-muted" />
+        </div>
+      </div>
+    );
+  }
+
+  const accountApprovers = approvers.filter((a) => a.kind === "account");
+  const employeeApprovers = approvers.filter((a) => a.kind === "employee");
+
+  const approverGroups = [
+    {
+      label: "Company accounts",
+      options: accountApprovers.map((a) => ({
+        value: `account:${a.id}`,
+        label: `${a.name} (${a.roleOrJobRole})`,
+      })),
+    },
+    {
+      label: "Employees",
+      options: employeeApprovers.map((a) => ({
+        value: `employee:${a.id}`,
+        label: `${a.name} (${a.roleOrJobRole})`,
+      })),
+    },
+  ].filter((group) => group.options.length > 0);
 
   return (
     <form onSubmit={onSubmit} noValidate className="flex flex-col gap-6">
@@ -172,8 +235,54 @@ export function RequestForm() {
         {...register("description")}
       />
 
+      {approvers.length > 0 ? (
+        <>
+          <div className="grid gap-2">
+            <label className="text-sm font-medium text-foreground">
+              Submit to <span className="text-brand-brown">*</span>
+            </label>
+            <p className="text-sm text-text-secondary">
+              Choose who this request is addressed to. Only that person (or the
+              company owner) can approve or reject it.
+            </p>
+          </div>
+          <SelectField
+            id="approver"
+            label="Approver"
+            placeholder="Choose who to submit this request to"
+            groups={approverGroups}
+            error={
+              errors.requestedApproverAccountId?.message ??
+              errors.requestedApproverEmployeeId?.message
+            }
+            value={approverChoice}
+            onChange={(event) => {
+              const value = event.target.value;
+              setApproverChoice(value);
+              const [kind, id = ""] = value.split(":");
+              const opts = { shouldValidate: isSubmitted };
+              setValue(
+                "requestedApproverAccountId",
+                kind === "account" ? id : "",
+                opts
+              );
+              setValue(
+                "requestedApproverEmployeeId",
+                kind === "employee" ? id : "",
+                opts
+              );
+            }}
+          />
+        </>
+      ) : (
+        <div className="rounded-md bg-destructive/10 p-4 text-destructive text-sm">
+          No one in your company can approve requests. Please contact your
+          administrator.
+        </div>
+      )}
+
       <div className="flex flex-wrap items-center gap-3">
-        <Button type="submit" disabled={isSubmitting}>
+        <Button type="submit" disabled={isSubmitting || approvers.length === 0}>
           {isSubmitting ? "Submitting…" : "Submit request"}
         </Button>
         <Button asChild variant="ghost">

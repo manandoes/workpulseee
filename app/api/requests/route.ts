@@ -15,6 +15,7 @@ import {
   loadOwnRequests,
   loadRequestsForApprover,
   resolveRequest,
+  checkRequestedApprover,
 } from "@/lib/request-data";
 import { notifyRequestSubmitted } from "@/lib/notification-data";
 import { canApproveRequests } from "@/lib/permissions";
@@ -96,6 +97,9 @@ export async function POST(request: NextRequest) {
   if (!resolved.ok) return writeFailure(resolved);
 
   try {
+    const approverFailure = await checkRequestedApprover(actor, resolved.data);
+    if (approverFailure) return writeFailure(approverFailure);
+
     const created = await db.request.create({
       data: {
         ...resolved.data,
@@ -114,6 +118,8 @@ export async function POST(request: NextRequest) {
         type: loaded.type,
         subject: loaded.subject,
         employee: loaded.employee,
+        requestedApproverAccountId: loaded.requestedApproverAccountId,
+        requestedApproverEmployeeId: loaded.requestedApproverEmployeeId,
       });
     }
 

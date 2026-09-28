@@ -4,6 +4,7 @@ import { createRequestSchema } from "@/lib/validations/requests";
 const base = {
   subject: "Annual leave",
   description: "A week off",
+  requestedApproverAccountId: "acct_1",
 };
 
 describe("createRequestSchema — dayPart", () => {
@@ -61,5 +62,41 @@ describe("createRequestSchema — dayPart", () => {
       endDate: "2026-10-02",
     });
     expect(result.success).toBe(true);
+  });
+});
+
+describe("createRequestSchema — approver (Phase 21)", () => {
+  const leave = {
+    type: "HR" as const,
+    subject: "Annual leave",
+    description: "A week off",
+  };
+
+  it("requires an approver", () => {
+    const result = createRequestSchema.safeParse(leave);
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.issues[0]?.path).toEqual([
+        "requestedApproverAccountId",
+      ]);
+    }
+  });
+
+  it("accepts an employee approver with the account field left blank", () => {
+    const result = createRequestSchema.safeParse({
+      ...leave,
+      requestedApproverAccountId: "",
+      requestedApproverEmployeeId: "emp_1",
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("refuses both kinds of approver at once", () => {
+    const result = createRequestSchema.safeParse({
+      ...leave,
+      requestedApproverAccountId: "acct_1",
+      requestedApproverEmployeeId: "emp_1",
+    });
+    expect(result.success).toBe(false);
   });
 });

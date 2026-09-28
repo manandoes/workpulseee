@@ -1,5 +1,6 @@
 "use client";
 
+import { DateTime } from "@/components/ui/date-time";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
@@ -19,7 +20,7 @@ export type RequestAttachment = {
   label: string;
   url: string;
   addedByName: string | null;
-  createdAt: string;
+  createdAt: Date | string;
   canDelete: boolean;
 };
 
@@ -114,7 +115,7 @@ export function RequestAttachments({
                 </a>
                 <span className="text-text-secondary text-meta truncate">
                   {attachment.addedByName ?? "Removed user"} ·{" "}
-                  {attachment.createdAt}
+                  <DateTime value={attachment.createdAt} />
                 </span>
               </div>
 
