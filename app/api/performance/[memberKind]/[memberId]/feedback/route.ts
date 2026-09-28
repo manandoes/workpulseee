@@ -17,9 +17,10 @@ import {
   type PerformanceSubject,
 } from "@/lib/performance-data";
 import {
-  canEditEmployee,
+  canManageAccountPerformance,
+  canManagePerformance,
+  canViewAccountPerformance,
   canViewPerformance,
-  isCompanyAdmin,
 } from "@/lib/permissions";
 import { createFeedbackSchema } from "@/lib/validations/performance";
 
@@ -30,9 +31,9 @@ import { createFeedbackSchema } from "@/lib/validations/performance";
  *
  * Visible to the subject immediately on submission (confirmed with the
  * user) — there is no draft/private state, so the GET side uses the same
- * view gate as everything else on this page. Giving feedback to a company
- * account is Owner/Admin-only, the same `isCompanyAdmin` gate Squad's account
- * branch already uses for that subject's other admin-only panels.
+ * view gate as everything else on this page. Giving feedback follows the
+ * same split as goals: `canManagePerformance` for an employee,
+ * `canManageAccountPerformance` for a company login.
  */
 export async function GET(
   request: Request,
@@ -47,8 +48,9 @@ export async function GET(
     if (memberKind === "account") {
       const account = await loadAccountSubject(actor, memberId);
       if (!account) return apiError("Account not found.", 404, "not_found");
-      const isSelf = actor.accountType === "company" && actor.id === memberId;
-      if (!isCompanyAdmin(actor) && !isSelf) return forbidden();
+      if (!canViewAccountPerformance(actor, { id: memberId })) {
+        return forbidden();
+      }
 
       const feedback = await loadFeedback(actor.companyId, {
         kind: "account",
@@ -108,16 +110,16 @@ export async function POST(
     if (memberKind === "account") {
       const account = await loadAccountSubject(actor, memberId);
       if (!account) return apiError("Account not found.", 404, "not_found");
-      if (!isCompanyAdmin(actor)) {
+      if (!canManageAccountPerformance(actor)) {
         return forbidden(
-          "Only owners and admins can give feedback to a company account."
+          "You don't have access to give feedback to this login."
         );
       }
       subject = { kind: "account", id: memberId };
     } else if (memberKind === "employee") {
       const employee = await loadEmployeeSubject(actor, memberId);
       if (!employee) return apiError("Employee not found.", 404, "not_found");
-      if (!canEditEmployee(actor, employee)) {
+      if (!canManagePerformance(actor, employee)) {
         return forbidden(
           "You can only give feedback to your own direct reports."
         );

@@ -58,6 +58,17 @@ describe("onTimeDeliveryRate", () => {
     expect(rate).toBe(100);
   });
 
+  it("counts finishing later on the due day itself as on time", () => {
+    const rate = onTimeDeliveryRate([
+      {
+        status: "Done",
+        dueDate: due("2026-09-10"),
+        completedAt: new Date("2026-09-10T23:59:00Z"),
+      },
+    ]);
+    expect(rate).toBe(100);
+  });
+
   it("counts finishing after the due date as late", () => {
     const rate = onTimeDeliveryRate([
       {

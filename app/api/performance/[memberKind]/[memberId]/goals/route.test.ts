@@ -113,7 +113,7 @@ describe("POST /api/performance/[memberKind]/[memberId]/goals", () => {
   it("refuses a Manager setting a goal for another company account", async () => {
     const { companyId } = await createTestCompany();
     const managerId = await createCompanyAccount(companyId, "Manager");
-    const hrId = await createCompanyAccount(companyId, "HR");
+    const hrId = await createCompanyAccount(companyId, "HRHead");
     vi.mocked(getActor).mockResolvedValue(
       companyActor(companyId, managerId, "Manager")
     );

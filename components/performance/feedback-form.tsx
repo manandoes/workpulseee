@@ -31,9 +31,9 @@ const RATING_OPTIONS = [
  * accounts).
  *
  * Visible to the subject immediately on submission (confirmed with the
- * user) — there is no draft/private state. Manager-owned for an employee,
- * Owner/Admin-owned for a company account, like goals: only rendered where
- * the caller has already checked `canEditEmployee`/`isCompanyAdmin`.
+ * user) — there is no draft/private state. Owned like goals: only rendered
+ * where the caller has already checked
+ * `canManagePerformance`/`canManageAccountPerformance`.
  */
 export function FeedbackForm({ subject }: { subject: PerformanceSubject }) {
   const router = useRouter();

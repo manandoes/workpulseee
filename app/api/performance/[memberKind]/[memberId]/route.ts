@@ -6,7 +6,10 @@ import {
   loadEmployeeSubject,
   loadPerformanceHistory,
 } from "@/lib/performance-data";
-import { canViewPerformance, isCompanyAdmin } from "@/lib/permissions";
+import {
+  canViewAccountPerformance,
+  canViewPerformance,
+} from "@/lib/permissions";
 
 /**
  * GET /api/performance/[memberKind]/[memberId] — one subject's score history
@@ -17,8 +20,7 @@ import { canViewPerformance, isCompanyAdmin } from "@/lib/permissions";
  * Loaded through the tenant filter first, so an id from another company
  * reads as "not found" rather than leaking that the record exists
  * (Rules.md section 2). An employee subject follows `canViewPerformance`; a
- * company-account subject has no manager relationship to check, so it's
- * Owner/Admin, or the account itself.
+ * company-account subject `canViewAccountPerformance`.
  */
 export async function GET(
   request: Request,
@@ -33,8 +35,9 @@ export async function GET(
     if (memberKind === "account") {
       const account = await loadAccountSubject(actor, memberId);
       if (!account) return apiError("Account not found.", 404, "not_found");
-      const isSelf = actor.accountType === "company" && actor.id === memberId;
-      if (!isCompanyAdmin(actor) && !isSelf) return forbidden();
+      if (!canViewAccountPerformance(actor, { id: memberId })) {
+        return forbidden();
+      }
 
       const history = await loadPerformanceHistory(actor.companyId, {
         kind: "account",

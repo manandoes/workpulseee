@@ -20,6 +20,7 @@ import { PeriodScore } from "@/components/performance/period-score";
 import { ScoreHistoryChart } from "@/components/performance/score-history-chart";
 import { BreakdownTiles } from "@/components/performance/breakdown-tiles";
 import { DayBreakdownPanel } from "@/components/performance/day-breakdown-panel";
+import { TaskBreakdownPanel } from "@/components/performance/task-breakdown-panel";
 import { resolveRequestTimeZone } from "@/lib/timezone-request";
 import { GoalList } from "@/components/performance/goal-views";
 import { FeedbackList } from "@/components/performance/feedback-views";
@@ -106,6 +107,13 @@ export default async function MyGrowthPage({
           </h2>
           <BreakdownTiles breakdown={breakdown} />
           <DayBreakdownPanel days={breakdown.days} />
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardContent className="flex flex-col gap-4 py-2">
+          <h2 className="text-h3 text-brand-brown font-semibold">Tasks</h2>
+          <TaskBreakdownPanel tasks={breakdown.tasks} />
         </CardContent>
       </Card>
 

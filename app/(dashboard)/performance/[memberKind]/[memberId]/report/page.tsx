@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { notFound, redirect } from "next/navigation";
 import { getActor } from "@/lib/auth";
+import { LEVEL_LABELS } from "@/lib/permission-grants";
 import { db } from "@/lib/db";
 import { scopedWhere } from "@/lib/tenant";
 import {
@@ -16,11 +17,15 @@ import {
 } from "@/lib/performance";
 import { performancePeriodSchema } from "@/lib/validations/performance";
 import { formatDate } from "@/lib/format";
-import { canViewPerformance, isCompanyAdmin } from "@/lib/permissions";
+import {
+  canViewAccountPerformance,
+  canViewPerformance,
+} from "@/lib/permissions";
 import { resolveRequestTimeZone } from "@/lib/timezone-request";
 import { PerformanceScoreBadge } from "@/components/performance/score-badge";
 import { BreakdownTiles } from "@/components/performance/breakdown-tiles";
 import { DayBreakdownPanel } from "@/components/performance/day-breakdown-panel";
+import { TaskBreakdownPanel } from "@/components/performance/task-breakdown-panel";
 import { GoalList } from "@/components/performance/goal-views";
 import { FeedbackList } from "@/components/performance/feedback-views";
 import { PrintButton } from "@/components/performance/print-button";
@@ -46,7 +51,6 @@ export default async function PerformanceReportPage({
 }: PageProps<"/performance/[memberKind]/[memberId]/report">) {
   const actor = await getActor();
   if (!actor) redirect("/login");
-  if (actor.accountType !== "company") redirect("/my-space");
 
   const { memberKind, memberId } = await params;
   if (memberKind !== "employee" && memberKind !== "account") notFound();
@@ -64,7 +68,7 @@ export default async function PerformanceReportPage({
       select: { id: true, fullName: true, role: true },
     });
     if (!account) notFound();
-    if (!isCompanyAdmin(actor) && actor.id !== account.id) notFound();
+    if (!canViewAccountPerformance(actor, account)) notFound();
 
     const subject = { kind: "account" as const, id: account.id };
     const [periodScore, breakdown, goals, feedback] = await Promise.all([
@@ -77,7 +81,7 @@ export default async function PerformanceReportPage({
     return (
       <ReportBody
         name={account.fullName}
-        role={account.role}
+        role={LEVEL_LABELS[account.role]}
         preset={preset}
         period={period}
         now={now}
@@ -187,6 +191,13 @@ function ReportBody({
         <BreakdownTiles breakdown={breakdown} />
         <DayBreakdownPanel days={breakdown.days} defaultOpen />
       </section>
+
+      {subject.kind === "employee" ? (
+      <section className="flex flex-col gap-3">
+        <h2 className="text-h3 text-brand-brown font-semibold">Tasks</h2>
+        <TaskBreakdownPanel tasks={breakdown.tasks} />
+      </section>
+      ) : null}
 
       <section className="flex flex-col gap-3">
         <h2 className="text-h3 text-brand-brown font-semibold">Goals</h2>

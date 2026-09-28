@@ -17,9 +17,10 @@ import {
   type PerformanceSubject,
 } from "@/lib/performance-data";
 import {
-  canEditEmployee,
+  canManageAccountPerformance,
+  canManagePerformance,
+  canViewAccountPerformance,
   canViewPerformance,
-  isCompanyAdmin,
 } from "@/lib/permissions";
 import { createGoalSchema } from "@/lib/validations/performance";
 
@@ -28,12 +29,11 @@ import { createGoalSchema } from "@/lib/validations/performance";
  * goals (Phases.md Phase 8's "goal creation/tracking per employee"), widened
  * to company accounts too (Plan: performance for all company accounts).
  *
- * Goals are manager-owned for an employee (`canEditEmployee`'s existing
- * scope). A company account has no manager relationship to check, so setting
- * one for an account is Owner/Admin-only — the same `isCompanyAdmin` gate
- * Squad's account branch already uses for that subject's other admin-only
- * panels — while reading follows the same Owner/Admin-or-self split as
- * that account's Attendance panel.
+ * Goals are manager-owned for an employee (`canManagePerformance`: the
+ * `ManagePerformance` power or their own reporting manager). A company
+ * account has no manager relationship to check, so setting one for an
+ * account takes the power itself (`canManageAccountPerformance`), and
+ * reading follows `canViewAccountPerformance`.
  */
 export async function GET(
   request: Request,
@@ -48,8 +48,9 @@ export async function GET(
     if (memberKind === "account") {
       const account = await loadAccountSubject(actor, memberId);
       if (!account) return apiError("Account not found.", 404, "not_found");
-      const isSelf = actor.accountType === "company" && actor.id === memberId;
-      if (!isCompanyAdmin(actor) && !isSelf) return forbidden();
+      if (!canViewAccountPerformance(actor, { id: memberId })) {
+        return forbidden();
+      }
 
       const goals = await loadGoals(actor.companyId, {
         kind: "account",
@@ -109,16 +110,14 @@ export async function POST(
     if (memberKind === "account") {
       const account = await loadAccountSubject(actor, memberId);
       if (!account) return apiError("Account not found.", 404, "not_found");
-      if (!isCompanyAdmin(actor)) {
-        return forbidden(
-          "Only owners and admins can set goals for a company account."
-        );
+      if (!canManageAccountPerformance(actor)) {
+        return forbidden("You don't have access to set goals for this login.");
       }
       subject = { kind: "account", id: memberId };
     } else if (memberKind === "employee") {
       const employee = await loadEmployeeSubject(actor, memberId);
       if (!employee) return apiError("Employee not found.", 404, "not_found");
-      if (!canEditEmployee(actor, employee)) {
+      if (!canManagePerformance(actor, employee)) {
         return forbidden(
           "You can only set goals for your own direct reports."
         );

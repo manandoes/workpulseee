@@ -17,7 +17,10 @@ import {
   safeRecalcPersonPerformance,
   type PerformanceSubject,
 } from "@/lib/performance-data";
-import { canEditEmployee, isCompanyAdmin } from "@/lib/permissions";
+import {
+  canManageAccountPerformance,
+  canManagePerformance,
+} from "@/lib/permissions";
 import { goalDecisionSchema } from "@/lib/validations/performance";
 
 /**
@@ -55,16 +58,16 @@ export async function PATCH(
     if (memberKind === "account") {
       const account = await loadAccountSubject(actor, memberId);
       if (!account) return apiError("Account not found.", 404, "not_found");
-      if (!isCompanyAdmin(actor)) {
+      if (!canManageAccountPerformance(actor)) {
         return forbidden(
-          "Only owners and admins can decide goals for a company account."
+          "You don't have access to decide goals for this login."
         );
       }
       subject = { kind: "account", id: memberId };
     } else if (memberKind === "employee") {
       const employee = await loadEmployeeSubject(actor, memberId);
       if (!employee) return apiError("Employee not found.", 404, "not_found");
-      if (!canEditEmployee(actor, employee)) {
+      if (!canManagePerformance(actor, employee)) {
         return forbidden(
           "You can only decide goals for your own direct reports."
         );

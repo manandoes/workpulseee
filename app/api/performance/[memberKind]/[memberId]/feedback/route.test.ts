@@ -66,7 +66,7 @@ describe("POST /api/performance/[memberKind]/[memberId]/feedback", () => {
    */
   it("lets an Owner give feedback to a company account", async () => {
     const { companyId, ownerId } = await createTestCompany();
-    const hrId = await createCompanyAccount(companyId, "HR");
+    const hrId = await createCompanyAccount(companyId, "HRHead");
     vi.mocked(getActor).mockResolvedValue(
       companyActor(companyId, ownerId, "Owner")
     );
@@ -91,7 +91,7 @@ describe("POST /api/performance/[memberKind]/[memberId]/feedback", () => {
   it("refuses a Manager giving feedback to another company account", async () => {
     const { companyId } = await createTestCompany();
     const managerId = await createCompanyAccount(companyId, "Manager");
-    const hrId = await createCompanyAccount(companyId, "HR");
+    const hrId = await createCompanyAccount(companyId, "HRHead");
     vi.mocked(getActor).mockResolvedValue(
       companyActor(companyId, managerId, "Manager")
     );

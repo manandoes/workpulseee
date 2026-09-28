@@ -3,6 +3,7 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { ArrowLeft, FileDown } from "lucide-react";
 import { getActor } from "@/lib/auth";
+import { LEVEL_LABELS } from "@/lib/permission-grants";
 import { db } from "@/lib/db";
 import { scopedWhere } from "@/lib/tenant";
 import {
@@ -14,7 +15,12 @@ import {
 } from "@/lib/performance-data";
 import { resolvePeriod } from "@/lib/performance";
 import { performancePeriodSchema } from "@/lib/validations/performance";
-import { canEditEmployee, canViewPerformance, isCompanyAdmin } from "@/lib/permissions";
+import {
+  canManageAccountPerformance,
+  canManagePerformance,
+  canViewAccountPerformance,
+  canViewPerformance,
+} from "@/lib/permissions";
 import { PageHeader } from "@/components/dashboard/page-header";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -24,6 +30,7 @@ import { ScoreHistoryChart } from "@/components/performance/score-history-chart"
 import { ScoreTrend } from "@/components/performance/score-trend";
 import { BreakdownTiles } from "@/components/performance/breakdown-tiles";
 import { DayBreakdownPanel } from "@/components/performance/day-breakdown-panel";
+import { TaskBreakdownPanel } from "@/components/performance/task-breakdown-panel";
 import { resolveRequestTimeZone } from "@/lib/timezone-request";
 import { GoalList } from "@/components/performance/goal-views";
 import { GoalForm } from "@/components/performance/goal-form";
@@ -42,9 +49,9 @@ export const metadata: Metadata = { title: "Performance" };
  * list, but direct navigation could still reach another manager's report by
  * id — `canViewPerformance` is re-checked here and a mismatch reads as
  * "not found", the same guard `/requests/[id]` uses (Rules.md section 3). A
- * company account has no manager relationship to check, so it follows the
- * same Owner/Admin-or-self split Squad's account branch already uses for its
- * Attendance panel.
+ * company account has no manager relationship to check, so it follows
+ * `canViewAccountPerformance`. An employee gets here only with the Owner's
+ * "View performance" switch — those same checks decide what they may open.
  */
 export default async function PerformanceMemberPage({
   params,
@@ -52,7 +59,6 @@ export default async function PerformanceMemberPage({
 }: PageProps<"/performance/[memberKind]/[memberId]">) {
   const actor = await getActor();
   if (!actor) redirect("/login");
-  if (actor.accountType !== "company") redirect("/my-space");
 
   const { memberKind, memberId } = await params;
   if (memberKind !== "employee" && memberKind !== "account") notFound();
@@ -75,9 +81,8 @@ export default async function PerformanceMemberPage({
     });
     if (!account) notFound();
 
-    const isSelf = actor.id === account.id;
-    const mayDecide = isCompanyAdmin(actor);
-    if (!mayDecide && !isSelf) notFound();
+    if (!canViewAccountPerformance(actor, account)) notFound();
+    const mayDecide = canManageAccountPerformance(actor);
 
     const subject = { kind: "account" as const, id: account.id };
     const [periodScore, history, breakdown, goals, feedback] = await Promise.all([
@@ -97,7 +102,7 @@ export default async function PerformanceMemberPage({
       <>
         <PageHeader
           title={account.fullName}
-          description={account.role}
+          description={LEVEL_LABELS[account.role]}
           action={
             <div className="flex items-center gap-4">
               <Link
@@ -177,7 +182,7 @@ export default async function PerformanceMemberPage({
   if (!employee) notFound();
   if (!canViewPerformance(actor, employee)) notFound();
 
-  const mayDecide = canEditEmployee(actor, employee);
+  const mayDecide = canManagePerformance(actor, employee);
   const subject = { kind: "employee" as const, id: employee.id };
 
   const [periodScore, history, breakdown, goals, feedback] = await Promise.all([
@@ -239,6 +244,13 @@ export default async function PerformanceMemberPage({
           </h2>
           <BreakdownTiles breakdown={breakdown} />
           <DayBreakdownPanel days={breakdown.days} />
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardContent className="flex flex-col gap-4 py-2">
+          <h2 className="text-h3 text-brand-brown font-semibold">Tasks</h2>
+          <TaskBreakdownPanel tasks={breakdown.tasks} />
         </CardContent>
       </Card>
 

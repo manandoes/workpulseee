@@ -15,6 +15,7 @@ import { resolveRequestTimeZone } from "@/lib/timezone-request";
 import { PerformanceScoreBadge } from "@/components/performance/score-badge";
 import { BreakdownTiles } from "@/components/performance/breakdown-tiles";
 import { DayBreakdownPanel } from "@/components/performance/day-breakdown-panel";
+import { TaskBreakdownPanel } from "@/components/performance/task-breakdown-panel";
 import { GoalList } from "@/components/performance/goal-views";
 import { FeedbackList } from "@/components/performance/feedback-views";
 import { PrintButton } from "@/components/performance/print-button";
@@ -92,6 +93,11 @@ export default async function MyGrowthReportPage({
         </h2>
         <BreakdownTiles breakdown={breakdown} />
         <DayBreakdownPanel days={breakdown.days} defaultOpen />
+      </section>
+
+      <section className="flex flex-col gap-3">
+        <h2 className="text-h3 text-brand-brown font-semibold">Tasks</h2>
+        <TaskBreakdownPanel tasks={breakdown.tasks} />
       </section>
 
       <section className="flex flex-col gap-3">

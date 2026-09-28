@@ -76,6 +76,31 @@ describe("buildPerformanceBreakdown", () => {
     expect(breakdown.tasks.delayed).toBe(1);
   });
 
+  it("splits allotted tasks by stage and by on-time delivery", () => {
+    const breakdown = buildPerformanceBreakdown(
+      {
+        ...baseInput,
+        tasks: [
+          { status: "Done", dueDate: at("2026-09-10"), completedAt: at("2026-09-10", "15:00:00") },
+          { status: "Done", dueDate: at("2026-09-10"), completedAt: at("2026-09-12") },
+          { status: "Todo", dueDate: null, completedAt: null },
+          { status: "InProgress", dueDate: null, completedAt: null },
+          { status: "InReview", dueDate: null, completedAt: null },
+        ],
+      },
+      now
+    );
+
+    expect(breakdown.tasks).toMatchObject({
+      allotted: 5,
+      completed: 2,
+      completedOnTime: 1,
+      completedLate: 1,
+      notStarted: 1,
+      inProgress: 2,
+    });
+  });
+
   it("has no attendance, breaks, or tasks for someone with no records", () => {
     const breakdown = buildPerformanceBreakdown(baseInput, now);
 
@@ -83,7 +108,12 @@ describe("buildPerformanceBreakdown", () => {
     expect(breakdown.breaks).toEqual({ totalMs: 0, count: 0, ratioPercent: null });
     expect(breakdown.focus).toEqual({ trackedMs: 0 });
     expect(breakdown.tasks).toEqual({
+      allotted: 0,
       completed: 0,
+      completedOnTime: 0,
+      completedLate: 0,
+      notStarted: 0,
+      inProgress: 0,
       due: 0,
       delayed: 0,
       completionRate: null,

@@ -12,6 +12,7 @@ import {
 } from "@/lib/tasks";
 import {
   calculatePerformanceScore,
+  finishedOnTime,
   taskCompletionRate,
   onTimeDeliveryRate,
   toDate,
@@ -91,7 +92,18 @@ export function breakToWorkedRatio(
  * already applies.
  */
 export type TasksBreakdown = {
+  /** Every task in scope — the ones assigned to this person that landed or
+   * came due in the period (`scopeInputsToPeriod`), or all of them for "all
+   * time". Every count below is a slice of this. */
+  allotted: number;
   completed: number;
+  /** `completed`, split by `finishedOnTime`. */
+  completedOnTime: number;
+  completedLate: number;
+  /** Open tasks by stage: `Todo` is not started; `InProgress`/`InReview` are
+   * being worked. Together they are everything not yet done. */
+  notStarted: number;
+  inProgress: number;
   due: number;
   delayed: number;
   completionRate: number | null;
@@ -170,8 +182,18 @@ export function buildPerformanceBreakdown(
     (task) => isOpen(task.status) && task.dueDate !== null
   );
 
+  const done = input.tasks.filter((task) => task.status === "Done");
+  const completedOnTime = done.filter(finishedOnTime).length;
+
   const tasks: TasksBreakdown = {
-    completed: input.tasks.filter((task) => task.status === "Done").length,
+    allotted: input.tasks.length,
+    completed: done.length,
+    completedOnTime,
+    completedLate: done.length - completedOnTime,
+    notStarted: input.tasks.filter((task) => task.status === "Todo").length,
+    inProgress: input.tasks.filter(
+      (task) => task.status === "InProgress" || task.status === "InReview"
+    ).length,
     due: openWithDueDate.length,
     delayed: openWithDueDate.filter((task) => isOverdue(task, now)).length,
     completionRate: taskCompletionRate(input.tasks),

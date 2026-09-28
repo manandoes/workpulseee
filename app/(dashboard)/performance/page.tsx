@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getActor } from "@/lib/auth";
+import { canViewAllPerformance } from "@/lib/permissions";
 import { loadDepartments } from "@/lib/employee-data";
 import { loadPerformanceQueue } from "@/lib/performance-data";
 import { paginationSchema } from "@/lib/pagination";
@@ -26,7 +27,11 @@ export default async function PerformancePage({
 }: PageProps<"/performance">) {
   const actor = await getActor();
   if (!actor) redirect("/login");
-  if (actor.accountType !== "company") redirect("/my-space");
+  // An employee reaches the queue only with the Owner's "View performance"
+  // switch (Plan: access levels); their own growth lives in My Growth.
+  if (actor.accountType === "employee" && !canViewAllPerformance(actor)) {
+    redirect("/my-space/growth");
+  }
 
   const query = await searchParams;
   const filters = performanceFiltersSchema.parse(query);
