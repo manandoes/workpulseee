@@ -20,9 +20,13 @@ import {
   resolveCompletionWatchers,
   taskAssignedMessage,
   taskCompletedMessage,
+  vaultAccessDecidedMessage,
+  vaultAccessRequestedMessage,
   whatsappTestMessage,
   type ChannelPreferences,
 } from "@/lib/notifications";
+import { has } from "@/lib/permissions";
+import { loadAccountHolders } from "@/lib/permission-grants-data";
 import {
   notificationEmailBody,
   requestDecisionEmailBody,
@@ -213,6 +217,8 @@ const EMAIL_SUBJECTS: Record<NotificationType, string> = {
    * which is where this string is really seen.
    */
   LogoutReminder: "You're still logged in",
+  VaultAccessRequested: "Someone requested client credentials",
+  VaultAccessDecided: "Your client credential access changed",
 };
 
 /**
@@ -339,21 +345,48 @@ async function deliver({
 // The events that notify
 // ---------------------------------------------------------------------------
 
-/** A new request was submitted — tell whoever can decide on it. */
+/** A new request was submitted — tell the person it was addressed to. */
 export async function notifyRequestSubmitted(request: {
   id: string;
   companyId: string;
   type: RequestType;
   subject: string;
   employee: { id: string; fullName: string; managerAccountId: string | null };
+  /** Phase 21: the targeted approver (exactly one is set). */
+  requestedApproverAccountId: string | null;
+  requestedApproverEmployeeId: string | null;
 }): Promise<void> {
   try {
-    const accounts = await db.companyAccount.findMany({
-      where: { companyId: request.companyId, deletedAt: null },
-      select: { id: true, role: true },
-    });
+    // Phase 21: notify only the targeted approver, not all potential approvers
+    // An employee approver is a different kind of recipient, with its own
+    // approvals page — delivering their id as an account id would fail the
+    // notification's foreign key and reach nobody.
+    const targets: { recipient: Recipient; link: string }[] = [];
+    if (request.requestedApproverAccountId) {
+      targets.push({
+        recipient: { accountId: request.requestedApproverAccountId },
+        link: `/requests/${request.id}`,
+      });
+    }
+    if (request.requestedApproverEmployeeId) {
+      targets.push({
+        recipient: { employeeId: request.requestedApproverEmployeeId },
+        link: `/my-space/requests/approvals/${request.id}`,
+      });
+    }
 
-    const approverIds = resolveApproversFor(accounts, request.employee);
+    if (targets.length === 0) {
+      // Legacy request (no targeted approver): everyone who may decide it,
+      // the Owner's per-person switches included.
+      const accounts = await loadAccountHolders(request.companyId);
+      for (const id of resolveApproversFor(accounts, request.employee)) {
+        targets.push({
+          recipient: { accountId: id },
+          link: `/requests/${request.id}`,
+        });
+      }
+    }
+
     const message = requestSubmittedMessage(
       request.employee.fullName,
       request.type,
@@ -361,13 +394,13 @@ export async function notifyRequestSubmitted(request: {
     );
 
     await Promise.all(
-      approverIds.map((id) =>
+      targets.map(({ recipient, link }) =>
         deliver({
           companyId: request.companyId,
-          recipient: { accountId: id },
+          recipient,
           type: "RequestSubmitted",
           message,
-          link: `/requests/${request.id}`,
+          link,
         })
       )
     );
@@ -416,7 +449,74 @@ export async function notifyRequestDecided(request: {
 }
 
 /**
- * Work has landed on someone — tell the new assignee.
+ * Someone asked for client credentials (Plan: client vault) — tell every
+ * vault manager, since any of them may decide.
+ */
+export async function notifyVaultAccessRequested(request: {
+  companyId: string;
+  requesterName: string;
+  clientName: string;
+  titles: string[];
+}): Promise<void> {
+  try {
+    // Whoever holds the vault power right now — not a fixed role list, so a
+    // manager the Owner switched it off for stops hearing about requests.
+    const managers = (await loadAccountHolders(request.companyId)).filter(
+      (account) => has(account, "ManageClientVault")
+    );
+
+    const message = vaultAccessRequestedMessage(
+      request.requesterName,
+      request.clientName,
+      request.titles
+    );
+
+    await Promise.all(
+      managers.map((manager) =>
+        deliver({
+          companyId: request.companyId,
+          recipient: { accountId: manager.id },
+          type: "VaultAccessRequested",
+          message,
+          link: "/vault",
+        })
+      )
+    );
+  } catch (cause) {
+    console.error("[notifications] Could not notify vault managers", {
+      cause,
+    });
+  }
+}
+
+/** A vault access request was decided, or access revoked — tell the requester. */
+export async function notifyVaultAccessDecided(access: {
+  companyId: string;
+  recipient: Recipient;
+  clientName: string;
+  title: string;
+  status: "Approved" | "Rejected" | "Revoked";
+}): Promise<void> {
+  try {
+    await deliver({
+      companyId: access.companyId,
+      recipient: access.recipient,
+      type: "VaultAccessDecided",
+      message: vaultAccessDecidedMessage(
+        access.clientName,
+        access.title,
+        access.status
+      ),
+      link: "/vault",
+    });
+  } catch (cause) {
+    console.error("[notifications] Could not notify the requester", { cause });
+  }
+}
+
+/**
+ * Work has landed on someone — tell the new assignee: an employee, or a
+ * Manager/HR login allotted the task (Plan: allot tasks to a Manager or HR).
  *
  * Called when a task is created with an assignee and when an edit moves one to
  * a different person. Never fires for the actor assigning work to themselves:
@@ -427,15 +527,16 @@ export async function notifyTaskAssigned(task: {
   companyId: string;
   title: string;
   dueDate: Date | null;
-  assigneeId: string;
+  assignee: Recipient;
+  /** The company account that allotted it — only ever an account. */
   assignedById: string;
 }): Promise<void> {
-  if (task.assigneeId === task.assignedById) return;
+  if (task.assignee.accountId === task.assignedById) return;
 
   try {
     await deliver({
       companyId: task.companyId,
-      recipient: { employeeId: task.assigneeId },
+      recipient: task.assignee,
       type: "TaskAssigned",
       message: taskAssignedMessage(task.title, task.dueDate),
       link: `/tasks?taskId=${task.id}`,
@@ -501,13 +602,14 @@ export async function notifyDeadlineApproaching(task: {
   companyId: string;
   title: string;
   dueDate: Date;
-  assigneeId: string;
+  /** An employee, or a Manager/HR login allotted the task. */
+  assignee: Recipient;
   daysUntilDue: number;
 }): Promise<void> {
   try {
     await deliver({
       companyId: task.companyId,
-      recipient: { employeeId: task.assigneeId },
+      recipient: task.assignee,
       type: "DeadlineApproaching",
       message: deadlineMessage(task.title, task.daysUntilDue),
       link: `/tasks?taskId=${task.id}`,
@@ -550,16 +652,30 @@ export async function warnCompanyDeadlines(
       deletedAt: null,
       status: { in: [...OPEN_STATUSES] },
       dueDate: { in: [...milestones.values()] },
-      assigneeId: { not: null },
+      OR: [
+        { assigneeId: { not: null } },
+        { assigneeAccountId: { not: null } },
+      ],
     },
-    select: { id: true, title: true, dueDate: true, assigneeId: true },
+    select: {
+      id: true,
+      title: true,
+      dueDate: true,
+      assigneeId: true,
+      assigneeAccountId: true,
+    },
   });
 
   let warned = 0;
 
   for (const task of tasks) {
-    // Narrowing only: the query already excluded null on both.
-    if (!task.dueDate || !task.assigneeId) continue;
+    // Narrowing only: the query already excluded an unassigned task.
+    const assignee: Recipient | null = task.assigneeId
+      ? { employeeId: task.assigneeId }
+      : task.assigneeAccountId
+        ? { accountId: task.assigneeAccountId }
+        : null;
+    if (!task.dueDate || !assignee) continue;
 
     const daysUntilDue = [...milestones.entries()].find(
       ([, date]) => date.getTime() === task.dueDate!.getTime()
@@ -571,7 +687,7 @@ export async function warnCompanyDeadlines(
       companyId,
       title: task.title,
       dueDate: task.dueDate,
-      assigneeId: task.assigneeId,
+      assignee,
       daysUntilDue,
     });
     warned += 1;

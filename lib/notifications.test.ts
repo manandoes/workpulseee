@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { formatDate } from "@/lib/format";
+import type { AccountHolder } from "@/lib/permissions";
 import {
   DEADLINE_WARNING_DAYS,
   resolveApproversFor,
@@ -22,26 +23,43 @@ import {
  */
 
 describe("resolveApproversFor", () => {
+  const account = (
+    id: string,
+    role: AccountHolder["role"],
+    revokes: AccountHolder["revokes"] = []
+  ): AccountHolder => ({
+    id,
+    role,
+    accountType: "company",
+    grants: [],
+    revokes,
+  });
   const accounts = [
-    { id: "owner_1", role: "Owner" },
-    { id: "admin_1", role: "Admin" },
-    { id: "hr_1", role: "HR" },
-    { id: "mgr_1", role: "Manager" },
-    { id: "mgr_2", role: "Manager" },
+    account("owner_1", "Owner"),
+    account("admin_1", "Admin"),
+    account("hrhead_1", "HRHead"),
+    account("hrteam_1", "HRTeam"),
+    account("mgr_1", "Manager"),
+    account("mgr_2", "Manager"),
   ];
 
-  it("always includes Owner, Admin and HR", () => {
+  it("always includes Owner, Admin and both HR levels", () => {
     const approvers = resolveApproversFor(accounts, {
       managerAccountId: null,
     });
-    expect(approvers.sort()).toEqual(["admin_1", "hr_1", "owner_1"]);
+    expect(approvers.sort()).toEqual([
+      "admin_1",
+      "hrhead_1",
+      "hrteam_1",
+      "owner_1",
+    ]);
   });
 
   it("adds the employee's own manager account, but no other Manager", () => {
     const approvers = resolveApproversFor(accounts, {
       managerAccountId: "mgr_1",
     });
-    expect(approvers.sort()).toEqual(["admin_1", "hr_1", "mgr_1", "owner_1"]);
+    expect(approvers).toContain("mgr_1");
     expect(approvers).not.toContain("mgr_2");
   });
 
@@ -61,7 +79,25 @@ describe("resolveApproversFor", () => {
     const approvers = resolveApproversFor(accounts, {
       managerAccountId: "ghost",
     });
-    expect(approvers.sort()).toEqual(["admin_1", "hr_1", "owner_1"]);
+    expect(approvers.sort()).toEqual([
+      "admin_1",
+      "hrhead_1",
+      "hrteam_1",
+      "owner_1",
+    ]);
+  });
+
+  it("leaves out anyone the Owner switched approvals off for", () => {
+    const approvers = resolveApproversFor(
+      [
+        account("hr_off", "HRHead", ["DecideRequests"]),
+        account("mgr_off", "Manager", ["DecideRequests"]),
+        account("owner_1", "Owner", ["DecideRequests"]),
+      ],
+      { managerAccountId: "mgr_off" }
+    );
+    // The Owner can never be switched off.
+    expect(approvers).toEqual(["owner_1"]);
   });
 });
 
@@ -191,7 +227,7 @@ describe("resolveCompletionWatchers", () => {
   const accounts = [
     { id: "owner", role: "Owner" },
     { id: "admin", role: "Admin" },
-    { id: "hr", role: "HR" },
+    { id: "hr", role: "HRHead" },
     { id: "lead", role: "Manager" },
     { id: "other-manager", role: "Manager" },
   ];

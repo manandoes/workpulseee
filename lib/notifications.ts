@@ -1,5 +1,6 @@
 import { formatDate } from "@/lib/format";
 import { requestStatusLabel, requestTypeLabel } from "@/lib/requests";
+import { has, type AccountHolder } from "@/lib/permissions";
 import type {
   NotificationType,
   RequestStatus,
@@ -16,37 +17,25 @@ import type {
 export type ApproverAccount = { id: string; role: string };
 
 /**
- * Which company accounts should hear about a new request from this employee.
+ * Which company accounts should hear about a new request (with no chosen
+ * approver — a legacy request) from this employee.
  *
- * Owner/Admin/HR can decide on anyone's request (`canApproveRequests` minus
- * the Manager case), so they always hear about a new one. A Manager only
- * decides on their own direct reports (`canDecideOnRequest`), so only the
- * employee's own manager account — and only if that account is a Manager —
- * is added on top. Deduplicated, since a manager account might already be an
- * Owner/Admin/HR account in an unusual setup.
+ * Exactly the accounts `canDecideOnRequest` would let decide it: everyone who
+ * holds `DecideRequests` right now, the Owner's per-person switches included
+ * (Plan: access levels) — except that a Manager only decides on, and so only
+ * hears about, their own direct reports' requests.
  */
 export function resolveApproversFor(
-  accounts: ApproverAccount[],
+  accounts: AccountHolder[],
   employee: { managerAccountId: string | null }
 ): string[] {
-  const ids = new Set<string>();
-
-  for (const account of accounts) {
-    if (
-      account.role === "Owner" ||
-      account.role === "Admin" ||
-      account.role === "HR"
-    ) {
-      ids.add(account.id);
-    }
-  }
-
-  if (employee.managerAccountId) {
-    const manager = accounts.find((a) => a.id === employee.managerAccountId);
-    if (manager?.role === "Manager") ids.add(manager.id);
-  }
-
-  return [...ids];
+  return accounts
+    .filter((account) => has(account, "DecideRequests"))
+    .filter(
+      (account) =>
+        account.role !== "Manager" || account.id === employee.managerAccountId
+    )
+    .map((account) => account.id);
 }
 
 /**
@@ -63,6 +52,34 @@ export function requestSubmittedMessage(
   subject: string
 ): string {
   return `${employeeName} submitted a new request (${requestTypeLabel(type)}): ${subject}`;
+}
+
+/**
+ * What vault managers see when someone asks for client credentials. Names up
+ * to three titles and counts the rest, so a large request stays one line.
+ */
+export function vaultAccessRequestedMessage(
+  requesterName: string,
+  clientName: string,
+  titles: string[]
+): string {
+  const shown = titles.slice(0, 3).join(", ");
+  const more = titles.length > 3 ? ` and ${titles.length - 3} more` : "";
+  return `${requesterName} requested access to ${clientName} credentials: ${shown}${more}`;
+}
+
+/** What the requester sees when their vault access changes. */
+export function vaultAccessDecidedMessage(
+  clientName: string,
+  title: string,
+  status: "Approved" | "Rejected" | "Revoked"
+): string {
+  const outcome = {
+    Approved: "was approved — you can view it now",
+    Rejected: "was rejected",
+    Revoked: "was revoked",
+  }[status];
+  return `Your access to ${clientName} · ${title} ${outcome}.`;
 }
 
 /** What the employee sees when their request is decided. */
@@ -123,6 +140,14 @@ const CHANNELS_BY_TYPE: Record<
    * evening to do it.
    */
   LogoutReminder: ["InApp", "Push"],
+  /**
+   * Client vault (Plan: client vault). A request goes to every vault manager,
+   * so it takes `RequestSubmitted`'s narrow approver-queue set; the answer is
+   * personal and often unblocks someone's work, so it takes
+   * `RequestDecided`'s full one.
+   */
+  VaultAccessRequested: ["InApp", "Push"],
+  VaultAccessDecided: ["InApp", "Push", "Email", "WhatsApp"],
 };
 
 /**
