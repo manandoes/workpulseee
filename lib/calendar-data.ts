@@ -1,6 +1,7 @@
 import { duplicateFailure, invalidReference, type WriteFailure } from "@/lib/api";
 import { db } from "@/lib/db";
 import type { SessionActor } from "@/lib/permissions";
+import { startOfDayUtc, TASK_ORDER } from "@/lib/tasks";
 import { hasConflict, mergeIntervals, type BusyInterval } from "@/lib/calendar";
 import {
   decryptRefreshToken,
@@ -15,7 +16,13 @@ import {
   type GoogleEvent,
 } from "@/lib/google-calendar";
 import { notifyMeetingScheduled } from "@/lib/notification-data";
-import type { MeetingStatus } from "@/lib/generated/prisma/enums";
+import type {
+  LeaveDayPart,
+  MeetingStatus,
+  RequestStatus,
+  TaskPriority,
+  TaskStatus,
+} from "@/lib/generated/prisma/enums";
 
 /**
  * Database access for Calendar (Plan.md Phase 17).
@@ -278,6 +285,137 @@ export async function loadMeetingsForRange(
   });
 
   return rows.map(toMeetingRow);
+}
+
+// ---------------------------------------------------------------------------
+// Calendar grid feed
+// ---------------------------------------------------------------------------
+
+export type CalendarTaskRow = {
+  id: string;
+  title: string;
+  status: TaskStatus;
+  priority: TaskPriority;
+  /** Date-only, UTC midnight — the day the task lands on in the grid. */
+  dueDate: Date;
+  assigneeName: string | null;
+  projectName: string | null;
+};
+
+export type CalendarTimeOffRow = {
+  id: string;
+  type: "Leave" | "WFH";
+  status: RequestStatus;
+  dayPart: LeaveDayPart | null;
+  /** Both date-only, UTC midnight, inclusive. */
+  startDate: Date;
+  endDate: Date;
+  employeeName: string;
+};
+
+export type CalendarItems = {
+  meetings: MeetingRow[];
+  tasks: CalendarTaskRow[];
+  googleEvents: GoogleEvent[];
+  timeOff: CalendarTimeOffRow[];
+};
+
+/**
+ * Everything the month/week grid shows for the signed-in person in
+ * `[from, to)`, each source scoped to what that person already sees
+ * elsewhere — nothing here widens visibility:
+ *
+ * - Meetings: their own (`loadMeetingsForRange`).
+ * - Tasks, by due date: an Employee's are the ones assigned to them (their
+ *   "My Tasks"); a company account's are the ones they allotted
+ *   (`createdById`) and, for a Manager/HR, the ones allotted to them
+ *   (`assigneeAccountId`) — both of which `taskVisibilityFilter` already
+ *   lets them see.
+ * - Google events: their own titled preview (`loadMyPreview`), never anyone
+ *   else's.
+ * - Time off: an Employee's own pending/approved Leave and WFH; a company
+ *   account sees who is out company-wide — approved requests only — the same
+ *   people the directory already lists to every company account
+ *   (`canViewAllEmployees`).
+ */
+export async function loadCalendarItems(
+  actor: SessionActor,
+  from: Date,
+  to: Date
+): Promise<CalendarItems> {
+  const isEmployee = actor.accountType === "employee";
+
+  const [meetings, tasks, googleEvents, timeOff] = await Promise.all([
+    loadMeetingsForRange(actor, from, to),
+    db.task.findMany({
+      where: {
+        companyId: actor.companyId,
+        deletedAt: null,
+        dueDate: { gte: startOfDayUtc(from), lt: to },
+        ...(isEmployee
+          ? { assigneeId: actor.id }
+          : { OR: [{ createdById: actor.id }, { assigneeAccountId: actor.id }] }),
+      },
+      orderBy: [...TASK_ORDER],
+      select: {
+        id: true,
+        title: true,
+        status: true,
+        priority: true,
+        dueDate: true,
+        assignee: { select: { fullName: true } },
+        assigneeAccount: { select: { fullName: true } },
+        project: { select: { name: true } },
+      },
+    }),
+    loadMyPreview(actor, from, to),
+    db.request.findMany({
+      where: {
+        companyId: actor.companyId,
+        deletedAt: null,
+        type: { in: ["Leave", "WFH"] },
+        startDate: { lt: to },
+        endDate: { gte: startOfDayUtc(from) },
+        ...(isEmployee
+          ? { employeeId: actor.id, status: { in: ["Pending", "Approved"] } }
+          : { status: "Approved" as const }),
+      },
+      orderBy: { startDate: "asc" },
+      select: {
+        id: true,
+        type: true,
+        status: true,
+        dayPart: true,
+        startDate: true,
+        endDate: true,
+        employee: { select: { fullName: true } },
+      },
+    }),
+  ]);
+
+  return {
+    meetings,
+    tasks: tasks.map((task) => ({
+      id: task.id,
+      title: task.title,
+      status: task.status,
+      priority: task.priority,
+      dueDate: task.dueDate!,
+      assigneeName:
+        task.assignee?.fullName ?? task.assigneeAccount?.fullName ?? null,
+      projectName: task.project?.name ?? null,
+    })),
+    googleEvents,
+    timeOff: timeOff.map((request) => ({
+      id: request.id,
+      type: request.type as "Leave" | "WFH",
+      status: request.status,
+      dayPart: request.dayPart,
+      startDate: request.startDate!,
+      endDate: request.endDate!,
+      employeeName: request.employee.fullName,
+    })),
+  };
 }
 
 /** The organizer's own busy intervals — their meetings plus their Google preview. */

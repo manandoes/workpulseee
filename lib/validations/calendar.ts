@@ -54,6 +54,28 @@ export const calendarRangeSchema = z.object({
 
 export type CalendarRangeInput = z.infer<typeof calendarRangeSchema>;
 
+/** Longest window the calendar grid asks for: a 6-week month view, with slack. */
+export const CALENDAR_ITEMS_MAX_DAYS = 45;
+
+/**
+ * Range for `/api/calendar/items`. Bounded, unlike `calendarRangeSchema`,
+ * because this one fans out to tasks, requests and Google in one call.
+ */
+export const calendarItemsQuerySchema = calendarRangeSchema.superRefine(
+  (value, ctx) => {
+    const span = new Date(value.to).getTime() - new Date(value.from).getTime();
+    if (span <= 0) {
+      ctx.addIssue({ code: "custom", path: ["to"], message: "`to` must be after `from`." });
+    } else if (span > CALENDAR_ITEMS_MAX_DAYS * 24 * 60 * 60 * 1000) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["to"],
+        message: `Ask for at most ${CALENDAR_ITEMS_MAX_DAYS} days at a time.`,
+      });
+    }
+  }
+);
+
 export const availabilityQuerySchema = calendarRangeSchema.extend({
   kind: z.enum(["employee", "account"]),
   id: z.string().trim().min(1),
