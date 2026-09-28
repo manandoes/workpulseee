@@ -29,7 +29,7 @@ export default async function CalendarPage() {
     <>
       <PageHeader
         title="Calendar"
-        description="See your own schedule, preview a colleague's busy times, and book meetings that live in WorkPulse."
+        description="Your month or week at a glance — meetings, task deadlines, leave and your Google events — plus a colleague's busy times and meeting booking."
       />
       <CalendarShell
         actor={{

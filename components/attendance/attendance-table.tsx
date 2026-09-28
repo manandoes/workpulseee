@@ -1,4 +1,5 @@
-import { formatDateTime, formatDuration } from "@/lib/format";
+import { formatDuration } from "@/lib/format";
+import { DateTime } from "@/components/ui/date-time";
 import { breakDurationMs, netWorkedMs } from "@/lib/attendance";
 
 export type AttendanceTableRow = {
@@ -50,12 +51,14 @@ export function AttendanceTable({
             return (
               <tr key={record.id} className="border-border border-b">
                 <td className="px-3 py-3">
-                  {formatDateTime(record.clockInAt)}
+                  <DateTime value={record.clockInAt} />
                 </td>
                 <td className="text-text-secondary px-3 py-3">
-                  {record.clockOutAt
-                    ? formatDateTime(record.clockOutAt)
-                    : "Still logged in"}
+                  {record.clockOutAt ? (
+                    <DateTime value={record.clockOutAt} />
+                  ) : (
+                    "Still logged in"
+                  )}
                 </td>
                 <td className="text-text-secondary px-3 py-3">
                   {formatDuration(workedMs)}

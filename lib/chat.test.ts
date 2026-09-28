@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  CHAT_MESSAGE_RETENTION_DAYS,
   CHAT_MESSAGE_TTL_MS,
   chatMessageCutoff,
   conversationPreview,
@@ -10,22 +11,30 @@ import {
 
 const NOW = new Date("2026-09-11T15:00:00.000Z");
 
+const DAY_MS = 24 * 60 * 60 * 1000;
+
 describe("chatMessageCutoff", () => {
-  it("is exactly three days before now", () => {
-    expect(chatMessageCutoff(NOW).getTime()).toBe(
-      NOW.getTime() - 3 * 24 * 60 * 60 * 1000
-    );
-    expect(CHAT_MESSAGE_TTL_MS).toBe(3 * 24 * 60 * 60 * 1000);
+  it("is exactly 31 days before now", () => {
+    expect(CHAT_MESSAGE_RETENTION_DAYS).toBe(31);
+    expect(chatMessageCutoff(NOW).getTime()).toBe(NOW.getTime() - 31 * DAY_MS);
+    expect(CHAT_MESSAGE_TTL_MS).toBe(31 * DAY_MS);
   });
 });
 
 describe("isExpiredChatMessage", () => {
-  it("treats a message older than three days as expired", () => {
-    const createdAt = new Date(NOW.getTime() - 3 * 24 * 60 * 60 * 1000 - 1);
+  it("treats a message older than 31 days as expired", () => {
+    const createdAt = new Date(NOW.getTime() - 31 * DAY_MS - 1);
     expect(isExpiredChatMessage(createdAt, NOW)).toBe(true);
   });
 
-  it("treats a message within three days as not expired", () => {
+  it("keeps a message that is past the old 3-day window but within 31 days", () => {
+    const fourDaysOld = new Date(NOW.getTime() - 4 * DAY_MS);
+    const thirtyDaysOld = new Date(NOW.getTime() - 30 * DAY_MS);
+    expect(isExpiredChatMessage(fourDaysOld, NOW)).toBe(false);
+    expect(isExpiredChatMessage(thirtyDaysOld, NOW)).toBe(false);
+  });
+
+  it("treats a message sent an hour ago as not expired", () => {
     const createdAt = new Date(NOW.getTime() - 60 * 60 * 1000);
     expect(isExpiredChatMessage(createdAt, NOW)).toBe(false);
   });

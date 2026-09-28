@@ -3,11 +3,22 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { ArrowLeft, Pencil } from "lucide-react";
 import { getActor } from "@/lib/auth";
+import { LEVEL_LABELS } from "@/lib/permission-grants";
 import { db } from "@/lib/db";
 import { scopedWhere } from "@/lib/tenant";
-import { formatDate, formatDateTime } from "@/lib/format";
-import { isOverdue, taskVisibilityFilter } from "@/lib/tasks";
-import { canManageTask, canViewTasks, isCompanyAdmin } from "@/lib/permissions";
+import { formatDate } from "@/lib/format";
+import { DateTime } from "@/components/ui/date-time";
+import {
+  attachmentHref,
+  isOverdue,
+  taskVisibilityFilter,
+} from "@/lib/tasks";
+import {
+  canManageTask,
+  canUpdateTaskStatus,
+  canViewTasks,
+  isCompanyAdmin,
+} from "@/lib/permissions";
 import { loadTaskTimeEntries } from "@/lib/task-timer-data";
 import { PageHeader } from "@/components/dashboard/page-header";
 import {
@@ -53,9 +64,13 @@ export default async function TaskPage({ params }: PageProps<"/tasks/[id]">) {
       dueDate: true,
       estimatedHours: true,
       completedAt: true,
+      completionNote: true,
       createdAt: true,
       createdById: true,
+      assigneeId: true,
       assignee: { select: { id: true, fullName: true, jobRole: true } },
+      assigneeAccountId: true,
+      assigneeAccount: { select: { fullName: true, role: true } },
       createdBy: { select: { fullName: true } },
       project: {
         select: {
@@ -84,6 +99,7 @@ export default async function TaskPage({ params }: PageProps<"/tasks/[id]">) {
           id: true,
           label: true,
           url: true,
+          fileId: true,
           createdAt: true,
           addedById: true,
           addedBy: { select: { fullName: true } },
@@ -100,6 +116,8 @@ export default async function TaskPage({ params }: PageProps<"/tasks/[id]">) {
 
   const now = new Date();
   const mayManage = canManageTask(actor, task);
+  // Wider than `mayManage`: whoever the task was allotted to can finish it.
+  const mayMove = canUpdateTaskStatus(actor, task);
   const late = isOverdue(task, now);
 
   return (
@@ -171,7 +189,9 @@ export default async function TaskPage({ params }: PageProps<"/tasks/[id]">) {
                 ? task.assignee.jobRole
                   ? `${task.assignee.fullName} — ${task.assignee.jobRole}`
                   : task.assignee.fullName
-                : "Unassigned"
+                : task.assigneeAccount
+                  ? `${task.assigneeAccount.fullName} — ${LEVEL_LABELS[task.assigneeAccount.role]}`
+                  : "Unassigned"
             }
           />
           <Detail label="Due date" value={formatDate(task.dueDate)} />
@@ -184,7 +204,7 @@ export default async function TaskPage({ params }: PageProps<"/tasks/[id]">) {
           <Detail
             label="Completed"
             value={
-              task.completedAt ? formatDateTime(task.completedAt) : "Not yet"
+              task.completedAt ? <DateTime value={task.completedAt} /> : "Not yet"
             }
           />
           <Detail label="Raised by" value={task.createdBy?.fullName ?? "—"} />
@@ -194,21 +214,30 @@ export default async function TaskPage({ params }: PageProps<"/tasks/[id]">) {
         <Panel
           title="Status"
           note={
-            mayManage
-              ? "Moving a task to Done records when it was finished; moving it back out clears that."
-              : "Only the people who lead this project can move it."
+            mayMove
+              ? "Moving a task to Done records when it was finished, with an optional note; moving it back out clears both."
+              : "Only the people who lead this project, or whoever it is allotted to, can move it."
           }
           plain
         >
-          {mayManage ? (
+          {mayMove ? (
             <TaskStatusSelect
               taskId={task.id}
+              taskTitle={task.title}
               status={task.status}
               className="max-w-xs"
             />
           ) : (
             <TaskStatusBadge status={task.status} />
           )}
+          {task.completionNote ? (
+            <div className="mt-4 flex flex-col gap-1">
+              <p className="text-text-secondary text-meta">Completion note</p>
+              <p className="text-foreground whitespace-pre-line break-words">
+                {task.completionNote}
+              </p>
+            </div>
+          ) : null}
           {late ? (
             <p className="text-danger-text mt-3">
               This task passed its due date on {formatDate(task.dueDate)} and is
@@ -234,9 +263,10 @@ export default async function TaskPage({ params }: PageProps<"/tasks/[id]">) {
             attachments={task.attachments.map((attachment) => ({
               id: attachment.id,
               label: attachment.label,
-              url: attachment.url,
+              href: attachmentHref(attachment),
+              isFile: attachment.fileId !== null,
               addedByName: attachment.addedBy?.fullName ?? null,
-              createdAt: formatDateTime(attachment.createdAt),
+              createdAt: attachment.createdAt,
               // Whoever added it, or whoever manages the task — the same rule
               // the API enforces.
               canDelete: attachment.addedById === actor.id || mayManage,
@@ -260,7 +290,7 @@ export default async function TaskPage({ params }: PageProps<"/tasks/[id]">) {
             comments={task.comments.map((comment) => ({
               id: comment.id,
               body: comment.body,
-              createdAt: formatDateTime(comment.createdAt),
+              createdAt: comment.createdAt,
               authorName: comment.authorAccount?.fullName ?? null,
               canDelete:
                 comment.authorAccountId === actor.id || isCompanyAdmin(actor),
@@ -310,7 +340,7 @@ function Detail({
   value,
 }: {
   label: string;
-  value: string | null | undefined;
+  value: React.ReactNode;
 }) {
   return (
     <div className="flex flex-col gap-0.5">

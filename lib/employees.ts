@@ -127,7 +127,7 @@ export type OrgNode = {
 };
 
 /** Leadership first, in the order an org chart reads. */
-const ROLE_ORDER = ["Owner", "Admin", "Manager", "HR"];
+const ROLE_ORDER = ["Owner", "Admin", "Manager", "HRHead", "HRTeam"];
 
 /**
  * Build the reporting tree.

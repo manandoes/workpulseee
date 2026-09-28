@@ -1,10 +1,5 @@
-import {
-  createCipheriv,
-  createDecipheriv,
-  createHmac,
-  randomBytes,
-  timingSafeEqual,
-} from "node:crypto";
+import { createHmac, timingSafeEqual } from "node:crypto";
+import { encryptionKeyFrom, openString, sealString } from "@/lib/secret-box";
 
 /**
  * Secrets for the Google Calendar integration (Plan.md Phase 17).
@@ -23,66 +18,26 @@ import {
  * has no other precedent for.
  */
 
-const IV_BYTES = 12;
+const KEY_ENV = "GOOGLE_TOKEN_ENCRYPTION_KEY";
 const OAUTH_STATE_TTL_MS = 5 * 60 * 1000;
-
-function encryptionKey(): Buffer {
-  const raw = process.env.GOOGLE_TOKEN_ENCRYPTION_KEY;
-  if (!raw) {
-    throw new Error("GOOGLE_TOKEN_ENCRYPTION_KEY is not set");
-  }
-  const key = Buffer.from(raw, "base64");
-  if (key.length !== 32) {
-    throw new Error(
-      "GOOGLE_TOKEN_ENCRYPTION_KEY must decode to 32 bytes (generate with: openssl rand -base64 32)"
-    );
-  }
-  return key;
-}
 
 /** Whether every env var the Google Calendar integration needs is set. */
 export function googleCalendarConfigured(): boolean {
   return Boolean(
     process.env.GOOGLE_CLIENT_ID &&
-      process.env.GOOGLE_CLIENT_SECRET &&
-      process.env.GOOGLE_REDIRECT_URI &&
-      process.env.GOOGLE_TOKEN_ENCRYPTION_KEY
+    process.env.GOOGLE_CLIENT_SECRET &&
+    process.env.GOOGLE_REDIRECT_URI &&
+    process.env.GOOGLE_TOKEN_ENCRYPTION_KEY
   );
 }
 
-/** AES-256-GCM encrypt, storing `iv.authTag.ciphertext` base64url-joined. */
+/** AES-256-GCM encrypt (`lib/secret-box.ts`) under this integration's key. */
 export function encryptRefreshToken(plaintext: string): string {
-  const iv = randomBytes(IV_BYTES);
-  const cipher = createCipheriv("aes-256-gcm", encryptionKey(), iv);
-  const ciphertext = Buffer.concat([
-    cipher.update(plaintext, "utf8"),
-    cipher.final(),
-  ]);
-  const authTag = cipher.getAuthTag();
-
-  return [iv, authTag, ciphertext]
-    .map((buf) => buf.toString("base64url"))
-    .join(".");
+  return sealString(plaintext, KEY_ENV);
 }
 
 export function decryptRefreshToken(stored: string): string {
-  const [ivPart, authTagPart, ciphertextPart] = stored.split(".");
-  if (!ivPart || !authTagPart || !ciphertextPart) {
-    throw new Error("Malformed encrypted refresh token");
-  }
-
-  const decipher = createDecipheriv(
-    "aes-256-gcm",
-    encryptionKey(),
-    Buffer.from(ivPart, "base64url")
-  );
-  decipher.setAuthTag(Buffer.from(authTagPart, "base64url"));
-
-  const plaintext = Buffer.concat([
-    decipher.update(Buffer.from(ciphertextPart, "base64url")),
-    decipher.final(),
-  ]);
-  return plaintext.toString("utf8");
+  return openString(stored, KEY_ENV);
 }
 
 export type OAuthStatePayload = {
@@ -93,7 +48,7 @@ export type OAuthStatePayload = {
 };
 
 function hmac(data: string): string {
-  return createHmac("sha256", encryptionKey())
+  return createHmac("sha256", encryptionKeyFrom(KEY_ENV))
     .update(data)
     .digest("base64url");
 }

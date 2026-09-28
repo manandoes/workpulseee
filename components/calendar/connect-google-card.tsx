@@ -74,6 +74,9 @@ export function ConnectGoogleCard({
         ) : (
           <Button asChild={googleConfigured} variant={googleConfigured ? "default" : "outline"}>
             {googleConfigured ? (
+              // A full navigation on purpose: this API route redirects to
+              // Google's OAuth consent screen, which client routing can't follow.
+              // eslint-disable-next-line @next/next/no-html-link-for-pages
               <a href="/api/calendar/google/connect">Connect Google Calendar</a>
             ) : (
               <span className="cursor-not-allowed opacity-50">

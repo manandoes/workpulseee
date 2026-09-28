@@ -3,6 +3,7 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { ArrowLeft, Pencil } from "lucide-react";
 import { getActor } from "@/lib/auth";
+import { LEVEL_LABELS } from "@/lib/permission-grants";
 import { db } from "@/lib/db";
 import { scopedWhere } from "@/lib/tenant";
 import { formatDate, formatMoney, formatPercent } from "@/lib/format";
@@ -155,7 +156,7 @@ export default async function ProjectPage({
             label="Lead"
             value={
               project.leadAccount
-                ? `${project.leadAccount.fullName} (${project.leadAccount.role})`
+                ? `${project.leadAccount.fullName} (${LEVEL_LABELS[project.leadAccount.role]})`
                 : "No lead"
             }
           />

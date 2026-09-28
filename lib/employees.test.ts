@@ -125,7 +125,7 @@ describe("wouldCreateCycle", () => {
 
 describe("buildOrgTree", () => {
   const accounts = [
-    { id: "a_hr", fullName: "Hana", role: "HR" },
+    { id: "a_hr", fullName: "Hana", role: "HRHead" },
     { id: "a_owner", fullName: "Owen", role: "Owner" },
   ];
 

@@ -28,13 +28,15 @@ export type TaskSummary = {
   priority: TaskPriority;
   dueDate: Date | null;
   assignee: { id: string; fullName: string } | null;
+  /** Plan: allot tasks to a Manager or HR — set instead of `assignee`. */
+  assigneeAccount: { id: string; fullName: string } | null;
   createdById: string | null;
   /**
    * Carries the lead because a task is governed by its project: the page's
-   * `canManage` reads it to decide, per row, whether the status control is
-   * shown (`canManageTask` in lib/permissions.ts). `null` for a client-direct
-   * or fully standalone task, neither of which has a project to be governed
-   * by.
+   * `canMove` reads it to decide, per row, whether the status control is
+   * shown (`canUpdateTaskStatus` in lib/permissions.ts). `null` for a
+   * client-direct or fully standalone task, neither of which has a project to
+   * be governed by.
    */
   project: { id: string; name: string; leadAccountId: string | null } | null;
   /** Set only when `project` is null and the task is filed under a client. */
@@ -42,7 +44,12 @@ export type TaskSummary = {
 };
 
 /** Whether the viewer may move a given task. */
-export type Manageable = (task: TaskSummary) => boolean;
+export type Movable = (task: TaskSummary) => boolean;
+
+/** Whoever holds the task — an employee or a Manager/HR login — if anyone. */
+function assigneeName(task: TaskSummary): string | null {
+  return task.assignee?.fullName ?? task.assigneeAccount?.fullName ?? null;
+}
 
 function TaskTitle({ task }: { task: TaskSummary }) {
   return (
@@ -119,11 +126,11 @@ function Due({ task, now }: { task: TaskSummary; now: Date }) {
 
 export function TaskBoard({
   tasks,
-  canManage,
+  canMove,
   now,
 }: {
   tasks: TaskSummary[];
-  canManage: Manageable;
+  canMove: Movable;
   now: Date;
 }) {
   return (
@@ -170,15 +177,16 @@ export function TaskBoard({
                       </div>
 
                       <p className="text-text-secondary text-meta">
-                        {task.assignee?.fullName ?? "Unassigned"}
+                        {assigneeName(task) ?? "Unassigned"}
                         {task.dueDate
                           ? ` · due ${formatDate(task.dueDate)}`
                           : ""}
                       </p>
 
-                      {canManage(task) ? (
+                      {canMove(task) ? (
                         <TaskStatusSelect
                           taskId={task.id}
+                          taskTitle={task.title}
                           status={task.status}
                           label={`Move ${task.title}`}
                           hideLabel
@@ -202,11 +210,11 @@ export function TaskBoard({
 
 export function TaskList({
   tasks,
-  canManage,
+  canMove,
   now,
 }: {
   tasks: TaskSummary[];
-  canManage: Manageable;
+  canMove: Movable;
   now: Date;
 }) {
   return (
@@ -250,7 +258,7 @@ export function TaskList({
                         {task.assignee.fullName}
                       </Link>
                     ) : (
-                      "Unassigned"
+                      (assigneeName(task) ?? "Unassigned")
                     )}
                   </td>
                   <td className="px-3 py-3">
@@ -260,9 +268,10 @@ export function TaskList({
                     <TaskPriorityBadge priority={task.priority} />
                   </td>
                   <td className="px-3 py-3">
-                    {canManage(task) ? (
+                    {canMove(task) ? (
                       <TaskStatusSelect
                         taskId={task.id}
+                        taskTitle={task.title}
                         status={task.status}
                         label={`Move ${task.title}`}
                         hideLabel

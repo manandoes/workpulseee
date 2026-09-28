@@ -18,10 +18,11 @@ import type { PerformanceSubject } from "@/lib/performance-data";
  * widened to company accounts too (Plan: performance for all company
  * accounts).
  *
- * Manager-owned for an employee, Owner/Admin-owned for a company account
- * (confirmed with the user): only rendered where the caller has already
- * checked `canEditEmployee`/`isCompanyAdmin` — the subject reads goals on
- * their own growth/profile page but never creates them here.
+ * Manager-owned for an employee, `ManagePerformance`-owned for a company
+ * account (confirmed with the user): only rendered where the caller has
+ * already checked `canManagePerformance`/`canManageAccountPerformance` — the
+ * subject reads goals on their own growth/profile page but never creates
+ * them here.
  */
 export function GoalForm({ subject }: { subject: PerformanceSubject }) {
   const router = useRouter();

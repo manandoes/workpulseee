@@ -6,27 +6,31 @@ import {
   serverError,
   unauthorized,
   validationError,
+  writeFailure,
 } from "@/lib/api";
 import { getActor } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { findTask } from "@/lib/task-data";
+import { findTask, resolveAttachmentFiles } from "@/lib/task-data";
+import { deleteFiles } from "@/lib/files-data";
 import { canManageTask, canViewTasks } from "@/lib/permissions";
 import { attachmentLabel } from "@/lib/tasks";
-import { attachmentSchema } from "@/lib/validations/tasks";
+import {
+  attachmentSchema,
+  fileAttachmentSchema,
+} from "@/lib/validations/tasks";
 
 /**
  * Attachments on a task (Phases.md Phase 5).
  *
- * Phase 5 attaches a **link** to a file rather than an upload: the S3 bucket
- * Architecture.md section 2 calls for is not provisioned (the `S3_*` variables
- * are blank), and inventing a second storage home for files would be undone the
- * moment it is. See the `Attachment` model for how an upload slots in later.
+ * Either a **link** to a file held elsewhere, or a document already uploaded
+ * through `/api/files` (Plan: file storage foundation) and named by its id.
  *
- * The link is validated to http/https before it is stored, never only when it
- * is rendered (Architecture.md section 8).
+ * A link is validated to http/https before it is stored, never only when it
+ * is rendered (Architecture.md section 8). An uploaded file must be the
+ * actor's own and not attached anywhere else (`resolveAttachmentFiles`).
  */
 
-/** POST /api/tasks/[id]/attachments — attach a link. */
+/** POST /api/tasks/[id]/attachments — attach a link or an uploaded file. */
 export async function POST(
   request: NextRequest,
   context: RouteContext<"/api/tasks/[id]/attachments">
@@ -44,27 +48,49 @@ export async function POST(
     return apiError("Expected a JSON body.", 400, "invalid_json");
   }
 
-  const parsed = attachmentSchema.safeParse(payload);
-  if (!parsed.success) return validationError(parsed.error);
+  let input:
+    | { kind: "file"; fileId: string }
+    | { kind: "link"; url: string; label?: string };
+  if (typeof payload === "object" && payload !== null && "fileId" in payload) {
+    const parsed = fileAttachmentSchema.safeParse(payload);
+    if (!parsed.success) return validationError(parsed.error);
+    input = { kind: "file", fileId: parsed.data.fileId };
+  } else {
+    const parsed = attachmentSchema.safeParse(payload);
+    if (!parsed.success) return validationError(parsed.error);
+    input = { kind: "link", ...parsed.data };
+  }
 
   try {
     const task = await findTask(actor, id);
     if (!task) return apiError("Task not found.", 404, "not_found");
+
+    let content: { url?: string; fileId?: string; label: string };
+    if (input.kind === "file") {
+      const files = await resolveAttachmentFiles(actor, [input.fileId]);
+      if (!files.ok) return writeFailure(files);
+      content = { fileId: files.files[0].id, label: files.files[0].name };
+    } else {
+      content = {
+        url: input.url.trim(),
+        // Naming it is optional; the file name in the link is a better
+        // default than showing 200 characters of URL in a list.
+        label: attachmentLabel(input.url, input.label),
+      };
+    }
 
     const attachment = await db.attachment.create({
       data: {
         companyId: actor.companyId,
         taskId: task.id,
         addedById: actor.id,
-        url: parsed.data.url.trim(),
-        // Naming it is optional; the file name in the link is a better default
-        // than showing 200 characters of URL in a list.
-        label: attachmentLabel(parsed.data.url, parsed.data.label),
+        ...content,
       },
       select: {
         id: true,
         label: true,
         url: true,
+        fileId: true,
         createdAt: true,
         addedBy: { select: { id: true, fullName: true } },
       },
@@ -84,7 +110,7 @@ export async function POST(
 }
 
 /**
- * DELETE /api/tasks/[id]/attachments?attachmentId=… — remove a link.
+ * DELETE /api/tasks/[id]/attachments?attachmentId=… — remove an attachment.
  *
  * Whoever added it may remove it, and so may anyone who manages the task. Like
  * `ProjectMember`, this row is a pointer rather than a history, so removing it
@@ -119,7 +145,7 @@ export async function DELETE(
        * was loaded through the tenant filter, and by the company on the row.
        */
       where: { id: attachmentId, taskId: task.id, companyId: actor.companyId },
-      select: { id: true, addedById: true },
+      select: { id: true, addedById: true, fileId: true },
     });
 
     if (!attachment) {
@@ -131,6 +157,10 @@ export async function DELETE(
     }
 
     await db.attachment.delete({ where: { id: attachment.id } });
+    // An uploaded file belongs to the attachment; nothing else points at it.
+    if (attachment.fileId) {
+      await deleteFiles(actor.companyId, [attachment.fileId]);
+    }
 
     return NextResponse.json({ deleted: attachment.id });
   } catch (cause) {

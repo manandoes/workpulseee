@@ -1,5 +1,6 @@
 import { formatDate } from "@/lib/format";
-import { isOverdue, startOfDayUtc } from "@/lib/tasks";
+import { ExternalLink, FileText } from "lucide-react";
+import { attachmentHref, isDueToday, isOverdue, isOpen } from "@/lib/tasks";
 import type { MyWorkTask } from "@/lib/my-work-data";
 import {
   OverdueBadge,
@@ -58,12 +59,7 @@ export function MyTaskList({ tasks, now }: { tasks: MyWorkTask[]; now: Date }) {
   );
 }
 
-function isDueToday(task: MyWorkTask, now: Date): boolean {
-  if (!task.dueDate) return false;
-  return task.dueDate.getTime() === startOfDayUtc(now).getTime();
-}
-
-function TaskGroup({
+export function TaskGroup({
   title,
   tasks,
   now,
@@ -100,23 +96,60 @@ function TaskGroup({
                   <TaskPriorityBadge priority={task.priority} />
                 </div>
 
+                {task.attachments.length > 0 ? (
+                  <ul className="flex flex-wrap gap-x-4 gap-y-1">
+                    {task.attachments.map((attachment) => (
+                      <li key={attachment.id}>
+                        <a
+                          href={attachmentHref(attachment)}
+                          {...(attachment.fileId
+                            ? {}
+                            : { target: "_blank", rel: "noopener noreferrer" })}
+                          className="text-brand-brown text-meta inline-flex items-center gap-1.5 underline-offset-4 hover:underline"
+                        >
+                          {attachment.fileId ? (
+                            <FileText
+                              aria-hidden
+                              className="size-4"
+                              strokeWidth={1.5}
+                            />
+                          ) : (
+                            <ExternalLink
+                              aria-hidden
+                              className="size-4"
+                              strokeWidth={1.5}
+                            />
+                          )}
+                          {attachment.label}
+                        </a>
+                      </li>
+                    ))}
+                  </ul>
+                ) : null}
+
                 <TaskStatusSelect
                   taskId={task.id}
+                  taskTitle={task.title}
                   status={task.status}
                   label={`Move ${task.title}`}
                   hideLabel
                   className="w-40"
                 />
 
-                <TaskTimer
-                  taskId={task.id}
-                  closedMs={task.timer.closedMs}
-                  runningSince={
-                    task.timer.runningSince
-                      ? task.timer.runningSince.toISOString()
-                      : null
-                  }
-                />
+                {/* Finished work has nothing left to time; moving it back
+                    out of Done brings the timer back. */}
+                {isOpen(task.status) ? (
+                  <TaskTimer
+                    taskId={task.id}
+                    taskTitle={task.title}
+                    closedMs={task.timer.closedMs}
+                    runningSince={
+                      task.timer.runningSince
+                        ? task.timer.runningSince.toISOString()
+                        : null
+                    }
+                  />
+                ) : null}
               </CardContent>
             </Card>
           ))}

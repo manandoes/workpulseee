@@ -1,4 +1,5 @@
 import type { EmployeeStatus } from "@/lib/generated/prisma/enums";
+import { LEVEL_LABELS, type Level } from "@/lib/permission-grants";
 import { StatusPill, type PillStyle } from "@/components/dashboard/status-pill";
 
 /** What each employee status looks like and means (Design.md § 6). */
@@ -39,10 +40,10 @@ export function EmployeeStatusBadge({
  * Roles are not a status, so this deliberately uses the brand palette rather
  * than the status one (Design.md § 3 — the two never overlap).
  */
-export function RoleBadge({ role }: { role: string }) {
+export function RoleBadge({ role }: { role: Level }) {
   return (
     <span className="bg-brand-yellow-light text-brand-brown text-meta inline-flex items-center rounded-full px-2.5 py-1 font-medium">
-      {role}
+      {LEVEL_LABELS[role]}
     </span>
   );
 }

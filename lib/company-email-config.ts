@@ -1,5 +1,5 @@
-import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
 import { db } from "@/lib/db";
+import { openString, sealString } from "@/lib/secret-box";
 
 /**
  * Per-company transactional email identity (Settings -> Email delivery,
@@ -16,7 +16,7 @@ import { db } from "@/lib/db";
  * graceful-degradation rule `lib/mailer.ts` already follows on its own.
  */
 
-const IV_BYTES = 12;
+const KEY_ENV = "EMAIL_CONFIG_ENCRYPTION_KEY";
 
 export type EmailProvider = "resend" | "brevo";
 
@@ -26,53 +26,13 @@ export type CompanyEmailConfig = {
   from: string;
 };
 
-function encryptionKey(): Buffer {
-  const raw = process.env.EMAIL_CONFIG_ENCRYPTION_KEY;
-  if (!raw) {
-    throw new Error("EMAIL_CONFIG_ENCRYPTION_KEY is not set");
-  }
-  const key = Buffer.from(raw, "base64");
-  if (key.length !== 32) {
-    throw new Error(
-      "EMAIL_CONFIG_ENCRYPTION_KEY must decode to 32 bytes (generate with: openssl rand -base64 32)"
-    );
-  }
-  return key;
-}
-
-/** AES-256-GCM encrypt, storing `iv.authTag.ciphertext` base64url-joined. */
+/** AES-256-GCM encrypt (`lib/secret-box.ts`) under the email config key. */
 export function encryptEmailApiKey(plaintext: string): string {
-  const iv = randomBytes(IV_BYTES);
-  const cipher = createCipheriv("aes-256-gcm", encryptionKey(), iv);
-  const ciphertext = Buffer.concat([
-    cipher.update(plaintext, "utf8"),
-    cipher.final(),
-  ]);
-  const authTag = cipher.getAuthTag();
-
-  return [iv, authTag, ciphertext]
-    .map((buf) => buf.toString("base64url"))
-    .join(".");
+  return sealString(plaintext, KEY_ENV);
 }
 
 export function decryptEmailApiKey(stored: string): string {
-  const [ivPart, authTagPart, ciphertextPart] = stored.split(".");
-  if (!ivPart || !authTagPart || !ciphertextPart) {
-    throw new Error("Malformed encrypted email API key");
-  }
-
-  const decipher = createDecipheriv(
-    "aes-256-gcm",
-    encryptionKey(),
-    Buffer.from(ivPart, "base64url")
-  );
-  decipher.setAuthTag(Buffer.from(authTagPart, "base64url"));
-
-  const plaintext = Buffer.concat([
-    decipher.update(Buffer.from(ciphertextPart, "base64url")),
-    decipher.final(),
-  ]);
-  return plaintext.toString("utf8");
+  return openString(stored, KEY_ENV);
 }
 
 function isEmailProvider(value: string): value is EmailProvider {

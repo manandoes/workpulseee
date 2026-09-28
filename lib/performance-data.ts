@@ -1,6 +1,10 @@
 import { db } from "@/lib/db";
 import { scopedWhere } from "@/lib/tenant";
-import type { EmployeeSubject, SessionActor } from "@/lib/permissions";
+import {
+  canViewAllPerformance,
+  type EmployeeSubject,
+  type SessionActor,
+} from "@/lib/permissions";
 import { paginationMeta, type PaginationMeta } from "@/lib/pagination";
 import {
   calculatePerformanceScore,
@@ -481,9 +485,11 @@ export type PerformanceQueuePage = {
 } & PaginationMeta;
 
 /**
- * The performance list: every employee Owner/Admin/HR may open is every
- * employee in the company; a Manager's is narrowed to their own direct
- * reports, the same split `loadRequestsForApprover` draws for requests.
+ * The performance list: everyone with company-wide performance access
+ * (`canViewAllPerformance` — Managers included by default since Plan: access
+ * levels) sees every employee; anyone else who reaches it — a Manager the
+ * Owner switched that off for — sees only the direct reports whose goals they
+ * still manage.
  *
  * Company-account performance (Plan: performance for all company accounts)
  * is reviewed from that account's own Squad profile, not listed here — this
@@ -509,7 +515,7 @@ export async function loadPerformanceQueue(
       filters.departmentId === "none" ? null : filters.departmentId;
   }
 
-  if (actor.role === "Manager") {
+  if (!canViewAllPerformance(actor)) {
     where.managerAccountId = actor.id;
   }
 

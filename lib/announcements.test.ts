@@ -8,6 +8,7 @@ const employeeActor: SessionActor = {
   role: "Employee",
   accountType: "employee",
   grants: [],
+  revokes: [],
 };
 
 const companyActor: SessionActor = {
@@ -16,6 +17,7 @@ const companyActor: SessionActor = {
   role: "Manager",
   accountType: "company",
   grants: [],
+  revokes: [],
 };
 
 describe("voterKeyFor", () => {

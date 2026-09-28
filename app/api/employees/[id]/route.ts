@@ -11,19 +11,17 @@ import { getActor } from "@/lib/auth";
 import { scopedWhere } from "@/lib/tenant";
 import { db } from "@/lib/db";
 import { resolveEmployeeWrite } from "@/lib/employee-data";
-import {
-  canEditEmployee,
-  canManageEmployees,
-  canViewPersonalDetails,
-} from "@/lib/permissions";
+import { canManageEmployees, canViewPersonalDetails } from "@/lib/permissions";
 import { updateEmployeeSchema } from "@/lib/validations/employees";
 
 /**
  * PATCH /api/employees/[id] — edit an employee profile.
  *
  * Phases.md Phase 3: "add, view, edit and list employees with correct
- * role-based visibility". Owner/Admin/HR may edit anyone in their company; a
- * Manager may edit only their own direct reports (PRD.md section 9).
+ * role-based visibility". Whoever holds the "Employee records" power may edit
+ * anyone in their company — by default Owner, Admin and both HR levels, and
+ * no longer a Manager, even for their own reports (Plan: access levels). The
+ * personal fields additionally need `canViewPersonalDetails`.
  */
 export async function PATCH(
   request: NextRequest,
@@ -52,13 +50,13 @@ export async function PATCH(
      */
     const employee = await db.employee.findFirst({
       where: scopedWhere(actor, { id }),
-      select: { id: true, managerId: true, managerAccountId: true },
+      select: { id: true },
     });
 
     if (!employee) return apiError("Employee not found.", 404, "not_found");
 
-    if (!canEditEmployee(actor, employee)) {
-      return forbidden("You can only edit your own direct reports.");
+    if (!canManageEmployees(actor)) {
+      return forbidden("You don't have access to edit employee records.");
     }
 
     const resolved = await resolveEmployeeWrite(actor, parsed.data, {
@@ -108,10 +106,8 @@ export async function PATCH(
  * disappears from the directory, org chart and every list immediately while
  * their history stays intact.
  *
- * Gated by `canManageEmployees` rather than `canEditEmployee`: removing
- * someone from the directory is a directory-management action like
- * suspension, not a profile edit a Manager should be able to do to their own
- * reports.
+ * Gated by `canManageEmployees`, the same power as a profile edit: removing
+ * someone from the directory is a records action like suspension.
  */
 export async function DELETE(
   _request: NextRequest,
@@ -121,7 +117,7 @@ export async function DELETE(
   if (!actor) return unauthorized();
 
   if (!canManageEmployees(actor)) {
-    return forbidden("Only owners, admins and HR can remove an employee.");
+    return forbidden("You don't have access to remove employees.");
   }
 
   const { id } = await context.params;

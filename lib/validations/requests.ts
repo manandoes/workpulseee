@@ -32,6 +32,11 @@ const dateOnly = z
  * (`requestNeedsDateRange`/`requestNeedsAmount`), enforced here with a
  * cross-field refinement so the API rejects a mismatched submission before it
  * ever reaches `lib/request-data.ts`.
+ *
+ * A request is addressed to a specific person (Phase 21): the employee
+ * chooses who to submit it to. The `requestedApproverAccountId` or
+ * `requestedApproverEmployeeId` is required and validated here — the
+ * approver must exist in the same company and have approval authority.
  */
 export const createRequestSchema = z
   .object({
@@ -47,6 +52,10 @@ export const createRequestSchema = z
       .regex(/^\d{1,10}(\.\d{1,2})?$/, "Enter an amount, for example 1500")
       .optional()
       .or(z.literal("")),
+    /** The company account (Owner/Admin/Manager/HR) this request is addressed to. */
+    requestedApproverAccountId: z.string().trim().optional().or(z.literal("")),
+    /** The employee (with a DecideRequests grant) this request is addressed to. */
+    requestedApproverEmployeeId: z.string().trim().optional().or(z.literal("")),
   })
   .superRefine((value, ctx) => {
     if (requestNeedsDateRange(value.type)) {
@@ -93,6 +102,24 @@ export const createRequestSchema = z
         code: "custom",
         path: ["endDate"],
         message: "A half day must be a single day.",
+      });
+    }
+
+    // Phase 21: exactly one approver must be provided (company account OR employee)
+    const hasAccountApprover = Boolean(value.requestedApproverAccountId);
+    const hasEmployeeApprover = Boolean(value.requestedApproverEmployeeId);
+    if (!hasAccountApprover && !hasEmployeeApprover) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["requestedApproverAccountId"],
+        message: "Choose who this request is submitted to.",
+      });
+    }
+    if (hasAccountApprover && hasEmployeeApprover) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["requestedApproverAccountId"],
+        message: "Choose one approver, not both.",
       });
     }
   });

@@ -152,4 +152,91 @@ describe("POST /api/tasks", () => {
     expect(body.code).toBe("validation_error");
     expect(body.fieldErrors).toHaveProperty("title");
   });
+
+  /** Plan: allot tasks to a Manager or HR. */
+  it("lets a Manager allot a task to an HR login, and tells them", async () => {
+    const { companyId } = await createTestCompany();
+    const managerId = await createCompanyAccount(companyId, "Manager");
+    const hrId = await createCompanyAccount(companyId, "HRHead");
+    vi.mocked(getActor).mockResolvedValue(
+      companyActor(companyId, managerId, "Manager")
+    );
+
+    const response = await POST(
+      jsonRequest("http://localhost/api/tasks", "POST", {
+        title: "Draft the onboarding checklist",
+        assigneeAccountId: hrId,
+      })
+    );
+
+    expect(response.status).toBe(201);
+    const body = await response.json();
+    const stored = await db.task.findUniqueOrThrow({
+      where: { id: body.task.id },
+      select: { assigneeId: true, assigneeAccountId: true },
+    });
+    expect(stored).toEqual({ assigneeId: null, assigneeAccountId: hrId });
+
+    const notification = await db.notification.findFirst({
+      where: { companyId, recipientAccountId: hrId, type: "TaskAssigned" },
+    });
+    expect(notification).not.toBeNull();
+  });
+
+  it("refuses allotting a task to an Admin login", async () => {
+    const { companyId, ownerId } = await createTestCompany();
+    const adminId = await createCompanyAccount(companyId, "Admin");
+    vi.mocked(getActor).mockResolvedValue(
+      companyActor(companyId, ownerId, "Owner")
+    );
+
+    const response = await POST(
+      jsonRequest("http://localhost/api/tasks", "POST", {
+        title: "Not for an Admin",
+        assigneeAccountId: adminId,
+      })
+    );
+
+    expect(response.status).toBe(403);
+    const body = await response.json();
+    expect(body.fieldErrors).toHaveProperty("assigneeAccountId");
+  });
+
+  it("refuses a login from another company", async () => {
+    const { companyId, ownerId } = await createTestCompany();
+    const other = await createTestCompany();
+    const foreignManagerId = await createCompanyAccount(other.companyId, "Manager");
+    vi.mocked(getActor).mockResolvedValue(
+      companyActor(companyId, ownerId, "Owner")
+    );
+
+    const response = await POST(
+      jsonRequest("http://localhost/api/tasks", "POST", {
+        title: "Cross-tenant attempt",
+        assigneeAccountId: foreignManagerId,
+      })
+    );
+
+    expect(response.status).toBe(400);
+  });
+
+  it("rejects naming both an employee and a login as assignee", async () => {
+    const { companyId, ownerId } = await createTestCompany();
+    const employeeId = await createEmployee(companyId);
+    const hrId = await createCompanyAccount(companyId, "HRHead");
+    vi.mocked(getActor).mockResolvedValue(
+      companyActor(companyId, ownerId, "Owner")
+    );
+
+    const response = await POST(
+      jsonRequest("http://localhost/api/tasks", "POST", {
+        title: "Two owners",
+        assigneeId: employeeId,
+        assigneeAccountId: hrId,
+      })
+    );
+
+    expect(response.status).toBe(400);
+  });
 });
+

@@ -1,5 +1,6 @@
 "use client";
 
+import { DateTime } from "@/components/ui/date-time";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
@@ -17,7 +18,7 @@ import { TextareaField } from "@/components/forms/fields";
 export type TaskComment = {
   id: string;
   body: string;
-  createdAt: string;
+  createdAt: Date | string;
   authorName: string | null;
   /** Whether the signed-in viewer may retract this one. */
   canDelete: boolean;
@@ -100,7 +101,7 @@ export function TaskComments({
                   {comment.authorName ?? "Removed user"}
                 </span>
                 <span className="text-text-secondary text-meta">
-                  {comment.createdAt}
+                  <DateTime value={comment.createdAt} />
                 </span>
               </div>
               <p className="text-foreground whitespace-pre-line">

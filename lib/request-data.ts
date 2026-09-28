@@ -1,7 +1,8 @@
-import type { WriteFailure } from "@/lib/api";
+import { invalidReference, type WriteFailure } from "@/lib/api";
 import { db } from "@/lib/db";
 import { scopedWhere } from "@/lib/tenant";
-import type { SessionActor } from "@/lib/permissions";
+import { has, type SessionActor } from "@/lib/permissions";
+import { splitOverrides } from "@/lib/permission-grants";
 import { paginationMeta, type PaginationMeta } from "@/lib/pagination";
 import {
   requestFilter,
@@ -36,6 +37,9 @@ export type RequestWriteData = {
   endDate: Date | null;
   dayPart: LeaveDayPart | null;
   amount: string | null;
+  /** Phase 21: the approver this request is addressed to. Exactly one is set. */
+  requestedApproverAccountId: string | null;
+  requestedApproverEmployeeId: string | null;
 };
 
 export type RequestWriteResolution =
@@ -56,6 +60,8 @@ export function resolveRequest(
   const dateOrNull = (value: string) =>
     value ? new Date(`${value}T00:00:00.000Z`) : null;
 
+  // Phase 21: exactly one approver is provided (validated by schema)
+
   return {
     ok: true,
     data: {
@@ -68,8 +74,84 @@ export function resolveRequest(
         ? (input.dayPart ?? "FullDay")
         : null,
       amount: input.amount || null,
+      requestedApproverAccountId: input.requestedApproverAccountId || null,
+      requestedApproverEmployeeId: input.requestedApproverEmployeeId || null,
     },
   };
+}
+
+/**
+ * The approver a new request is addressed to must be someone in the
+ * submitter's own company who may decide it right now (Plan: access levels).
+ * Without this an id from another company would be stored and sent the
+ * submission notification — the employee's name and request subject — and a
+ * request could be addressed to someone whose approval power the Owner has
+ * switched off, where it would sit undecidable.
+ *
+ * Null when the choice is fine; the refusal otherwise.
+ */
+export async function checkRequestedApprover(
+  actor: SessionActor,
+  data: Pick<
+    RequestWriteData,
+    "requestedApproverAccountId" | "requestedApproverEmployeeId"
+  >
+): Promise<WriteFailure | null> {
+  const overrideSelect = { permission: true, effect: true } as const;
+
+  if (data.requestedApproverAccountId) {
+    const account = await db.companyAccount.findFirst({
+      where: scopedWhere(actor, { id: data.requestedApproverAccountId }),
+      select: { role: true, permissionOverrides: { select: overrideSelect } },
+    });
+    const mayDecide =
+      account &&
+      has(
+        {
+          accountType: "company",
+          role: account.role,
+          ...splitOverrides(account.permissionOverrides),
+        },
+        "DecideRequests"
+      );
+    if (!mayDecide) {
+      return invalidReference(
+        "requestedApproverAccountId",
+        "Choose someone from the list who can approve requests."
+      );
+    }
+  }
+
+  if (data.requestedApproverEmployeeId) {
+    const employee =
+      data.requestedApproverEmployeeId === actor.id
+        ? null
+        : await db.employee.findFirst({
+            where: scopedWhere(actor, {
+              id: data.requestedApproverEmployeeId,
+              status: { not: "Suspended" as const },
+            }),
+            select: { permissionGrants: { select: overrideSelect } },
+          });
+    const mayDecide =
+      employee &&
+      has(
+        {
+          accountType: "employee",
+          role: "Employee",
+          ...splitOverrides(employee.permissionGrants),
+        },
+        "DecideRequests"
+      );
+    if (!mayDecide) {
+      return invalidReference(
+        "requestedApproverEmployeeId",
+        "Choose someone from the list who can approve requests."
+      );
+    }
+  }
+
+  return null;
 }
 
 // ---------------------------------------------------------------------------
@@ -101,9 +183,15 @@ export type LoadedRequest = {
   approver: { id: string; fullName: string } | null;
   /** Set instead of `approver` when a grant-holding Employee decided this (Phase 11). */
   approverEmployee: { id: string; fullName: string } | null;
+  /** Phase 21: who this request was addressed to (the person who can decide it). */
+  requestedApprover: { id: string; fullName: string } | null;
+  requestedApproverEmployee: { id: string; fullName: string } | null;
+  requestedApproverAccountId: string | null;
+  requestedApproverEmployeeId: string | null;
 };
 
-const requestSelect = {
+/** Shared by `findRequest`, the queues, and the detail pages (which add attachments). */
+export const requestSelect = {
   id: true,
   type: true,
   status: true,
@@ -116,6 +204,8 @@ const requestSelect = {
   decisionNote: true,
   decidedAt: true,
   createdAt: true,
+  requestedApproverAccountId: true,
+  requestedApproverEmployeeId: true,
   employee: {
     select: {
       id: true,
@@ -126,6 +216,8 @@ const requestSelect = {
   },
   approver: { select: { id: true, fullName: true } },
   approverEmployee: { select: { id: true, fullName: true } },
+  requestedApprover: { select: { id: true, fullName: true } },
+  requestedApproverEmployee: { select: { id: true, fullName: true } },
 } as const;
 
 /**

@@ -67,7 +67,8 @@ const TITLES: Record<string, string> = {
   Owner: "Company dashboard",
   Admin: "Company dashboard",
   Manager: "Team dashboard",
-  HR: "HR dashboard",
+  HRHead: "HR dashboard",
+  HRTeam: "HR dashboard",
 };
 
 const DESCRIPTIONS: Record<DashboardMode, string> = {
@@ -84,17 +85,16 @@ export default async function DashboardPage() {
   const mode: DashboardMode =
     cookieStore.get(DASHBOARD_MODE_COOKIE)?.value === "pms" ? "pms" : "hrms";
 
-  const [company, metrics, alerts, openSession, openBreak] =
-    await Promise.all([
-      db.company.findUniqueOrThrow({
-        where: { id: actor.companyId },
-        select: { currency: true },
-      }),
-      loadDashboardMetrics(actor),
-      loadAlertsFor(actor),
-      loadOpenSession(actor),
-      loadOpenBreak(actor),
-    ]);
+  const [company, metrics, alerts, openSession, openBreak] = await Promise.all([
+    db.company.findUniqueOrThrow({
+      where: { id: actor.companyId },
+      select: { currency: true },
+    }),
+    loadDashboardMetrics(actor),
+    loadAlertsFor(actor),
+    loadOpenSession(actor),
+    loadOpenBreak(actor),
+  ]);
 
   // Alerts shown above are whatever the last recalc (a previous visit, or
   // the `generateAlerts` cron backstop) left in place — recomputing them is
@@ -112,7 +112,7 @@ export default async function DashboardPage() {
         title={TITLES[actor.role] ?? TITLES.Admin}
         description={DESCRIPTIONS[mode]}
         action={
-          mode === "pms" && canViewTasks(actor) ? (
+          canViewTasks(actor) ? (
             <Button asChild>
               <Link href="/tasks/new">
                 <ListPlus aria-hidden />

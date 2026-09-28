@@ -1,5 +1,6 @@
 import { z } from "zod";
 import {
+  COMPLETION_NOTE_MAX_LENGTH,
   DUE_WINDOWS,
   isHttpUrl,
   TASK_PRIORITIES,
@@ -31,6 +32,13 @@ const optionalDate = z
  * column. Bounded by the column itself (6 digits, 2 decimals) and by what an
  * estimate can mean: a task nobody could finish in 9999 hours is a project.
  */
+/**
+ * Plan: completion note — optional, whatever whoever finishes the task wants
+ * to say about it. Only read when the task ends up Done
+ * (`completionNoteFor` in lib/tasks.ts).
+ */
+const completionNote = optionalText(COMPLETION_NOTE_MAX_LENGTH);
+
 const optionalHours = z
   .string()
   .trim()
@@ -59,8 +67,22 @@ export const createTaskSchema = z
     priority: z.enum(TASK_PRIORITIES).optional(),
     /** Empty means unassigned; otherwise an Employee id. */
     assigneeId: optionalText(40),
+    /**
+     * Plan: allot tasks to a Manager or HR — a CompanyAccount id, set instead
+     * of `assigneeId`. Naming either assignee clears the other.
+     */
+    assigneeAccountId: optionalText(40),
+    completionNote,
     dueDate: optionalDate,
     estimatedHours: optionalHours,
+    /**
+     * Files already uploaded through `/api/files`, attached as the task is
+     * created. Ignored on edit — attachments are managed on the task page.
+     */
+    attachmentFileIds: z
+      .array(z.string().trim().min(1).max(40))
+      .max(10, "Attach at most 10 files")
+      .optional(),
   })
   .superRefine((value, ctx) => {
     if (value.projectId && value.clientId) {
@@ -68,6 +90,13 @@ export const createTaskSchema = z
         code: "custom",
         message: "A task is on a project or a client, not both",
         path: ["clientId"],
+      });
+    }
+    if (value.assigneeId && value.assigneeAccountId) {
+      ctx.addIssue({
+        code: "custom",
+        message: "A task has one assignee, not two",
+        path: ["assigneeAccountId"],
       });
     }
   });
@@ -81,6 +110,7 @@ export const updateTaskSchema = createTaskSchema;
  */
 export const taskStatusSchema = z.object({
   status: z.enum(TASK_STATUSES),
+  completionNote,
 });
 
 /**
@@ -91,6 +121,8 @@ export const taskStatusSchema = z.object({
  */
 export const taskTimerSchema = z.object({
   action: z.enum(TIMER_ACTIONS),
+  /** Read only for `done`, the action that finishes the task. */
+  completionNote,
 });
 
 export const commentSchema = z.object({
@@ -105,6 +137,11 @@ export const attachmentSchema = z.object({
     .max(2000)
     .refine(isHttpUrl, "Enter a link starting with http:// or https://"),
   label: optionalText(120),
+});
+
+/** Attaching a file already uploaded through `/api/files`, rather than a link. */
+export const fileAttachmentSchema = z.object({
+  fileId: z.string().trim().min(1, "Choose a file to attach").max(40),
 });
 
 /**

@@ -8,6 +8,7 @@ const actor: SessionActor = {
   role: "Admin",
   accountType: "company",
   grants: [],
+  revokes: [],
 };
 
 describe("scopedWhere", () => {

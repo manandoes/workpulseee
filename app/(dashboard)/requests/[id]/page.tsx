@@ -3,40 +3,21 @@ import { notFound, redirect } from "next/navigation";
 import { getActor } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { scopedWhere } from "@/lib/tenant";
+import { requestSelect } from "@/lib/request-data";
 import { canApproveRequests, canDecideOnRequest } from "@/lib/permissions";
 import { RequestDetail } from "@/components/requests/request-detail";
 
 export const metadata: Metadata = { title: "Request" };
 
 const requestDetailSelect = {
-  id: true,
-  type: true,
-  status: true,
-  subject: true,
-  description: true,
-  startDate: true,
-  endDate: true,
-  dayPart: true,
-  amount: true,
-  decisionNote: true,
-  decidedAt: true,
-  createdAt: true,
-  employee: {
-    select: {
-      id: true,
-      fullName: true,
-      managerId: true,
-      managerAccountId: true,
-    },
-  },
-  approver: { select: { id: true, fullName: true } },
-  approverEmployee: { select: { id: true, fullName: true } },
+  ...requestSelect,
   attachments: {
     orderBy: { createdAt: "asc" },
     select: {
       id: true,
       label: true,
       url: true,
+      fileId: true,
       createdAt: true,
       addedById: true,
       addedByEmployeeId: true,

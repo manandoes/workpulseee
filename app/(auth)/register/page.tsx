@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { redirectIfSignedIn } from "@/lib/auth";
 import { Card, CardContent } from "@/components/ui/card";
 import { RegisterCompanyForm } from "@/components/auth/register-company-form";
 
@@ -13,7 +14,9 @@ export const metadata: Metadata = {
  * The only self-service registration path in the product. It creates a Company
  * plus its first CompanyAccount with the Owner role.
  */
-export default function RegisterPage() {
+export default async function RegisterPage() {
+  await redirectIfSignedIn();
+
   return (
     <Card>
       <CardContent className="flex flex-col gap-6 py-2">

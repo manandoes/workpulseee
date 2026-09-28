@@ -6,7 +6,7 @@ import { scopedWhere } from "@/lib/tenant";
 import { formatManagerRef, managerRefFrom } from "@/lib/employees";
 import { loadDepartments, loadManagerOptions } from "@/lib/employee-data";
 import {
-  canEditEmployee,
+  canManageEmployees,
   canViewAllEmployees,
   canViewPersonalDetails,
 } from "@/lib/permissions";
@@ -20,9 +20,10 @@ export const metadata: Metadata = { title: "Edit employee" };
 /**
  * Edit an employee profile.
  *
- * Owner/Admin/HR may edit anyone in their company; a Manager may edit only
- * their own direct reports (PRD.md section 9). The same predicates run again in
- * `PATCH /api/employees/[id]` — this page only decides what to render.
+ * Needs the "Employee records" power (`canManageEmployees`); the personal
+ * fields additionally need `canViewPersonalDetails`. The same predicates run
+ * again in `PATCH /api/employees/[id]` — this page only decides what to
+ * render, and never ships personal values to the browser without the power.
  */
 export default async function EditEmployeePage({
   params,
@@ -57,9 +58,13 @@ export default async function EditEmployeePage({
   });
 
   if (!employee) notFound();
-  if (!canEditEmployee(actor, employee)) redirect(`/employees/${employee.id}`);
+  if (!canManageEmployees(actor)) redirect(`/employees/${employee.id}`);
 
   const canEditPersonal = canViewPersonalDetails(actor, employee);
+  // The records power and the personal-details power are separate switches,
+  // so without the latter the personal values must not even reach the form
+  // (its props are serialized into the page) — blanks instead.
+  const personal = canEditPersonal ? employee : null;
 
   const [departments, managerGroups] = await Promise.all([
     loadDepartments(actor),
@@ -91,13 +96,13 @@ export default async function EditEmployeePage({
               employmentType: employee.employmentType ?? "",
               startDate: toDateInputValue(employee.startDate),
               manager: formatManagerRef(managerRefFrom(employee)),
-              personalEmail: employee.personalEmail ?? "",
-              phone: employee.phone ?? "",
-              dateOfBirth: toDateInputValue(employee.dateOfBirth),
-              location: employee.location ?? "",
-              address: employee.address ?? "",
-              emergencyContactName: employee.emergencyContactName ?? "",
-              emergencyContactPhone: employee.emergencyContactPhone ?? "",
+              personalEmail: personal?.personalEmail ?? "",
+              phone: personal?.phone ?? "",
+              dateOfBirth: toDateInputValue(personal?.dateOfBirth ?? null),
+              location: personal?.location ?? "",
+              address: personal?.address ?? "",
+              emergencyContactName: personal?.emergencyContactName ?? "",
+              emergencyContactPhone: personal?.emergencyContactPhone ?? "",
             }}
           />
         </CardContent>

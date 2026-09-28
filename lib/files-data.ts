@@ -31,8 +31,7 @@ function uploaderColumns(actor: SessionActor) {
 }
 
 export type StoreFileResult =
-  | { ok: true; file: StoredFileSummary }
-  | WriteFailure;
+  { ok: true; file: StoredFileSummary } | WriteFailure;
 
 export async function storeFile(
   actor: SessionActor,
@@ -58,11 +57,15 @@ export async function storeAnonymousFile(
   return storeFileForCompany(companyId, input, {});
 }
 
-async function storeFileForCompany(
-  companyId: string,
-  input: { name: string; mimeType: string; bytes: Uint8Array },
-  uploader: { uploadedById?: string; uploadedByEmployeeId?: string }
-): Promise<StoreFileResult> {
+/**
+ * The rules every upload must pass, wherever its bytes end up — `StoredFile`
+ * here, or the encrypted column of a client vault credential
+ * (`lib/vault-data.ts`). Null when the file is acceptable.
+ */
+export function checkUpload(input: {
+  mimeType: string;
+  bytes: Uint8Array;
+}): WriteFailure | null {
   if (!isAllowedMimeType(input.mimeType)) {
     return invalidReference("file", "That file type is not supported.");
   }
@@ -74,6 +77,17 @@ async function storeFileForCompany(
   if (input.bytes.byteLength > MAX_FILE_BYTES) {
     return invalidReference("file", "That file is larger than 5 MB.");
   }
+
+  return null;
+}
+
+async function storeFileForCompany(
+  companyId: string,
+  input: { name: string; mimeType: string; bytes: Uint8Array },
+  uploader: { uploadedById?: string; uploadedByEmployeeId?: string }
+): Promise<StoreFileResult> {
+  const rejected = checkUpload(input);
+  if (rejected) return rejected;
 
   const file = await db.storedFile.create({
     data: {

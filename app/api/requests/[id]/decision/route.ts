@@ -50,8 +50,19 @@ export async function PATCH(
     const existing = await findRequest(actor, id);
     if (!existing) return apiError("Request not found.", 404, "not_found");
 
-    if (!canDecideOnRequest(actor, existing)) {
-      return forbidden("You can only decide on your own team's requests.");
+    // Phase 21: pass the targeted approver fields for the new permission check
+    if (
+      !canDecideOnRequest(actor, {
+        employee: existing.employee,
+        requestedApproverAccountId: existing.requestedApproverAccountId,
+        requestedApproverEmployeeId: existing.requestedApproverEmployeeId,
+      })
+    ) {
+      return forbidden(
+        existing.requestedApproverAccountId || existing.requestedApproverEmployeeId
+          ? "This request was addressed to someone else."
+          : "You can only decide on your own team's requests."
+      );
     }
 
     if (existing.status !== "Pending") {

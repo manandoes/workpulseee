@@ -55,7 +55,12 @@ export async function POST(
       return forbidden("You can only track time on tasks assigned to you.");
     }
 
-    const resolved = await applyTimerAction(actor, task, parsed.data.action);
+    const resolved = await applyTimerAction(
+      actor,
+      task,
+      parsed.data.action,
+      parsed.data.completionNote
+    );
     if (!resolved.ok) return writeFailure(resolved);
 
     // Only a status change moves these figures, and only `start` and `done`

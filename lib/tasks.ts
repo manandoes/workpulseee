@@ -86,6 +86,37 @@ export function isOverdue(task: Deadline, now: Date): boolean {
   return due.getTime() < startOfDayUtc(now).getTime();
 }
 
+/** Is this open task due on the day `now` falls in? */
+export function isDueToday(task: Deadline, now: Date): boolean {
+  if (!task.dueDate || !isOpen(task.status)) return false;
+  const due =
+    task.dueDate instanceof Date ? task.dueDate : new Date(task.dueDate);
+  return due.getTime() === startOfDayUtc(now).getTime();
+}
+
+/** The sections of an employee's "My Tasks" page, in the order it shows them. */
+export const MY_TASK_BUCKETS = [
+  "overdue",
+  "dueToday",
+  "inProgress",
+  "upcoming",
+  "done",
+] as const;
+export type MyTaskBucket = (typeof MY_TASK_BUCKETS)[number];
+
+/**
+ * Which section of "My Tasks" a task belongs in. Deadline beats stage: a task
+ * that is overdue or due today is shown there whatever its status, so the
+ * urgent work is never hidden inside "In progress".
+ */
+export function myTaskBucket(task: Deadline, now: Date): MyTaskBucket {
+  if (!isOpen(task.status)) return "done";
+  if (isOverdue(task, now)) return "overdue";
+  if (isDueToday(task, now)) return "dueToday";
+  if (task.status === "Todo") return "upcoming";
+  return "inProgress";
+}
+
 /**
  * When a task's completion timestamp should be, given the status it is moving
  * to and the timestamp it currently carries.
@@ -102,6 +133,73 @@ export function completionFor(
 ): Date | null {
   if (status !== "Done") return null;
   return current ?? now;
+}
+
+/** How long a completion note may be — the API, dialog and form all use it. */
+export const COMPLETION_NOTE_MAX_LENGTH = 2000;
+
+/**
+ * The completion note a task should carry (Plan: completion note), given the
+ * status it is moving to, the note sent with this change (`undefined` when
+ * none was) and the one it carries now.
+ *
+ * Follows `completionFor`: the note belongs to the completion, so leaving Done
+ * clears it. A note sent with the change replaces the stored one — blank
+ * clears it, since the note is optional — and a change that sends none, like
+ * re-saving the edit form of a finished task, keeps it.
+ */
+export function completionNoteFor(
+  status: TaskStatus,
+  sent: string | undefined,
+  current: string | null
+): string | null {
+  if (status !== "Done") return null;
+  if (sent === undefined) return current;
+  const note = sent.trim();
+  return note ? note : null;
+}
+
+// ---------------------------------------------------------------------------
+// Assignees (Plan: allot tasks to a Manager or HR)
+// ---------------------------------------------------------------------------
+
+/**
+ * A task's assignee is an employee or a Manager/HR login, and the task form's
+ * picker and the list's assignee filter offer both in one `<select>`. An
+ * employee keeps their bare id as the value — what every existing link and
+ * filter URL already carries — and a login's id goes behind this prefix.
+ */
+export const ACCOUNT_ASSIGNEE_PREFIX = "account:";
+
+/** The select value naming a company login as the assignee. */
+export function accountAssigneeValue(accountId: string): string {
+  return `${ACCOUNT_ASSIGNEE_PREFIX}${accountId}`;
+}
+
+/** The select value for whoever holds a task now, or `""` for nobody. */
+export function assigneeOptionValue(task: {
+  assigneeId: string | null;
+  assigneeAccountId: string | null;
+}): string {
+  if (task.assigneeAccountId) return accountAssigneeValue(task.assigneeAccountId);
+  return task.assigneeId ?? "";
+}
+
+/**
+ * Split a select value back into the two API fields. Exactly one of them is
+ * non-empty, or both are empty for "unassigned" — naming either clears the
+ * other on the server (`resolveTaskWrite`).
+ */
+export function parseAssigneeOption(value: string): {
+  assigneeId: string;
+  assigneeAccountId: string;
+} {
+  return value.startsWith(ACCOUNT_ASSIGNEE_PREFIX)
+    ? {
+        assigneeId: "",
+        assigneeAccountId: value.slice(ACCOUNT_ASSIGNEE_PREFIX.length),
+      }
+    : { assigneeId: value, assigneeAccountId: "" };
 }
 
 // ---------------------------------------------------------------------------
@@ -134,7 +232,10 @@ export type TaskFilters = {
   q?: string;
   projectId?: string;
   clientId?: string;
-  /** An employee id, or `UNASSIGNED`. */
+  /**
+   * An employee id, a company login as `accountAssigneeValue` writes it, or
+   * `UNASSIGNED`.
+   */
   assigneeId?: string;
   status?: TaskStatus;
   priority?: TaskPriority;
@@ -163,6 +264,7 @@ export function taskFilter(filters: TaskFilters, now: Date) {
       // What people actually type when hunting for "the Northwind copy deck".
       { project: { name: { contains: q, mode: "insensitive" } } },
       { assignee: { fullName: { contains: q, mode: "insensitive" } } },
+      { assigneeAccount: { fullName: { contains: q, mode: "insensitive" } } },
     ];
   }
 
@@ -184,9 +286,16 @@ export function taskFilter(filters: TaskFilters, now: Date) {
   if (filters.priority) where.priority = filters.priority;
 
   if (filters.assigneeId === UNASSIGNED) {
+    // Unassigned means nobody of either kind holds it.
     where.assigneeId = null;
+    where.assigneeAccountId = null;
   } else if (filters.assigneeId) {
-    where.assigneeId = filters.assigneeId;
+    const assignee = parseAssigneeOption(filters.assigneeId);
+    if (assignee.assigneeAccountId) {
+      where.assigneeAccountId = assignee.assigneeAccountId;
+    } else {
+      where.assigneeId = assignee.assigneeId;
+    }
   }
 
   if (filters.due) {
@@ -214,9 +323,9 @@ export function taskFilter(filters: TaskFilters, now: Date) {
  *
  * A task on a project stays visible to anyone the section already lets in
  * (`canViewTasks`); a standalone task is personal — visible only to whoever
- * raised it (a `CompanyAccount`, on `/tasks`) or, for an Employee actor, only
- * to themself as its assignee (used by "My Work", which every Employee's own
- * tasks flow through regardless of project).
+ * raised it (a `CompanyAccount`, on `/tasks`) and whoever it was allotted to:
+ * a Manager/HR login on `/tasks`, or an Employee on "My Work", which every
+ * Employee's own tasks flow through regardless of project.
  */
 export function taskVisibilityFilter(actor: {
   id: string;
@@ -225,9 +334,9 @@ export function taskVisibilityFilter(actor: {
   return {
     OR: [
       { projectId: { not: null } },
-      actor.accountType === "employee"
-        ? { assigneeId: actor.id }
-        : { createdById: actor.id },
+      ...(actor.accountType === "employee"
+        ? [{ assigneeId: actor.id }]
+        : [{ createdById: actor.id }, { assigneeAccountId: actor.id }]),
     ],
   };
 }
@@ -283,4 +392,16 @@ export function attachmentLabel(url: string, label?: string): string {
   } catch {
     return url.trim();
   }
+}
+
+/** Where an attachment opens: an uploaded file, or the link it points at. */
+export function attachmentHref(attachment: {
+  url: string | null;
+  fileId: string | null;
+}): string {
+  // An uploaded file is served by the tenant-scoped download route; a link was
+  // checked to be http/https before it was stored.
+  return attachment.fileId
+    ? `/api/files/${attachment.fileId}`
+    : (attachment.url ?? "");
 }

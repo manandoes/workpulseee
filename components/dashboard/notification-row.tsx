@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { cn } from "cn";
-import { formatDateTime } from "@/lib/format";
+import { DateTime } from "@/components/ui/date-time";
 import { LogoutReminderActions } from "@/components/attendance/logout-reminder-actions";
 
 export type NotificationRowData = {
@@ -45,7 +45,7 @@ export function NotificationRow({
       >
         <span className="text-foreground">{notification.message}</span>
         <span className="text-text-secondary text-meta">
-          {formatDateTime(notification.createdAt)}
+          <DateTime value={notification.createdAt} />
         </span>
       </button>
       {/* Answerable in place, the same as in the bell — see

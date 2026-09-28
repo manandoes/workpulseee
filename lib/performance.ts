@@ -45,11 +45,26 @@ export function taskCompletionRate(
   return (done / tasks.length) * 100;
 }
 
+const DAY_MS = 24 * 60 * 60 * 1000;
+
 /**
- * Of the tasks that reached Done, the share finished at or before their due
- * date. A task with no due date can't have been late, so it counts as on
- * time. `null` until at least one task is Done — an on-time *rate* needs a
- * finished task to be a rate of anything.
+ * Was this Done task finished on or before its due date? A task with no due
+ * date can't have been late, so it counts as on time. The due date is a
+ * date-only UTC midnight, so the whole due day counts — finishing at 3pm on
+ * the day it was due is on time, the same "a task due today has until the
+ * end of today" rule `isOverdue` in `lib/tasks.ts` applies.
+ */
+export function finishedOnTime(task: TaskSignal): boolean {
+  const due = toDate(task.dueDate);
+  if (!due) return true;
+  const completed = toDate(task.completedAt);
+  return !completed || completed.getTime() < due.getTime() + DAY_MS;
+}
+
+/**
+ * Of the tasks that reached Done, the share finished on time
+ * (`finishedOnTime`). `null` until at least one task is Done — an on-time
+ * *rate* needs a finished task to be a rate of anything.
  */
 export function onTimeDeliveryRate(
   tasks: readonly TaskSignal[]
@@ -57,13 +72,7 @@ export function onTimeDeliveryRate(
   const done = tasks.filter((task) => task.status === "Done");
   if (done.length === 0) return null;
 
-  const onTime = done.filter((task) => {
-    const due = toDate(task.dueDate);
-    if (!due) return true;
-    const completed = toDate(task.completedAt);
-    return !completed || completed.getTime() <= due.getTime();
-  }).length;
-
+  const onTime = done.filter(finishedOnTime).length;
   return (onTime / done.length) * 100;
 }
 

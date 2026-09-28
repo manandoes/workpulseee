@@ -73,6 +73,8 @@ export type GoogleEvent = {
   start: Date;
   end: Date;
   location: string | null;
+  /** A date-only Google event: `start`/`end` are UTC midnights, end exclusive. */
+  allDay: boolean;
 };
 
 /** The signed-in person's own events, with titles. Never throws. */
@@ -119,6 +121,7 @@ export async function listOwnEvents(
           start: new Date(start),
           end: new Date(end),
           location: item.location ?? null,
+          allDay: !item.start?.dateTime,
         };
       })
       .filter((event): event is GoogleEvent => event !== null);

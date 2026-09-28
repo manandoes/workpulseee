@@ -8,6 +8,7 @@ import { cn } from "cn";
 import { formatElapsed } from "@/lib/format";
 import type { TimerAction } from "@/lib/task-timer";
 import { Button } from "@/components/ui/button";
+import { CompletionNoteDialog } from "@/components/tasks/completion-note-dialog";
 
 /**
  * The start / break / stop / done control for one task, with a live timer
@@ -25,6 +26,7 @@ import { Button } from "@/components/ui/button";
  */
 export function TaskTimer({
   taskId,
+  taskTitle,
   /** Time already banked in stopped stretches. Fixed for this render. */
   closedMs,
   /** When the running stretch began, ISO, or `null` if nothing is running. */
@@ -32,12 +34,17 @@ export function TaskTimer({
   className,
 }: {
   taskId: string;
+  /** Named in the completion-note prompt Done opens. */
+  taskTitle?: string;
   closedMs: number;
   runningSince: string | null;
   className?: string;
 }) {
   const router = useRouter();
   const [busy, setBusy] = useState<TimerAction | null>(null);
+  // Done finishes the task, so like the status select it first asks for an
+  // optional completion note (Plan: completion note).
+  const [askingForNote, setAskingForNote] = useState(false);
   // The clock is the only thing the tick advances; the elapsed figure is
   // derived from it during render, so a fresh `closedMs`/`runningSince` from
   // the server is reflected immediately rather than a tick later.
@@ -58,13 +65,13 @@ export function TaskTimer({
     closedMs +
     (runningSince ? Math.max(0, clock - new Date(runningSince).getTime()) : 0);
 
-  async function run(action: TimerAction) {
+  async function run(action: TimerAction, completionNote?: string) {
     setBusy(action);
 
     const response = await fetch(`/api/tasks/${taskId}/timer`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action }),
+      body: JSON.stringify({ action, completionNote }),
     });
 
     const body = await response.json().catch(() => null);
@@ -75,6 +82,7 @@ export function TaskTimer({
       return;
     }
 
+    setAskingForNote(false);
     toast.success(ACTION_DONE[action]);
     // The server owns the running state and the totals, so re-read them rather
     // than keeping a second copy here that could drift.
@@ -142,12 +150,21 @@ export function TaskTimer({
           type="button"
           variant="secondary"
           disabled={busy !== null}
-          onClick={() => run("done")}
+          onClick={() => setAskingForNote(true)}
         >
           <CheckCircle2 aria-hidden />
           Done
         </Button>
       </div>
+
+      {askingForNote ? (
+        <CompletionNoteDialog
+          taskTitle={taskTitle}
+          busy={busy === "done"}
+          onCancel={() => setAskingForNote(false)}
+          onConfirm={(note) => run("done", note)}
+        />
+      ) : null}
     </div>
   );
 }

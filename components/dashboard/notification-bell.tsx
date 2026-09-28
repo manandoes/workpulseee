@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Bell } from "lucide-react";
 import { cn } from "cn";
-import { formatDateTime } from "@/lib/format";
+import { DateTime } from "@/components/ui/date-time";
 import { LogoutReminderActions } from "@/components/attendance/logout-reminder-actions";
 
 /**
@@ -143,7 +143,7 @@ export function NotificationBell({ className }: { className?: string }) {
                         {notification.message}
                       </span>
                       <span className="text-text-secondary text-meta">
-                        {formatDateTime(notification.createdAt)}
+                        <DateTime value={notification.createdAt} />
                       </span>
                     </button>
                     {/* An unanswered logout reminder is the one notification
