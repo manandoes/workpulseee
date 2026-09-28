@@ -147,6 +147,7 @@ export function companyActor(
     role: role as AppRole,
     accountType: "company",
     grants: [],
+    revokes: [],
   };
 }
 
@@ -155,7 +156,14 @@ export function employeeActor(
   id: string,
   grants: SessionActor["grants"] = []
 ): SessionActor {
-  return { id, companyId, role: "Employee", accountType: "employee", grants };
+  return {
+    id,
+    companyId,
+    role: "Employee",
+    accountType: "employee",
+    grants,
+    revokes: [],
+  };
 }
 
 /** Builds a `NextRequest` for a route handler, JSON body only. */

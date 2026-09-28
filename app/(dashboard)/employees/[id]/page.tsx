@@ -3,13 +3,16 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { ArrowLeft, Pencil } from "lucide-react";
 import { getActor } from "@/lib/auth";
+import { LEVEL_LABELS } from "@/lib/permission-grants";
 import { db } from "@/lib/db";
 import { scopedWhere } from "@/lib/tenant";
-import { formatDate, formatDateTime, humanizeEnum } from "@/lib/format";
+import { formatDate, humanizeEnum } from "@/lib/format";
+import { DateTime } from "@/components/ui/date-time";
 import {
-  canEditEmployee,
   canManageEmployees,
   canViewAllEmployees,
+  canViewAttendance,
+  canViewPerformance,
   canViewPersonalDetails,
   canViewProjects,
 } from "@/lib/permissions";
@@ -103,14 +106,17 @@ export default async function EmployeeProfilePage({
       })
     : null;
 
-  const mayEdit = canEditEmployee(actor, employee);
+  const mayEdit = canManageEmployees(actor);
   const maySeePersonal = canViewPersonalDetails(actor, employee);
   const mayChangeStatus = canManageEmployees(actor);
+  const maySeePerformance = canViewPerformance(actor, employee);
 
-  // Attendance is as sensitive as the rest of the Personal panel, so it
-  // follows the same visibility rule and is only loaded when it will
-  // actually be rendered.
-  const attendance = maySeePersonal
+  // Attendance is private data with its own power (Plan: access levels), and
+  // is only loaded when it will actually be rendered.
+  const attendance = canViewAttendance(actor, {
+    kind: "employee",
+    id: employee.id,
+  })
     ? await loadPersonAttendance(actor, { kind: "employee", id: employee.id })
     : null;
   const now = new Date();
@@ -118,7 +124,7 @@ export default async function EmployeeProfilePage({
   const manager = employee.manager
     ? employee.manager.fullName
     : employee.managerAccount
-      ? `${employee.managerAccount.fullName} (${employee.managerAccount.role})`
+      ? `${employee.managerAccount.fullName} (${LEVEL_LABELS[employee.managerAccount.role]})`
       : "—";
 
   return (
@@ -190,7 +196,7 @@ export default async function EmployeeProfilePage({
           />
           {employee.workloadUpdatedAt ? (
             <p className="text-text-secondary text-meta">
-              As of {formatDateTime(employee.workloadUpdatedAt)}
+              As of <DateTime value={employee.workloadUpdatedAt} />
             </p>
           ) : null}
         </Panel>
@@ -198,7 +204,7 @@ export default async function EmployeeProfilePage({
         {maySeePersonal ? (
           <Panel
             title="Personal"
-            note="Visible to owners, admins, HR and this person's manager only."
+            note="Private — only for people with access to personal details."
           >
             <Detail label="Personal email" value={employee.personalEmail} />
             <Detail label="Phone" value={employee.phone} />
@@ -225,8 +231,8 @@ export default async function EmployeeProfilePage({
         ) : (
           <Panel title="Personal" plain>
             <p className="text-text-secondary">
-              Personal details are limited to owners, admins, HR and this
-              person&apos;s own manager.
+              Personal details are limited to HR, admins and the owner, or
+              whoever the owner gives access to.
             </p>
           </Panel>
         )}
@@ -234,7 +240,7 @@ export default async function EmployeeProfilePage({
         {attendance ? (
           <Panel
             title="Attendance"
-            note="Visible to owners, admins, HR and this person's manager only."
+            note="Private — only for people with access to attendance."
             plain
           >
             <AttendanceTable records={attendance} now={now} />
@@ -242,8 +248,8 @@ export default async function EmployeeProfilePage({
         ) : (
           <Panel title="Attendance" plain>
             <p className="text-text-secondary">
-              Attendance is limited to owners, admins, HR and this person&apos;s
-              own manager.
+              Attendance is limited to HR, admins and the owner, or whoever the
+              owner gives access to.
             </p>
           </Panel>
         )}
@@ -320,7 +326,7 @@ export default async function EmployeeProfilePage({
         </Panel>
       </div>
 
-      {mayEdit ? (
+      {maySeePerformance ? (
         <div className="border-border bg-surface-muted mt-6 flex items-center justify-between rounded-xl border px-5 py-4">
           <p className="text-text-secondary">
             Score, goals and manager feedback (Phases.md Phase 8).

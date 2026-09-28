@@ -9,6 +9,7 @@ import type { SessionActor } from "@/lib/permissions";
 import { canJoinTeam, TEAM_ELIGIBLE_STATUSES } from "@/lib/projects";
 import type { SelectOption } from "@/components/forms/fields";
 import type { ProjectStatus } from "@/lib/generated/prisma/enums";
+import { LEVEL_LABELS } from "@/lib/permission-grants";
 
 /**
  * Database access for clients and projects.
@@ -295,7 +296,7 @@ export async function loadLeadOptions(
 
   return accounts.map((account) => ({
     value: account.id,
-    label: `${account.fullName} (${account.role})`,
+    label: `${account.fullName} (${LEVEL_LABELS[account.role]})`,
   }));
 }
 

@@ -9,6 +9,7 @@ import {
 } from "@/lib/employees";
 import type { SelectGroup } from "@/components/forms/fields";
 import type { EmploymentType } from "@/lib/generated/prisma/enums";
+import { LEVEL_LABELS } from "@/lib/permission-grants";
 
 /**
  * Database access for employee management.
@@ -298,7 +299,7 @@ export async function loadManagerOptions(
       label: "Company accounts",
       options: accounts.map((account) => ({
         value: formatManagerRef({ kind: "account", id: account.id }),
-        label: `${account.fullName} (${account.role})`,
+        label: `${account.fullName} (${LEVEL_LABELS[account.role]})`,
       })),
     });
   }

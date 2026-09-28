@@ -107,7 +107,7 @@ async function main() {
       workEmail: "neha.hr@nimbuscreative.demo",
       phone: "+919810000003",
       passwordHash,
-      role: "HR",
+      role: "HRHead",
       invitedById: founder.id,
     },
   });

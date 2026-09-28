@@ -36,8 +36,8 @@ describe("PATCH /api/settings/workload", () => {
 
   it("refuses an HR account", async () => {
     const { companyId } = await createTestCompany();
-    const hrId = await createCompanyAccount(companyId, "HR");
-    vi.mocked(getActor).mockResolvedValue(companyActor(companyId, hrId, "HR"));
+    const hrId = await createCompanyAccount(companyId, "HRHead");
+    vi.mocked(getActor).mockResolvedValue(companyActor(companyId, hrId, "HRHead"));
 
     const response = await PATCH(
       jsonRequest("http://localhost/api/settings/workload", "PATCH", {

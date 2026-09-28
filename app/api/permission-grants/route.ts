@@ -5,21 +5,26 @@ import {
   serverError,
   unauthorized,
   validationError,
+  writeFailure,
 } from "@/lib/api";
 import { getActor } from "@/lib/auth";
 import { canManagePermissionGrants } from "@/lib/permissions";
-import { loadGrantsForCompany, setGrant } from "@/lib/permission-grants-data";
-import { setGrantSchema } from "@/lib/validations/permission-grants";
+import { loadAuthorityPeople, setPower } from "@/lib/permission-grants-data";
+import { setPowerSchema } from "@/lib/validations/permission-grants";
 
-/** GET /api/permission-grants — every employee's active grants (Owner only). */
+/**
+ * GET /api/permission-grants — everyone in the company with their level and
+ * the Owner's overrides, for the Authority page (Plan: access levels). Owner
+ * only.
+ */
 export async function GET() {
   const actor = await getActor();
   if (!actor) return unauthorized();
   if (!canManagePermissionGrants(actor)) return forbidden();
 
   try {
-    const employees = await loadGrantsForCompany(actor);
-    return NextResponse.json({ employees });
+    const people = await loadAuthorityPeople(actor);
+    return NextResponse.json({ people });
   } catch (cause) {
     return serverError(
       {
@@ -32,7 +37,11 @@ export async function GET() {
   }
 }
 
-/** POST /api/permission-grants — grant or revoke one permission (Owner only). */
+/**
+ * POST /api/permission-grants — switch one power on or off for one person
+ * (Owner only). Applies on that person's next request: `getActor()` reads
+ * overrides fresh every time.
+ */
 export async function POST(request: Request) {
   const actor = await getActor();
   if (!actor) return unauthorized();
@@ -45,19 +54,17 @@ export async function POST(request: Request) {
     return apiError("Expected a JSON body.", 400, "invalid_json");
   }
 
-  const parsed = setGrantSchema.safeParse(payload);
+  const parsed = setPowerSchema.safeParse(payload);
   if (!parsed.success) return validationError(parsed.error);
 
   try {
-    const resolved = await setGrant(
+    const resolved = await setPower(
       actor,
-      parsed.data.employeeId,
+      parsed.data.subject,
       parsed.data.permission,
-      parsed.data.granted
+      parsed.data.enabled
     );
-    if (!resolved.ok) {
-      return apiError(resolved.message, resolved.status, "invalid_reference");
-    }
+    if (!resolved.ok) return writeFailure(resolved);
 
     return NextResponse.json({ ok: true });
   } catch (cause) {

@@ -1,10 +1,12 @@
 import NextAuth, { CredentialsSignin } from "next-auth";
 import Credentials from "next-auth/providers/credentials";
+import { redirect } from "next/navigation";
 import { authConfig } from "@/lib/auth.config";
 import { db } from "@/lib/db";
 import { equalizeTiming, verifyPassword } from "@/lib/passwords";
 import { hasActiveSubscription, loadSubscription } from "@/lib/billing";
-import type { SessionActor } from "@/lib/permissions";
+import { landingPathFor, type SessionActor } from "@/lib/permissions";
+import { splitOverrides } from "@/lib/permission-grants";
 import { stopRunningEntries } from "@/lib/task-timer-data";
 import { closeOpenBreakOnSignOut } from "@/lib/attendance-data";
 import {
@@ -262,37 +264,82 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
  */
 export async function getRawActor(): Promise<SessionActor | null> {
   const session = await auth();
-  if (!session?.user?.companyId) return null;
+  const user = session?.user;
+  if (!user?.companyId || !user.id) return null;
 
-  const company = await db.company.findFirst({
-    where: { id: session.user.companyId, deletedAt: null },
-    select: { id: true },
-  });
-  if (!company) return null;
-
-  // Grants (Phase 11) only ever apply to an Employee actor — a CompanyAccount
-  // already has its powers through `CompanyRole`. Read fresh on every call,
-  // the same "no client can go stale" guarantee every other field here has.
-  const grants =
-    session.user.accountType === "employee"
-      ? (
-          await db.permissionGrant.findMany({
+  /**
+   * Who this person is *now*, not when they signed in (Plan: access levels).
+   * The JWT is minted at sign-in and lives for weeks, so everything that
+   * decides access is read fresh here instead: the level, the Owner's
+   * overrides, and whether the person still exists at all. A level change or
+   * a switched-off power applies on their next request, and a suspended or
+   * removed person is signed-out-equivalent immediately rather than when the
+   * token expires. One indexed read per request either way, the same cost the
+   * old company-exists check already paid.
+   */
+  const current =
+    user.accountType === "employee"
+      ? await db.employee
+          .findFirst({
             where: {
-              companyId: session.user.companyId,
-              employeeId: session.user.id,
+              id: user.id,
+              companyId: user.companyId,
+              deletedAt: null,
+              status: { not: "Suspended" },
+              company: { deletedAt: null },
             },
-            select: { permission: true },
+            select: { permissionGrants: { select: overrideSelect } },
           })
-        ).map((grant) => grant.permission)
-      : [];
+          .then(
+            (row) =>
+              row && {
+                role: "Employee" as const,
+                overrides: row.permissionGrants,
+              }
+          )
+      : await db.companyAccount
+          .findFirst({
+            where: {
+              id: user.id,
+              companyId: user.companyId,
+              deletedAt: null,
+              company: { deletedAt: null },
+            },
+            select: {
+              role: true,
+              permissionOverrides: { select: overrideSelect },
+            },
+          })
+          .then(
+            (row) =>
+              row && { role: row.role, overrides: row.permissionOverrides }
+          );
+  if (!current) return null;
 
   return {
-    id: session.user.id,
-    companyId: session.user.companyId,
-    role: session.user.role,
-    accountType: session.user.accountType,
-    grants,
+    id: user.id,
+    companyId: user.companyId,
+    role: current.role,
+    accountType: user.accountType,
+    ...splitOverrides(current.overrides),
   };
+}
+
+const overrideSelect = { permission: true, effect: true } as const;
+
+/**
+ * For the sign-in and registration pages: send someone who is genuinely
+ * signed in to their home instead.
+ *
+ * Checked here, against the database, rather than in `proxy.ts` on the JWT
+ * alone. A suspended or removed person still holds a valid-looking token;
+ * bouncing them off `/login` at the edge while every page bounced them back
+ * to it (because `getActor()` now refuses them) would trap them in a
+ * redirect loop. Here they simply see the sign-in form.
+ */
+export async function redirectIfSignedIn(): Promise<void> {
+  const actor = await getRawActor();
+  if (actor) redirect(landingPathFor(actor));
 }
 
 /**

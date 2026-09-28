@@ -2,25 +2,37 @@ import type {
   CompanyRole,
   GrantedPermission,
 } from "@/lib/generated/prisma/enums";
+import {
+  canHoldPower,
+  LEVEL_DEFAULTS,
+  type Level,
+} from "@/lib/permission-grants";
 
 export type { GrantedPermission };
 
 /**
- * Role-based access rules (PRD.md section 9).
+ * Access rules (PRD.md section 9, Plan: access levels).
  *
  * Rules.md section 3: these checks are the server-side source of truth. The
  * navigation built from them is a convenience for the user, never the security
  * boundary — every API route must call these itself.
+ *
+ * Most checks below reduce to `has(actor, power)`: the person's level default
+ * (`LEVEL_DEFAULTS` in lib/permission-grants.ts) adjusted by the Owner's
+ * per-person overrides. What stays outside `has` are relationships, which no
+ * switch can express: everyone sees their own record, a manager acts for their
+ * own direct reports and the projects they lead, and the Owner-only powers
+ * (billing, branding, email delivery, the Authority page) are never grantable.
  */
 
 /** What a session belongs to. The two never overlap. */
 export type AccountType = "company" | "employee";
 
 /**
- * Every role in the product. `Employee` is not a `CompanyRole`: employees live
- * in a separate table, so their role is modelled separately here.
+ * Every level in the product. `Employee` is not a `CompanyRole`: employees
+ * live in a separate table, so their level is modelled separately here.
  */
-export type AppRole = CompanyRole | "Employee";
+export type AppRole = Level;
 
 export type SessionActor = {
   id: string;
@@ -28,32 +40,78 @@ export type SessionActor = {
   role: AppRole;
   accountType: AccountType;
   /**
-   * Powers the Owner has temporarily handed this actor on top of their role
-   * (Phase 11 — `lib/permission-grants-data.ts`). Always empty for a company
-   * account: `CompanyRole` already gives Admin/Manager/HR their powers, so
-   * only an Employee actor ever carries grants. Loaded once, in `getActor()`
-   * (`lib/auth.ts`), so every check below can read it with no extra
-   * plumbing at the call site.
+   * The Owner's per-person overrides of this actor's level (Plan: access
+   * levels — `PermissionGrant`): `grants` switch on powers the level lacks,
+   * `revokes` switch off powers it would give. Loaded fresh on every request
+   * in `getRawActor()` (`lib/auth.ts`) together with `role` itself, so a
+   * change applies on the person's next click, and read only by `has` below.
    */
   grants: GrantedPermission[];
+  revokes: GrantedPermission[];
 };
 
 /**
- * Does this actor hold a specific granted permission? Employee-only by
- * construction — see `SessionActor.grants`.
- *
- * Every check below that consults this is additive-OR with the existing
- * role logic, never a replacement for it — a grant only ever adds a power an
- * Employee didn't already have.
+ * What `has` reads: the signed-in `SessionActor`, or anyone else loaded with
+ * their overrides — e.g. every company login when a notification should go to
+ * "whoever may act on this" (`loadAccountHolders` in
+ * lib/permission-grants-data.ts).
  */
-function hasGrant(actor: SessionActor, permission: GrantedPermission): boolean {
-  return actor.accountType === "employee" && actor.grants.includes(permission);
+export type PowerHolder = Pick<
+  SessionActor,
+  "accountType" | "role" | "grants" | "revokes"
+>;
+
+/** A company login as a `PowerHolder`, with its id to address it by. */
+export type AccountHolder = PowerHolder & {
+  id: string;
+  role: CompanyRole;
+  accountType: "company";
+};
+
+/** The founder — the one login above every switch. */
+export function isOwner(holder: Pick<PowerHolder, "accountType" | "role">) {
+  return holder.accountType === "company" && holder.role === "Owner";
 }
 
-const COMPANY_ROLES: readonly AppRole[] = ["Owner", "Admin", "Manager", "HR"];
+/**
+ * Does this person hold `power`? The single place a level default and an
+ * Owner's override are combined — every check in this file that is about a
+ * power (rather than a relationship) goes through here.
+ *
+ * The Owner always does. An Employee login never holds a power it cannot
+ * exercise (`canHoldPower` — e.g. payroll, whose slips record a company login
+ * as their maker), even if a stale override row says otherwise. Beyond that,
+ * a revoke beats the level, a grant adds to it, and no override means "follow
+ * the level".
+ */
+export function has(holder: PowerHolder, power: GrantedPermission): boolean {
+  if (isOwner(holder)) return true;
+  if (!canHoldPower(holder.accountType, power)) return false;
+  if (holder.revokes.includes(power)) return false;
+  if (holder.grants.includes(power)) return true;
+  const level: Level =
+    holder.accountType === "employee" ? "Employee" : holder.role;
+  return LEVEL_DEFAULTS[level].includes(power);
+}
+
+const COMPANY_ROLES: readonly AppRole[] = [
+  "Owner",
+  "Admin",
+  "Manager",
+  "HRHead",
+  "HRTeam",
+];
 
 export function isCompanyRole(role: AppRole): boolean {
   return COMPANY_ROLES.includes(role);
+}
+
+/** Either HR level — for the few views scoped to "HR's slice", not a power. */
+export function isHrLevel(actor: SessionActor): boolean {
+  return (
+    actor.accountType === "company" &&
+    (actor.role === "HRHead" || actor.role === "HRTeam")
+  );
 }
 
 /** Owners and Admins have unrestricted access within their own company. */
@@ -69,16 +127,13 @@ export function isCompanyAdmin(actor: SessionActor): boolean {
  * profile, and changing status.
  *
  * Architecture.md section 8 restricts creating an Employee to Admin/HR, and
- * PRD.md section 9 gives HR "manage employee records". Managers are deliberately
- * excluded — their remit is their own team's work, not the people records. They
- * get a narrower right over their direct reports via `canEditEmployee`.
+ * PRD.md section 9 gives HR "manage employee records". Managers are
+ * deliberately excluded — since Plan: access levels, not even for their own
+ * direct reports: their remit is their team's work (tasks, goals, feedback —
+ * `canManagePerformance`), not the people records.
  */
 export function canManageEmployees(actor: SessionActor): boolean {
-  return (
-    isCompanyAdmin(actor) ||
-    (actor.accountType === "company" && actor.role === "HR") ||
-    hasGrant(actor, "ManageEmployees")
-  );
+  return has(actor, "ManageEmployees");
 }
 
 /** Who may see the company-wide employee directory. */
@@ -112,53 +167,68 @@ export function isDirectReport(
   );
 }
 
-/**
- * Who may edit a given employee's record (Phases.md Phase 3 — "correct
- * role-based visibility").
- *
- * Owner/Admin/HR may edit anyone in their company. A Manager may edit only
- * their own direct reports, which matches PRD.md section 9 ("manage own team").
- */
-export function canEditEmployee(
-  actor: SessionActor,
-  employee: EmployeeSubject
-): boolean {
-  if (canManageEmployees(actor)) return true;
-  return actor.role === "Manager" && isDirectReport(actor, employee);
+/** Is the actor this employee themselves? */
+function isSelfEmployee(actor: SessionActor, employee: { id: string }) {
+  return actor.accountType === "employee" && actor.id === employee.id;
 }
 
 /**
  * Who may see an employee's personal details — home address, date of birth,
- * personal email, phone, emergency contact.
+ * personal email, phone, emergency contact (and, when stored, ID documents).
  *
  * Rules.md section 3: an employee's sensitive data must not be exposed to a
  * role that should not see it. Every company account can browse the directory
- * and see professional information, but personal information is limited to the
- * people who administer records (Owner/Admin/HR) and the employee's own
- * manager.
+ * and see professional information, but personal information is limited to
+ * the employee themselves and whoever holds `ViewPersonalDetails` — by
+ * default Owner, Admin and both HR levels. Managers deliberately do not,
+ * even for their own direct reports (Plan: access levels).
  */
 export function canViewPersonalDetails(
   actor: SessionActor,
-  employee: EmployeeSubject
+  employee: { id: string }
 ): boolean {
-  if (canEditEmployee(actor, employee)) return true;
-  return hasGrant(actor, "ViewPersonalDetails");
+  return isSelfEmployee(actor, employee) || has(actor, "ViewPersonalDetails");
 }
 
 /**
- * Delivery roles — the people who run client work.
+ * Whose attendance — clock-ins, breaks, working hours — the actor may see.
+ * Its own power since Plan: access levels (it used to ride along with
+ * personal details), so a Manager can be kept off it while still seeing
+ * their team's work. `person` is an Employee or a CompanyAccount, since every
+ * company login clocks in too.
+ */
+export function canViewAttendance(
+  actor: SessionActor,
+  person: { kind: "employee" | "account"; id: string }
+): boolean {
+  const isSelf =
+    actor.id === person.id &&
+    actor.accountType === (person.kind === "employee" ? "employee" : "company");
+  return isSelf || has(actor, "ViewAttendance");
+}
+
+/**
+ * Who may see a company login's own contact details (Squad's account card).
+ * Same power as an employee's personal details — HR's slice of the company,
+ * not a Manager's.
+ */
+export function canViewAccountDetails(
+  actor: SessionActor,
+  account: { id: string }
+): boolean {
+  const isSelf = actor.accountType === "company" && actor.id === account.id;
+  return isSelf || has(actor, "ViewPersonalDetails");
+}
+
+/**
+ * Delivery — the people who run client work: the `ManageProjects` power.
  *
  * PRD.md section 9 gives Owner/Admin every project and a Manager "own team's
- * ... projects". HR is deliberately outside this: their remit is employee
- * records, leave and HR requests, not client delivery, which is why the sidebar
- * has never shown them a Projects entry either.
+ * ... projects". HR is outside this by default: their remit is employee
+ * records, leave and HR requests, not client delivery.
  */
 function isDeliveryRole(actor: SessionActor): boolean {
-  return (
-    isCompanyAdmin(actor) ||
-    (actor.accountType === "company" && actor.role === "Manager") ||
-    hasGrant(actor, "ManageProjects")
-  );
+  return has(actor, "ManageProjects");
 }
 
 /** Who may open the Projects section and read clients and projects. */
@@ -190,35 +260,35 @@ export type ProjectSubject = {
 /**
  * Who may edit *this* project — its details, its financials and its team.
  *
- * Owner and Admin may edit any project in their company. A Manager may edit the
- * projects they lead, which is what PRD.md section 9's "own team's projects"
- * means in the data. It mirrors `canEditEmployee`, where a Manager may browse
- * everyone but change only their own reports.
+ * Needs the delivery power (`ManageProjects`) at all; with it, Owner and Admin
+ * may edit any project in their company and anyone else the projects they
+ * lead, which is what PRD.md section 9's "own team's projects" means in the
+ * data. Switching the power off for a Manager therefore also stops them
+ * editing the projects they lead, not just browsing the section.
  */
 export function canManageProject(
   actor: SessionActor,
   project: ProjectSubject
 ): boolean {
+  if (!isDeliveryRole(actor)) return false;
   if (isCompanyAdmin(actor)) return true;
-  return (
-    actor.accountType === "company" &&
-    actor.role === "Manager" &&
-    project.leadAccountId === actor.id
-  );
+  return actor.accountType === "company" && project.leadAccountId === actor.id;
 }
 
 /**
- * Who may open the Tasks section (Phases.md Phase 5).
+ * Who may open the Tasks section and raise/allot tasks (Phases.md Phase 5).
  *
- * The same delivery roles that own projects: a task belongs to a project, so
- * anyone who can see the work can see the tasks under it. HR stays outside,
- * exactly as it does for projects.
+ * Every company account — Owner, Admin, Manager and HR alike: allotting work
+ * is the core of the product, open to anyone above an Employee. This is only
+ * the section gate; what a caller may change on a given task is still
+ * `canManageTask` (a project task stays with that project's lead or an
+ * Owner/Admin, so HR allots standalone and client tasks, not project work).
  *
- * Employees reach their own tasks through their self-service space in Phase 10,
- * not through this section — the middleware keeps them out of it entirely.
+ * Employees reach their own tasks through their self-service space ("My
+ * Tasks"), not through this section — the middleware keeps them out of it.
  */
 export function canViewTasks(actor: SessionActor): boolean {
-  return isDeliveryRole(actor);
+  return actor.accountType === "company" || isDeliveryRole(actor);
 }
 
 /**
@@ -264,22 +334,71 @@ export function canManageTask(actor: SessionActor, task: TaskSubject): boolean {
 }
 
 /** The part of a task `canUpdateTaskStatus` needs beyond `canManageTask`'s. */
-export type AssignableTask = TaskSubject & { assigneeId: string | null };
+export type AssignableTask = TaskSubject & {
+  assigneeId: string | null;
+  /** Set instead of `assigneeId` when a Manager/HR login holds the task. */
+  assigneeAccountId?: string | null;
+};
 
 /**
  * Who may move *this* task's status (Phases.md Phase 10 — "My Work").
  *
- * The same people as `canManageTask`, plus the employee it is assigned to:
- * an employee works their own board from `/my-space` without needing
- * delivery-role access to `/tasks` itself, the same "own it" carve-out
- * `canDecideOnRequest` draws for a request over its own approver rule.
+ * The same people as `canManageTask`, plus whoever it is assigned to: an
+ * employee works their own board from `/my-space` without needing
+ * delivery-role access to `/tasks` itself, and a Manager/HR login allotted a
+ * task (`canAssignTaskToAccount`) can finish it without leading its project —
+ * the same "own it" carve-out `canDecideOnRequest` draws for a request over
+ * its own approver rule.
  */
 export function canUpdateTaskStatus(
   actor: SessionActor,
   task: AssignableTask
 ): boolean {
   if (canManageTask(actor, task)) return true;
-  return actor.accountType === "employee" && actor.id === task.assigneeId;
+  return actor.accountType === "employee"
+    ? actor.id === task.assigneeId
+    : actor.id === task.assigneeAccountId;
+}
+
+/**
+ * Seniority for allotting work (Plan: allot tasks to a Manager or HR), read
+ * from PRD.md section 9: the Owner, then Admin, then Manager and both HR
+ * levels side by side — different remits, none above the others — then
+ * Employee.
+ */
+const ROLE_LEVEL: Record<AppRole, number> = {
+  Owner: 3,
+  Admin: 2,
+  Manager: 1,
+  HRHead: 1,
+  HRTeam: 1,
+  Employee: 0,
+};
+
+/** The company roles a task can be allotted to, besides any employee. */
+export const TASK_ASSIGNABLE_ACCOUNT_ROLES = [
+  "Manager",
+  "HRHead",
+  "HRTeam",
+] as const satisfies readonly CompanyRole[];
+
+/**
+ * Who may allot a task to a given company login (Plan: allot tasks to a
+ * Manager or HR).
+ *
+ * Only a Manager or HR can be given one, and only by someone at the same level
+ * or higher (`ROLE_LEVEL`): another Manager or HR, an Admin or the Owner — so
+ * an Employee, below every company role, never can. This is only about the
+ * assignee; whether the caller may write the task at all is still
+ * `canManageTask`.
+ */
+export function canAssignTaskToAccount(
+  actor: SessionActor,
+  assignee: { role: CompanyRole }
+): boolean {
+  const assignable: readonly CompanyRole[] = TASK_ASSIGNABLE_ACCOUNT_ROLES;
+  if (!assignable.includes(assignee.role)) return false;
+  return ROLE_LEVEL[actor.role] >= ROLE_LEVEL[assignee.role];
 }
 
 /**
@@ -310,61 +429,145 @@ export function canManageCompanyAccounts(actor: SessionActor): boolean {
 }
 
 /**
- * Roles an existing account is allowed to hand out. Nobody can create a second
- * Owner: that identity is established once, by registration.
+ * Levels an existing account is allowed to hand out. Nobody can create a
+ * second Owner: that identity is established once, by registration.
  */
-export const INVITABLE_ROLES = ["Admin", "Manager", "HR"] as const;
+export const INVITABLE_ROLES = [
+  "Admin",
+  "Manager",
+  "HRHead",
+  "HRTeam",
+] as const;
 export type InvitableRole = (typeof INVITABLE_ROLES)[number];
 
-/** Who may approve leave, reimbursements and other employee requests. */
+/**
+ * Who may approve leave, reimbursements and other employee requests at all —
+ * open the approvals queue and be chosen as an approver. Every company level
+ * holds it by default; the Owner can switch it off for one person, or on for
+ * an employee.
+ */
 export function canApproveRequests(actor: SessionActor): boolean {
-  return (
-    (actor.accountType === "company" &&
-      (actor.role === "Owner" ||
-        actor.role === "Admin" ||
-        actor.role === "Manager" ||
-        actor.role === "HR")) ||
-    hasGrant(actor, "DecideRequests")
-  );
+  return has(actor, "DecideRequests");
 }
 
 /**
- * Who may approve or reject a *particular* request (Phases.md Phase 7).
+ * Who may approve or reject a *particular* request (Phases.md Phase 7, Phase 21).
  *
- * `canApproveRequests` only says a role may open the queue at all. Owner/Admin/
- * HR may decide on anyone's request; a Manager may decide only on their own
- * direct reports' — the same split `canEditEmployee` draws for editing a
- * profile, since PRD.md section 9 gives a Manager "own team's ... requests".
+ * Before Phase 21: `canApproveRequests` only says someone may open the queue
+ * at all. Admin, both HR levels and an employee holding the power may decide
+ * on anyone's request; a Manager may decide only on their own direct
+ * reports', since PRD.md section 9 gives a Manager "own team's ... requests".
+ *
+ * Phase 21 adds: a request is addressed to a specific person. Only that person
+ * (or the founder/owner) can decide. The request stores:
+ * - `requestedApproverAccountId`: the CompanyAccount (Owner/Admin/Manager/HR) it was asked of
+ * - `requestedApproverEmployeeId`: the Employee (with DecideRequests grant) it was asked of
+ *
+ * Legacy requests (submitted before Phase 21) have both null and fall back to
+ * the old role rule.
  */
 export function canDecideOnRequest(
   actor: SessionActor,
-  request: { employee: EmployeeSubject }
+  request: {
+    employee: EmployeeSubject;
+    requestedApproverAccountId: string | null;
+    requestedApproverEmployeeId: string | null;
+  }
 ): boolean {
   if (!canApproveRequests(actor)) return false;
-  if (isCompanyAdmin(actor) || actor.role === "HR") return true;
-  // A `DecideRequests` grant is company-wide, the same tier as Owner/Admin/HR
-  // above — an Employee grantee has no "own direct reports" the way a
-  // Manager does, so there is nothing narrower to scope it to.
-  if (hasGrant(actor, "DecideRequests")) return true;
-  return actor.role === "Manager" && isDirectReport(actor, request.employee);
+
+  // Owner (founder) can always decide any request in their company
+  if (isOwner(actor)) return true;
+
+  // If the request was addressed to a specific person, only that person can decide
+  const hasTargetedApprover =
+    request.requestedApproverAccountId || request.requestedApproverEmployeeId;
+
+  if (hasTargetedApprover) {
+    if (
+      actor.accountType === "company" &&
+      actor.id === request.requestedApproverAccountId
+    ) {
+      return true;
+    }
+    if (
+      actor.accountType === "employee" &&
+      actor.id === request.requestedApproverEmployeeId
+    ) {
+      return true;
+    }
+    // Not the person it was addressed to
+    return false;
+  }
+
+  // Legacy request (no targeted approver): anyone holding the power decides
+  // company-wide, except that a Manager's reach is their own team.
+  if (actor.accountType === "company" && actor.role === "Manager") {
+    return isDirectReport(actor, request.employee);
+  }
+  return true;
+}
+
+/**
+ * Who may set goals for and give feedback to a given employee (Phases.md
+ * Phase 8 — goals and feedback are manager-owned).
+ *
+ * Whoever holds `ManagePerformance` (Owner, Admin, both HR levels by
+ * default), plus the employee's own reporting manager — a relationship, not
+ * a switch, so a Manager always keeps their own team. Split out of the old
+ * `canEditEmployee` by Plan: access levels, which took profile editing away
+ * from managers but left their team's goals and feedback with them.
+ */
+export function canManagePerformance(
+  actor: SessionActor,
+  employee: EmployeeSubject
+): boolean {
+  return has(actor, "ManagePerformance") || isDirectReport(actor, employee);
+}
+
+/**
+ * Whether the actor may see *everyone's* performance rather than only the
+ * people they manage — what widens the Performance queue beyond a manager's
+ * own direct reports. Setting goals for anyone implies reading everyone's.
+ */
+export function canViewAllPerformance(actor: SessionActor): boolean {
+  return has(actor, "ViewPerformance") || has(actor, "ManagePerformance");
 }
 
 /**
  * Who may open a given employee's performance page (Phases.md Phase 8).
  *
- * An employee may always view their own — the PRD.md FAQ this answers is
- * "can employees see each other's performance?", and the answer is only
- * their own. Everyone else follows `canEditEmployee`'s existing scope
- * (Owner/Admin/HR any employee, a Manager only their own direct reports) —
- * the same people who set goals and give feedback are the people who may
- * read the result.
+ * The employee themselves always may — the PRD.md FAQ this answers is "can
+ * employees see each other's performance?", and by default the answer is only
+ * their own. Beyond that: anyone with company-wide performance access
+ * (Managers included by default, Plan: access levels) and anyone who manages
+ * this employee's goals.
  */
 export function canViewPerformance(
   actor: SessionActor,
   employee: EmployeeSubject
 ): boolean {
-  if (actor.accountType === "employee") return actor.id === employee.id;
-  return canEditEmployee(actor, employee);
+  if (isSelfEmployee(actor, employee)) return true;
+  return canViewAllPerformance(actor) || canManagePerformance(actor, employee);
+}
+
+/**
+ * A company login's own performance (Plan: attendance/performance for all
+ * company accounts). Stricter than an employee's: `ViewPerformance` is about
+ * the workforce, so reading another login's scores — a fellow manager's, HR's,
+ * the Owner's — takes `ManagePerformance`, the HR-and-above power.
+ */
+export function canViewAccountPerformance(
+  actor: SessionActor,
+  account: { id: string }
+): boolean {
+  const isSelf = actor.accountType === "company" && actor.id === account.id;
+  return isSelf || has(actor, "ManagePerformance");
+}
+
+/** Who may set a company login's goals and give it feedback. */
+export function canManageAccountPerformance(actor: SessionActor): boolean {
+  return actor.accountType === "company" && has(actor, "ManagePerformance");
 }
 
 /** Only company accounts may change company-wide settings. */
@@ -373,29 +576,37 @@ export function canManageCompanySettings(actor: SessionActor): boolean {
 }
 
 /**
- * Who may grant or revoke an employee's `PermissionGrant`s (Phase 11).
+ * Who may set the daily break allowance (`Company.dailyBreakMinutes`) — the
+ * `ManageHrPolicies` power: Owner, Admin and HR Head by default, wider than
+ * `canManageCompanySettings` because break policy is an HR matter.
+ */
+export function canManageBreakAllowance(actor: SessionActor): boolean {
+  return has(actor, "ManageHrPolicies");
+}
+
+/**
+ * Who may run the Authority page: change anyone's powers (`PermissionGrant`
+ * overrides) and move company logins between levels.
  *
  * Owner only, not Admin — "founder/owner-controlled" is the literal ask this
- * answers, narrower than `isCompanyAdmin`'s Owner-or-Admin group used
- * everywhere else in this file.
+ * answers, and it is itself never a switch: whoever holds it could hand
+ * themselves everything else.
  */
 export function canManagePermissionGrants(actor: SessionActor): boolean {
-  return actor.accountType === "company" && actor.role === "Owner";
+  return isOwner(actor);
 }
 
 /**
  * Who may see the aggregated, company-wide financial rollup (Phases.md
  * Phase 11 — per-client and agency-wide revenue/cost/margin).
  *
- * Deliberately narrower than `canViewProjects`, which already lets any
- * delivery role (including a Manager who leads none of them) browse every
- * project in the company and see that project's own margin. Totalling those
- * same numbers across the whole agency in one view was judged more sensitive
- * than any single project's figures, so it follows `canManageCompanySettings`
- * instead.
+ * Deliberately separate from `canViewProjects`, which already lets any
+ * delivery role browse every project and see that project's own margin.
+ * Totalling those numbers across the whole agency was judged more sensitive,
+ * so by default only Owner and Admin hold `ViewFinancials`.
  */
 export function canViewFinancials(actor: SessionActor): boolean {
-  return isCompanyAdmin(actor);
+  return has(actor, "ViewFinancials");
 }
 
 /**
@@ -441,47 +652,61 @@ export function canManageAnnouncements(actor: SessionActor): boolean {
 }
 
 /**
- * Who may email the whole organisation (Plan: bulk email).
+ * Who may email the whole organisation (Plan: bulk email) — `SendBulkEmail`.
  *
  * Narrower than `canManageAnnouncements`, which any company account holds: a
  * mass email leaves the app and lands in inboxes, so a Manager scoped to one
- * delivery team is not the right audience for it. Owner/Admin/HR — the three
- * roles whose remit is company-wide people communication.
+ * delivery team is not the right sender by default. Owner, Admin and both HR
+ * levels — company-wide people communication.
  */
 export function canSendBulkEmail(actor: SessionActor): boolean {
-  return (
-    actor.accountType === "company" &&
-    (actor.role === "Owner" || actor.role === "Admin" || actor.role === "HR")
-  );
+  return has(actor, "SendBulkEmail");
 }
 
 /**
- * Who may define the salary structure, generate slips and upload them
- * (Plan: salary slips). Same Owner/Admin/HR payroll remit as
- * `canSendBulkEmail`; an employee reads their own slips instead, via
+ * Who may see salaries, define the salary structure, generate slips and
+ * upload them (Plan: salary slips) — `ManagePayroll`: Owner, Admin and HR
+ * Head by default; the one power that separates HR Head from HR Team besides
+ * HR policies. An employee reads their own slips instead, via
  * `canViewSalarySlip`.
  */
 export function canManagePayroll(actor: SessionActor): boolean {
-  return (
-    actor.accountType === "company" &&
-    (actor.role === "Owner" || actor.role === "Admin" || actor.role === "HR")
-  );
+  return has(actor, "ManagePayroll");
 }
 
 /**
- * Who may build hiring forms and work the applicant pipeline (Plan: hiring).
+ * Who may build hiring forms and work the applicant pipeline (Plan: hiring) —
+ * `ManageRecruitment`: Owner, Admin and both HR levels by default, and
+ * delegable to an employee (an HR lead without a company login).
  *
- * Owner and Admin by default, and — unlike `canManagePayroll` — delegable,
- * because an HR lead who is not an Admin is exactly the person who runs
- * hiring. That is what `ManageRecruitment` is for: the Owner hands over the
- * module at `/settings` without handing over the company.
- *
- * Deliberately *not* extended to every Manager: an application carries a
- * stranger's phone number, salary expectations and CV, and a manager scoped to
- * one delivery team has no reason to read the whole company's candidates.
+ * Deliberately *not* given to Managers by default: an application carries a
+ * stranger's phone number, salary expectations and CV, and a manager scoped
+ * to one delivery team has no reason to read the whole company's candidates.
  */
 export function canManageRecruitment(actor: SessionActor): boolean {
-  return isCompanyAdmin(actor) || hasGrant(actor, "ManageRecruitment");
+  return has(actor, "ManageRecruitment");
+}
+
+/**
+ * Who runs the client vault (Plan: client vault): stores, edits and deletes
+ * client credentials, sees every one of them, and approves, rejects or
+ * revokes other people's access — `ManageClientVault`.
+ *
+ * Owner, Admin and Manager by default — the delivery levels that hold client
+ * relationships. Never holdable by an Employee (`canHoldPower`): it would hand
+ * over every client's passwords at once, which is exactly what the approval
+ * flow exists to avoid.
+ */
+export function canManageClientVault(actor: SessionActor): boolean {
+  return has(actor, "ManageClientVault");
+}
+
+/**
+ * Who asks for vault access instead: everyone who does not manage it — every
+ * Employee, and HR. A manager never requests; they already see everything.
+ */
+export function canRequestVaultAccess(actor: SessionActor): boolean {
+  return !canManageClientVault(actor);
 }
 
 /**
@@ -554,7 +779,7 @@ export const THEME_COOKIE = "themeMode";
  * `canManagePermissionGrants`'s Owner-only gate).
  */
 export function canManageBranding(actor: SessionActor): boolean {
-  return actor.accountType === "company" && actor.role === "Owner";
+  return isOwner(actor);
 }
 
 /**
@@ -564,7 +789,7 @@ export function canManageBranding(actor: SessionActor): boolean {
  * and `canManagePermissionGrants`.
  */
 export function canManageEmailSettings(actor: SessionActor): boolean {
-  return actor.accountType === "company" && actor.role === "Owner";
+  return isOwner(actor);
 }
 
 /**
@@ -574,7 +799,7 @@ export function canManageEmailSettings(actor: SessionActor): boolean {
  * company day-to-day but does not hold its payment method.
  */
 export function canManageBilling(actor: SessionActor): boolean {
-  return actor.accountType === "company" && actor.role === "Owner";
+  return isOwner(actor);
 }
 
 /**
@@ -583,17 +808,13 @@ export function canManageBilling(actor: SessionActor): boolean {
  * `DashboardMode`.
  *
  * HRMS gets the people-and-requests slice (Employees, Performance, Requests);
- * PMS gets the delivery slice (Projects, Tasks, Squad, Chat, Calendar), each
- * still gated by the same predicates the pages and routes check
- * (`canViewProjects`/`canViewTasks`), so the sidebar can never offer a section
- * the server would refuse. Dashboard, Announcements, and Settings (for
- * whoever could already manage it) are not delivery-vs-people work and stay
- * visible in both modes.
- *
- * This also folds in what used to be a separate HR-only branch: HR already
- * fails `canViewProjects`/`canViewTasks`/`canManageWorkloadSettings` (none of
- * them are a delivery role), so the mode-aware list below produces the exact
- * same HRMS-mode nav HR always had, with no special case needed.
+ * PMS gets the delivery slice (Projects, Squad, Chat, Calendar); Tasks shows
+ * in both. Each is still gated by the same predicates the pages and routes
+ * check (`canViewProjects`/`canApproveRequests`/...), so the sidebar can never
+ * offer a section the server would refuse — and because those predicates read
+ * the Owner's switches, neither can a switched-off power linger in the nav.
+ * Dashboard, Announcements and Settings are not delivery-vs-people work and
+ * stay visible in both modes.
  */
 export function navigationFor(
   actor: SessionActor,
@@ -602,6 +823,7 @@ export function navigationFor(
   if (actor.accountType === "employee") {
     return [
       { href: "/my-space", label: "My Work", icon: "LayoutDashboard" },
+      { href: "/my-space/tasks", label: "My Tasks", icon: "ListChecks" },
       { href: "/my-space/growth", label: "My Growth", icon: "TrendingUp" },
       {
         href: "/my-space/requests",
@@ -616,17 +838,19 @@ export function navigationFor(
         label: "Announcements",
         icon: "Megaphone",
       },
-      // The one grant that opens a company-wide *section* rather than widening
-      // a page an Employee already had. Without this the Owner could hand an
-      // HR lead `ManageRecruitment` and they would have no way to reach
-      // `/hiring` but to type the URL.
-      ...(hasGrant(actor, "ManageRecruitment")
+      // The powers that open a company-wide *section* rather than widening a
+      // page an Employee already had. Without these the Owner could switch
+      // one on and the employee would have no way to reach it but to type
+      // the URL.
+      ...(canViewAllPerformance(actor)
+        ? [{ href: "/performance", label: "Performance", icon: "TrendingUp" }]
+        : []),
+      ...(canManageRecruitment(actor)
         ? [{ href: "/hiring", label: "Hiring", icon: "UserRoundSearch" }]
         : []),
-      // Plan: theme toggle — the only reason an Employee opens /settings is
-      // the personal Appearance card; every company-only card there
-      // (Workload/Alerts/Branding/Employee permissions) still checks its own
-      // permission and renders nothing for them.
+      // Plan: theme toggle — every Employee has the personal Appearance card;
+      // every other card there checks its own power and renders nothing
+      // without it.
       { href: "/settings", label: "Settings", icon: "Settings" },
     ];
   }
@@ -695,15 +919,21 @@ export function navigationFor(
 
   return [
     dashboard,
-    ...(mode === "hrms" ? [employees, performance, requests] : []),
+    ...(mode === "hrms" ? [employees, performance] : []),
+    ...(mode === "hrms" && canApproveRequests(actor) ? [requests] : []),
     ...(mode === "hrms" && canManageRecruitment(actor) ? [hiring] : []),
     ...(mode === "hrms" && canManagePayroll(actor) ? [payroll] : []),
     ...(mode === "hrms" && canSendBulkEmail(actor) ? [communications] : []),
     ...(mode === "pms" && canViewProjects(actor) ? [projects] : []),
-    ...(mode === "pms" && canViewTasks(actor) ? [tasks] : []),
+    // Task allotment is the core of the product, so unlike Projects it is not
+    // hidden behind the PMS toggle — anyone who may assign work reaches it
+    // from either mode.
+    ...(canViewTasks(actor) ? [tasks] : []),
     ...(mode === "pms" ? [squad, chat, calendar] : []),
     announcements,
-    ...(canManageWorkloadSettings(actor) ? [settings] : []),
+    // Every company login has at least its own Appearance card there, and
+    // the Owner's Authority page hangs off it.
+    settings,
   ];
 }
 

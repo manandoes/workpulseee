@@ -30,6 +30,7 @@ const PROTECTED_PREFIXES = [
   "/salary-slips",
   "/hiring",
   "/billing",
+  "/vault",
 ];
 
 /** Reachable by both account types, like `/my-space` — excluded from the
@@ -53,10 +54,18 @@ const SHARED_PREFIXES = [
   // cannot be company-accounts-only routing. The page itself re-checks
   // `canManageRecruitment`, which is what actually keeps everyone else out.
   "/hiring",
+  // Plan: client vault — employees request and view credentials here; the
+  // manager-only tabs re-check `canManageClientVault` themselves.
+  "/vault",
+  // Every Employee has the personal Appearance card here, and an employee
+  // holding `ManageHrPolicies` its break-allowance card; each card re-checks
+  // its own power.
+  "/settings",
+  // An employee holding `ViewPerformance` (Plan: access levels) reads the
+  // Performance queue; the pages re-check `canViewAllPerformance` /
+  // `canViewPerformance` themselves.
+  "/performance",
 ];
-
-/** Signed-in users have no reason to see these again. */
-const AUTH_PAGES = ["/login", "/register"];
 
 export default auth((request) => {
   const { pathname } = request.nextUrl;
@@ -74,15 +83,11 @@ export default auth((request) => {
   }
 
   if (session) {
-    const isAuthPage = AUTH_PAGES.some(
-      (page) => pathname === page || pathname.startsWith(`${page}/`)
-    );
-
-    if (isAuthPage) {
-      const home =
-        session.user?.accountType === "employee" ? "/my-space" : "/dashboard";
-      return NextResponse.redirect(new URL(home, request.nextUrl.origin));
-    }
+    // Sending a signed-in user away from /login and /register is done by
+    // those pages themselves (`redirectIfSignedIn` in lib/auth.ts), against
+    // the database: this edge check can only see the JWT, which a suspended
+    // or removed person still holds, and bouncing them here while every page
+    // bounces them back would loop.
 
     /**
      * Employees have no company-wide views, and company accounts have no

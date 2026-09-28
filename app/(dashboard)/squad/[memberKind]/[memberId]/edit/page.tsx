@@ -5,7 +5,7 @@ import { db } from "@/lib/db";
 import { scopedWhere } from "@/lib/tenant";
 import { formatManagerRef, managerRefFrom } from "@/lib/employees";
 import { loadDepartments, loadManagerOptions } from "@/lib/employee-data";
-import { canEditEmployee, canViewPersonalDetails } from "@/lib/permissions";
+import { canManageEmployees, canViewPersonalDetails } from "@/lib/permissions";
 import { toDateInputValue } from "@/lib/format";
 import { PageHeader } from "@/components/dashboard/page-header";
 import { EmployeeForm } from "@/components/employees/employee-form";
@@ -15,9 +15,9 @@ export const metadata: Metadata = { title: "Edit profile" };
 
 /**
  * Edit a colleague's profile from Squad (Phase 11, Phase 5 of the plan) —
- * the `ManageEmployees` grant's employee-reachable surface. Reuses
- * `EmployeeForm`/`PATCH /api/employees/[id]` verbatim (that route already
- * calls `canEditEmployee`, now grant-aware); only the redirect targets and
+ * the "Employee records" power's employee-reachable surface. Reuses
+ * `EmployeeForm`/`PATCH /api/employees/[id]` verbatim (that route checks the
+ * same `canManageEmployees`); only the redirect targets and
  * the gate on this page differ from `employees/[id]/edit/page.tsx` — no
  * `canViewAllEmployees` check, since that requires a company account and
  * would lock out the very employee this page exists for.
@@ -55,9 +55,12 @@ export default async function SquadMemberEditPage({
   });
 
   if (!employee) notFound();
-  if (!canEditEmployee(actor, employee)) redirect(`/squad/employee/${employee.id}`);
+  if (!canManageEmployees(actor)) redirect(`/squad/employee/${employee.id}`);
 
   const canEditPersonal = canViewPersonalDetails(actor, employee);
+  // Separate switches: without the personal-details power the personal
+  // values must not even reach the form's serialized props — blanks instead.
+  const personal = canEditPersonal ? employee : null;
 
   const [departments, managerGroups] = await Promise.all([
     loadDepartments(actor),
@@ -90,13 +93,13 @@ export default async function SquadMemberEditPage({
               employmentType: employee.employmentType ?? "",
               startDate: toDateInputValue(employee.startDate),
               manager: formatManagerRef(managerRefFrom(employee)),
-              personalEmail: employee.personalEmail ?? "",
-              phone: employee.phone ?? "",
-              dateOfBirth: toDateInputValue(employee.dateOfBirth),
-              location: employee.location ?? "",
-              address: employee.address ?? "",
-              emergencyContactName: employee.emergencyContactName ?? "",
-              emergencyContactPhone: employee.emergencyContactPhone ?? "",
+              personalEmail: personal?.personalEmail ?? "",
+              phone: personal?.phone ?? "",
+              dateOfBirth: toDateInputValue(personal?.dateOfBirth ?? null),
+              location: personal?.location ?? "",
+              address: personal?.address ?? "",
+              emergencyContactName: personal?.emergencyContactName ?? "",
+              emergencyContactPhone: personal?.emergencyContactPhone ?? "",
             }}
           />
         </CardContent>

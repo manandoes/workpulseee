@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { getActor } from "@/lib/auth";
+import { LEVEL_LABELS } from "@/lib/permission-grants";
 import { db } from "@/lib/db";
 import { formatDate, humanizeEnum } from "@/lib/format";
 import { PageHeader } from "@/components/dashboard/page-header";
@@ -37,7 +38,6 @@ export default async function ProfilePage() {
             id: true,
             name: true,
             slug: true,
-            currency: true,
             weeklyCapacityHours: true,
             createdAt: true,
           },
@@ -51,7 +51,7 @@ export default async function ProfilePage() {
       <>
         <PageHeader
           title="My Profile"
-          description={`${account.role} · ${account.company.name}`}
+          description={`${LEVEL_LABELS[account.role]} · ${account.company.name}`}
         />
 
         <div className="mb-6">
@@ -65,7 +65,7 @@ export default async function ProfilePage() {
           </Panel>
 
           <Panel title="Account">
-            <Detail label="Role" value={account.role} />
+            <Detail label="Level" value={LEVEL_LABELS[account.role]} />
             <Detail label="Member since" value={formatDate(account.createdAt)} />
             <Detail label="Invited by" value={account.invitedBy?.fullName} />
           </Panel>
@@ -74,7 +74,6 @@ export default async function ProfilePage() {
             <Detail label="Company name" value={account.company.name} />
             <Detail label="Company ID" value={account.company.id} />
             <Detail label="Tenant slug" value={account.company.slug} />
-            <Detail label="Currency" value={account.company.currency} />
             <Detail
               label="Company since"
               value={formatDate(account.company.createdAt)}
@@ -114,7 +113,6 @@ export default async function ProfilePage() {
           id: true,
           name: true,
           slug: true,
-          currency: true,
           createdAt: true,
         },
       },
@@ -126,7 +124,7 @@ export default async function ProfilePage() {
   const manager = employee.manager
     ? employee.manager.fullName
     : employee.managerAccount
-      ? `${employee.managerAccount.fullName} (${employee.managerAccount.role})`
+      ? `${employee.managerAccount.fullName} (${LEVEL_LABELS[employee.managerAccount.role]})`
       : "—";
 
   return (
@@ -181,7 +179,6 @@ export default async function ProfilePage() {
           <Detail label="Company name" value={employee.company.name} />
           <Detail label="Company ID" value={employee.company.id} />
           <Detail label="Tenant slug" value={employee.company.slug} />
-          <Detail label="Currency" value={employee.company.currency} />
           <Detail
             label="Company since"
             value={formatDate(employee.company.createdAt)}

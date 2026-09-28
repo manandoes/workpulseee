@@ -3,14 +3,18 @@ import Link from "next/link";
 import { ArrowLeft, Pencil } from "lucide-react";
 import { notFound, redirect } from "next/navigation";
 import { getActor } from "@/lib/auth";
+import { LEVEL_LABELS } from "@/lib/permission-grants";
 import { db } from "@/lib/db";
 import { scopedWhere } from "@/lib/tenant";
 import { formatDate, formatDuration, humanizeEnum } from "@/lib/format";
 import {
-  canEditEmployee,
+  canManageAccountPerformance,
+  canManageEmployees,
+  canViewAccountDetails,
+  canViewAccountPerformance,
+  canViewAttendance,
   canViewPersonalDetails,
   canViewPerformance,
-  isCompanyAdmin,
 } from "@/lib/permissions";
 import { loadPersonAttendance } from "@/lib/attendance-data";
 import { totalDurationMs } from "@/lib/attendance";
@@ -36,12 +40,10 @@ import { FeedbackForm } from "@/components/performance/feedback-form";
 export const metadata: Metadata = { title: "Squad" };
 
 /**
- * A Squad member's detail (Phase 11). Always shows the basic block; the
- * gated block (personal details, working hours, tasks, growth) only renders
- * for the roles `employees/[id]/page.tsx` already allows, now grant-aware
- * (`canViewPersonalDetails`/`canViewPerformance` in lib/permissions.ts) —
- * plus, for an account subject, `isCompanyAdmin` (there is no finer existing
- * rule for viewing another company account's own info).
+ * A Squad member's detail (Phase 11). Always shows the basic block; every
+ * gated panel checks its own power (Plan: access levels) — personal or
+ * contact details, attendance, and growth — so the Owner's switches decide
+ * each one independently, for an employee or a company-login subject alike.
  */
 export default async function SquadMemberPage({
   params,
@@ -67,18 +69,19 @@ export default async function SquadMemberPage({
     if (!account) notFound();
 
     const isSelf = actor.accountType === "company" && actor.id === account.id;
-    const maySeeDetail = isCompanyAdmin(actor);
-    // Plan: attendance for all company accounts — an Owner/Admin can review
-    // anyone's attendance, same as an employee's; a Manager/HR account can
-    // still see their own, same "or isSelf" widening
-    // `employees/[id]/page.tsx`'s equivalent gate already carries.
-    const maySeeAttendance = maySeeDetail || isSelf;
-    // Plan: performance for all company accounts — same split as attendance
-    // above; deciding a goal/giving feedback for a company account is
-    // Owner/Admin-only (no manager relationship to check, unlike an
-    // employee), matching the API routes' own gate.
-    const maySeeGrowth = maySeeDetail || isSelf;
-    const mayDecide = maySeeDetail;
+    const maySeeDetail = canViewAccountDetails(actor, account);
+    // Plan: attendance for all company accounts — whoever holds the
+    // attendance power reviews anyone's, a company login's included, and
+    // everyone sees their own.
+    const maySeeAttendance = canViewAttendance(actor, {
+      kind: "account",
+      id: account.id,
+    });
+    // Plan: performance for all company accounts — reading or deciding a
+    // company login's goals takes `ManagePerformance` (there is no manager
+    // relationship to check, unlike an employee), matching the API routes.
+    const maySeeGrowth = canViewAccountPerformance(actor, account);
+    const mayDecide = canManageAccountPerformance(actor);
 
     const accountSubject = { kind: "account" as const, id: account.id };
 
@@ -105,24 +108,27 @@ export default async function SquadMemberPage({
         <BackLink />
         <PageHeader
           title={account.fullName}
-          description={account.role}
+          description={LEVEL_LABELS[account.role]}
           action={!isSelf ? <MessageButton target={{ accountId: account.id }} /> : undefined}
         />
 
         <div className="grid gap-6 lg:grid-cols-2">
           <Panel title="Account" plain={false}>
-            <Detail label="Role" value={account.role} />
+            <Detail label="Level" value={LEVEL_LABELS[account.role]} />
             <Detail label="Added" value={formatDate(account.createdAt)} />
           </Panel>
 
           {maySeeDetail ? (
-            <Panel title="Contact" note="Visible to owners and admins only.">
+            <Panel
+              title="Contact"
+              note="Private — only for people with access to personal details."
+            >
               <Detail label="Work email" value={account.workEmail} />
             </Panel>
           ) : (
             <Panel title="Contact" plain>
               <p className="text-text-secondary">
-                Contact details are limited to owners and admins.
+                Contact details are limited to HR, admins and the owner.
               </p>
             </Panel>
           )}
@@ -137,7 +143,8 @@ export default async function SquadMemberPage({
           ) : (
             <Panel title="Attendance" plain>
               <p className="text-text-secondary">
-                This is limited to owners, admins, and this person themselves.
+                Attendance is limited to HR, admins, the owner and this person
+                themselves.
               </p>
             </Panel>
           )}
@@ -158,7 +165,8 @@ export default async function SquadMemberPage({
           ) : (
             <Panel title="Growth" plain>
               <p className="text-text-secondary">
-                This is limited to owners, admins, and this person themselves.
+                Growth is limited to HR, admins, the owner and this person
+                themselves.
               </p>
             </Panel>
           )}
@@ -197,16 +205,23 @@ export default async function SquadMemberPage({
   if (!employee) notFound();
 
   const isSelf = actor.accountType === "employee" && actor.id === employee.id;
-  const maySeeDetail = canViewPersonalDetails(actor, employee) || isSelf;
-  const mayEdit = canEditEmployee(actor, employee);
-  const maySeeGrowth = canViewPerformance(actor, employee) || isSelf;
+  // Each of these includes the person themselves.
+  const maySeeDetail = canViewPersonalDetails(actor, employee);
+  const maySeeAttendance = canViewAttendance(actor, {
+    kind: "employee",
+    id: employee.id,
+  });
+  const maySeeGrowth = canViewPerformance(actor, employee);
+  const mayEdit = canManageEmployees(actor);
   const employeeSubject = { kind: "employee" as const, id: employee.id };
 
   const [attendance, taskCounts, history, goals, feedback] = await Promise.all([
-    maySeeDetail
+    maySeeAttendance
       ? loadPersonAttendance(actor, { kind: "employee", id: employee.id })
       : Promise.resolve(null),
-    maySeeDetail
+    // Task counts are work data, so they follow performance, not the
+    // private attendance panel they used to share.
+    maySeeGrowth
       ? countTasksByStatus(actor.companyId, employee.id)
       : Promise.resolve(null),
     maySeeGrowth
@@ -220,7 +235,7 @@ export default async function SquadMemberPage({
   const manager = employee.manager
     ? employee.manager.fullName
     : employee.managerAccount
-      ? `${employee.managerAccount.fullName} (${employee.managerAccount.role})`
+      ? `${employee.managerAccount.fullName} (${LEVEL_LABELS[employee.managerAccount.role]})`
       : "—";
 
   const latestScore = history[0]?.score ?? null;
@@ -274,7 +289,7 @@ export default async function SquadMemberPage({
         {maySeeDetail ? (
           <Panel
             title="Personal"
-            note="Visible to owners, admins, HR, this person's manager, or anyone granted this power."
+            note="Private — only for people with access to personal details."
           >
             <Detail label="Personal email" value={employee.personalEmail} />
             <Detail label="Phone" value={employee.phone} />
@@ -295,33 +310,35 @@ export default async function SquadMemberPage({
         ) : (
           <Panel title="Personal" plain>
             <p className="text-text-secondary">
-              Personal details are limited to owners, admins, HR and this
-              person&apos;s own manager.
+              Personal details are limited to HR, admins and the owner, or
+              whoever the owner gives access to.
             </p>
           </Panel>
         )}
 
-        {attendance && taskCounts ? (
-          <Panel title="Working hours & tasks" plain>
+        {attendance ? (
+          <Panel title="Working hours" plain>
             <p className="text-foreground">
               Total logged: {formatDuration(totalDurationMs(attendance, now))}
-            </p>
-            <p className="text-foreground">
-              Tasks: {taskCounts.done} done · {taskCounts.pending} pending
             </p>
             <AttendanceTable records={attendance} now={now} />
           </Panel>
         ) : (
-          <Panel title="Working hours & tasks" plain>
+          <Panel title="Working hours" plain>
             <p className="text-text-secondary">
-              This is limited to owners, admins, HR and this person&apos;s own
-              manager.
+              Attendance is limited to HR, admins and the owner, or whoever the
+              owner gives access to.
             </p>
           </Panel>
         )}
 
         {maySeeGrowth ? (
           <Panel title="Growth" plain>
+            {taskCounts ? (
+              <p className="text-foreground">
+                Tasks: {taskCounts.done} done · {taskCounts.pending} pending
+              </p>
+            ) : null}
             <PerformanceScoreBadge score={latestScore === null ? null : Number(latestScore)} />
             <ScoreHistoryChart history={chartHistory} />
             <div className="mt-2">
@@ -334,8 +351,7 @@ export default async function SquadMemberPage({
         ) : (
           <Panel title="Growth" plain>
             <p className="text-text-secondary">
-              Growth is limited to owners, admins, HR and this person&apos;s
-              own manager.
+              Growth is limited to managers, HR, admins and the owner.
             </p>
           </Panel>
         )}

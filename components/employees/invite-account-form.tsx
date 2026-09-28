@@ -14,16 +14,31 @@ import {
 } from "@/lib/validations/employees";
 
 /**
- * Invite an Admin, Manager or HR login (Architecture.md § 4 — company accounts
- * other than the first Owner are "invited by an Owner/Admin").
+ * Invite an Admin, Manager, HR Head or HR Team login (Architecture.md § 4 —
+ * company accounts other than the first Owner are "invited by an
+ * Owner/Admin"). What each level may do by default is `LEVEL_DEFAULTS`
+ * (lib/permission-grants.ts); the Owner adjusts individuals on the Authority
+ * page afterwards.
  *
- * Owner is deliberately absent from the role list: that identity is established
+ * Owner is deliberately absent from the list: that identity is established
  * once, by registration, and cannot be handed out.
  */
 const ROLE_OPTIONS = [
-  { value: "Admin", label: "Admin — full access to everything" },
-  { value: "Manager", label: "Manager — their own team's work and approvals" },
-  { value: "HR", label: "HR — employee records, leave and requests" },
+  { value: "Admin", label: "Admin — full access, except the owner's settings" },
+  {
+    value: "Manager",
+    label:
+      "Manager — tasks, performance and projects; no private employee data",
+  },
+  {
+    value: "HRHead",
+    label: "HR Head — all people data, including salary and payroll",
+  },
+  {
+    value: "HRTeam",
+    label:
+      "HR Team — people data, attendance and leave; no salary or HR policies",
+  },
 ];
 
 export function InviteAccountForm() {

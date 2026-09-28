@@ -20,6 +20,7 @@ import {
 import { sendEmail } from "@/lib/mailer";
 import { buildInviteEmail } from "@/lib/email-template-data";
 import { canManageCompanyAccounts } from "@/lib/permissions";
+import { LEVEL_LABELS } from "@/lib/permission-grants";
 import { inviteCompanyAccountSchema } from "@/lib/validations/employees";
 
 /**
@@ -146,7 +147,7 @@ export async function POST(request: NextRequest) {
       {
         employeeName: account.fullName,
         companyName: company.name,
-        role: account.role,
+        role: LEVEL_LABELS[account.role],
         inviteUrl,
       }
     );

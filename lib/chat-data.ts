@@ -1,6 +1,7 @@
 import { db } from "@/lib/db";
 import { scopedWhere } from "@/lib/tenant";
 import type { SessionActor } from "@/lib/permissions";
+import { LEVEL_LABELS } from "@/lib/permission-grants";
 import { chatMessageCutoff, conversationPreview, otherParticipant } from "@/lib/chat";
 
 /**
@@ -242,7 +243,7 @@ export type MessagesResolution =
 
 /**
  * A conversation's messages, newest last. Refused if the actor is not a
- * participant. Hard-deletes anything older than the 3-day cutoff first
+ * participant. Hard-deletes anything older than the 31-day cutoff first
  * (`lib/chat.ts`'s `chatMessageCutoff`) — the lazy-cleanup half of the
  * deletion story, the cron sweep in `lib/chat-data.ts`'s
  * `cleanupExpiredChatMessages` is the other half — then marks the rest read.
@@ -401,7 +402,7 @@ export async function unreadConversationCount(
  * Hard-delete the messages matching `where`, along with any files they were
  * the only reason to keep.
  *
- * A message row is temporary by design (3 days), but a `StoredFile` is not —
+ * A message row is temporary by design (31 days), but a `StoredFile` is not —
  * deleting only the message would leave its bytes in the table forever, with
  * nothing left pointing at them. The FK is `onDelete: SetNull` precisely so
  * that deleting a file can never cascade into deleting chat history; the
@@ -484,7 +485,7 @@ export async function loadChatDirectory(
       kind: "account" as const,
       id: account.id,
       name: account.fullName,
-      role: account.role,
+      role: LEVEL_LABELS[account.role],
       avatarUrl: account.avatarUrl,
     })),
     ...employees.map((employee) => ({
