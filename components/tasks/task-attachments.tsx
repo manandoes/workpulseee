@@ -1,30 +1,33 @@
 "use client";
 
+import { DateTime } from "@/components/ui/date-time";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { ExternalLink, Paperclip, Trash2 } from "lucide-react";
+import { ExternalLink, FileText, Paperclip, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { FileUpload, type UploadedFile } from "@/components/ui/file-upload";
 import { FormField } from "@/components/forms/fields";
 
 /**
  * Files attached to a task (Phases.md Phase 5 — "file attachments on tasks").
  *
- * Phase 5 attaches a **link** — the shared doc, the design, the spec — because
- * the object storage Architecture.md section 2 calls for is not provisioned
- * yet (the `S3_*` variables are blank). Uploading a file will add a second way
- * to fill this same list rather than replace it.
+ * Two ways to fill the same list: a **link** — the shared doc, the design, the
+ * spec — or a file uploaded through `/api/files`.
  *
  * Links open in a new tab with `rel="noopener noreferrer"`: they point at
  * somebody else's site, so the page they open must not get a handle on this
  * one. The server has already refused anything that is not http or https.
+ * Uploaded files are served same-origin by the tenant-scoped download route.
  */
 export type TaskAttachment = {
   id: string;
   label: string;
-  url: string;
+  /** From `attachmentHref`: the link, or the uploaded file's download URL. */
+  href: string;
+  isFile: boolean;
   addedByName: string | null;
-  createdAt: string;
+  createdAt: Date | string;
   /** Whether the signed-in viewer may remove this one. */
   canDelete: boolean;
 };
@@ -45,12 +48,21 @@ export function TaskAttachments({
 
   async function add() {
     if (!url.trim()) return;
+    if (await attach({ url, label })) {
+      setUrl("");
+      setLabel("");
+    }
+  }
+
+  async function attach(
+    body: { url: string; label: string } | { fileId: string }
+  ) {
     setBusy(true);
 
     const response = await fetch(`/api/tasks/${taskId}/attachments`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ url, label }),
+      body: JSON.stringify(body),
     });
 
     const result = await response.json().catch(() => null);
@@ -60,17 +72,20 @@ export function TaskAttachments({
       toast.error(
         result?.fieldErrors?.url ?? result?.error ?? "Could not attach that."
       );
-      return;
+      return false;
     }
 
-    setUrl("");
-    setLabel("");
     toast.success("Attached");
     router.refresh();
+    return true;
+  }
+
+  async function attachUploads(files: UploadedFile[]) {
+    for (const file of files) await attach({ fileId: file.id });
   }
 
   async function remove(attachment: TaskAttachment) {
-    if (!window.confirm(`Remove the link to ${attachment.label}?`)) return;
+    if (!window.confirm(`Remove ${attachment.label}?`)) return;
     setBusy(true);
 
     const response = await fetch(
@@ -95,7 +110,7 @@ export function TaskAttachments({
       {attachments.length === 0 ? (
         <p className="text-text-secondary">
           Nothing attached yet.
-          {canAttach ? " Add a link to the file below." : ""}
+          {canAttach ? " Upload a file or add a link below." : ""}
         </p>
       ) : (
         <ul className="flex flex-col divide-y divide-(--color-border)">
@@ -106,21 +121,30 @@ export function TaskAttachments({
             >
               <div className="flex min-w-0 flex-col gap-0.5">
                 <a
-                  href={attachment.url}
-                  target="_blank"
-                  rel="noopener noreferrer"
+                  href={attachment.href}
+                  {...(attachment.isFile
+                    ? {}
+                    : { target: "_blank", rel: "noopener noreferrer" })}
                   className="text-brand-brown inline-flex items-center gap-1.5 font-medium underline-offset-4 hover:underline"
                 >
-                  <ExternalLink
-                    aria-hidden
-                    className="size-4"
-                    strokeWidth={1.5}
-                  />
+                  {attachment.isFile ? (
+                    <FileText
+                      aria-hidden
+                      className="size-4"
+                      strokeWidth={1.5}
+                    />
+                  ) : (
+                    <ExternalLink
+                      aria-hidden
+                      className="size-4"
+                      strokeWidth={1.5}
+                    />
+                  )}
                   {attachment.label}
                 </a>
                 <span className="text-text-secondary text-meta truncate">
                   {attachment.addedByName ?? "Removed user"} ·{" "}
-                  {attachment.createdAt}
+                  <DateTime value={attachment.createdAt} />
                 </span>
               </div>
 
@@ -140,6 +164,10 @@ export function TaskAttachments({
           ))}
         </ul>
       )}
+
+      {canAttach ? (
+        <FileUpload value={[]} onChange={attachUploads} label="Upload a file" />
+      ) : null}
 
       {canAttach ? (
         <div className="flex flex-wrap items-end gap-3">

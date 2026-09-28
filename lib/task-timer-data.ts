@@ -6,7 +6,7 @@ import {
 import { db } from "@/lib/db";
 import type { SessionActor } from "@/lib/permissions";
 import type { LoadedTask } from "@/lib/task-data";
-import { completionFor } from "@/lib/tasks";
+import { completionFor, completionNoteFor } from "@/lib/tasks";
 import {
   endReasonFor,
   statusAfter,
@@ -93,6 +93,8 @@ export async function applyTimerAction(
   actor: SessionActor,
   task: LoadedTask,
   action: TimerAction,
+  /** Plan: completion note — only read when `action` finishes the task. */
+  completionNote?: string,
   now: Date = new Date()
 ): Promise<TimerResolution> {
   const open = await loadOpenEntry(actor, task.id);
@@ -144,6 +146,11 @@ export async function applyTimerAction(
           // Completion follows the status rather than being written by hand,
           // exactly as `/api/tasks/[id]/status` does it (lib/tasks.ts).
           completedAt: completionFor(nextStatus, task.completedAt, now),
+          completionNote: completionNoteFor(
+            nextStatus,
+            completionNote,
+            task.completionNote
+          ),
         },
       })
     );

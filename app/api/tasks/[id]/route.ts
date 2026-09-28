@@ -127,6 +127,7 @@ export async function PATCH(
     const resolved = await resolveTaskWrite(actor, parsed.data, project, client, {
       status: task.status,
       completedAt: task.completedAt,
+      completionNote: task.completionNote,
     });
     if (!resolved.ok) return writeFailure(resolved);
 
@@ -141,6 +142,7 @@ export async function PATCH(
         // Read for the Phase 13 notifications below, not for the response.
         dueDate: true,
         assignee: { select: { fullName: true } },
+        assigneeAccount: { select: { fullName: true } },
       },
     });
 
@@ -169,15 +171,27 @@ export async function PATCH(
      * Assignment fires only when the task actually changed hands, so saving an
      * unrelated field does not re-announce work somebody already has. The
      * previous assignee is deliberately not told they lost it: that is a
-     * conversation, not a notification.
+     * conversation, not a notification. The same goes for a Manager/HR login
+     * (Plan: allot tasks to a Manager or HR).
      */
-    if (newAssigneeId && newAssigneeId !== task.assigneeId) {
+    const newAssigneeAccountId =
+      resolved.data.assigneeAccountId !== undefined
+        ? resolved.data.assigneeAccountId
+        : task.assigneeAccountId;
+    const newAssignee =
+      newAssigneeId && newAssigneeId !== task.assigneeId
+        ? { employeeId: newAssigneeId }
+        : newAssigneeAccountId &&
+            newAssigneeAccountId !== task.assigneeAccountId
+          ? { accountId: newAssigneeAccountId }
+          : null;
+    if (newAssignee) {
       await notifyTaskAssigned({
         id: updated.id,
         companyId: actor.companyId,
         title: updated.title,
         dueDate: updated.dueDate,
-        assigneeId: newAssigneeId,
+        assignee: newAssignee,
         assignedById: actor.id,
       });
     }
@@ -192,7 +206,8 @@ export async function PATCH(
         id: updated.id,
         companyId: actor.companyId,
         title: updated.title,
-        assigneeName: updated.assignee?.fullName ?? null,
+        assigneeName:
+          updated.assignee?.fullName ?? updated.assigneeAccount?.fullName ?? null,
         projectLeadAccountId: project?.leadAccountId ?? null,
         createdById: task.createdById,
         completedByAccountId: actor.accountType === "company" ? actor.id : null,

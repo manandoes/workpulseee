@@ -5,12 +5,14 @@ import { db } from "@/lib/db";
 import { scopedWhere } from "@/lib/tenant";
 import { toAmountInputValue, toDateInputValue } from "@/lib/format";
 import {
+  loadAssignableAccountOptions,
   loadAssigneesByProject,
   loadCompanyEmployeeOptions,
   loadTaskClients,
   loadTaskProjects,
 } from "@/lib/task-data";
 import { canManageTask, canViewTasks } from "@/lib/permissions";
+import { assigneeOptionValue } from "@/lib/tasks";
 import { PageHeader } from "@/components/dashboard/page-header";
 import { TaskForm } from "@/components/tasks/task-form";
 import { Card, CardContent } from "@/components/ui/card";
@@ -37,6 +39,8 @@ export default async function EditTaskPage({
       dueDate: true,
       estimatedHours: true,
       assigneeId: true,
+      assigneeAccountId: true,
+      completionNote: true,
       createdById: true,
       projectId: true,
       project: { select: { leadAccountId: true } },
@@ -50,7 +54,7 @@ export default async function EditTaskPage({
   // being shown a form that would only fail (Rules.md section 3).
   if (!canManageTask(actor, task)) redirect(`/tasks/${task.id}`);
 
-  const [projects, clients, assigneesByProject, allEmployees] =
+  const [projects, clients, assigneesByProject, allEmployees, accounts] =
     await Promise.all([
       // Every project, including closed ones: the task's own project must
       // stay in the list, or editing anything else would silently move it.
@@ -58,6 +62,7 @@ export default async function EditTaskPage({
       loadTaskClients(actor),
       loadAssigneesByProject(actor),
       loadCompanyEmployeeOptions(actor),
+      loadAssignableAccountOptions(actor),
     ]);
 
   return (
@@ -77,6 +82,7 @@ export default async function EditTaskPage({
             clients={clients}
             assigneesByProject={assigneesByProject}
             allEmployees={allEmployees}
+            assignableAccounts={accounts}
             defaultValues={{
               title: task.title,
               projectId: task.projectId ?? "",
@@ -84,9 +90,10 @@ export default async function EditTaskPage({
               description: task.description ?? "",
               status: task.status,
               priority: task.priority,
-              assigneeId: task.assigneeId ?? "",
+              assigneeId: assigneeOptionValue(task),
               dueDate: toDateInputValue(task.dueDate),
               estimatedHours: toAmountInputValue(task.estimatedHours),
+              completionNote: task.completionNote ?? "",
             }}
           />
         </CardContent>

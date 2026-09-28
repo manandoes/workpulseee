@@ -1,4 +1,5 @@
-import { formatDateTime, formatDuration, humanizeEnum } from "@/lib/format";
+import { formatDuration, humanizeEnum } from "@/lib/format";
+import { DateTime } from "@/components/ui/date-time";
 import { totalTrackedMs, type TimeEntry } from "@/lib/task-timer";
 
 export type TaskTimeLogRow = TimeEntry & {
@@ -62,11 +63,15 @@ export function TaskTimeLog({
             {entries.map((entry) => (
               <tr key={entry.id} className="border-border border-b">
                 <td className="px-3 py-3">{entry.employee.fullName}</td>
-                <td className="px-3 py-3">{formatDateTime(entry.startedAt)}</td>
+                <td className="px-3 py-3">
+                  <DateTime value={entry.startedAt} />
+                </td>
                 <td className="text-text-secondary px-3 py-3">
-                  {entry.endedAt
-                    ? formatDateTime(entry.endedAt)
-                    : "Still running"}
+                  {entry.endedAt ? (
+                    <DateTime value={entry.endedAt} />
+                  ) : (
+                    "Still running"
+                  )}
                 </td>
                 <td className="text-text-secondary px-3 py-3">
                   {formatDuration(

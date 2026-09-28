@@ -18,7 +18,7 @@ import {
   loadTaskClients,
   loadTaskProjects,
 } from "@/lib/task-data";
-import { canManageTask, canViewTasks } from "@/lib/permissions";
+import { canUpdateTaskStatus, canViewTasks } from "@/lib/permissions";
 import { paginationMeta, paginationSchema } from "@/lib/pagination";
 import { taskFiltersSchema, taskViewSchema } from "@/lib/validations/tasks";
 import { EmptyState, PageHeader } from "@/components/dashboard/page-header";
@@ -88,6 +88,7 @@ export default async function TasksPage({ searchParams }: PageProps<"/tasks">) {
       dueDate: true,
       createdById: true,
       assignee: { select: { id: true, fullName: true } },
+      assigneeAccount: { select: { id: true, fullName: true } },
       project: { select: { id: true, name: true, leadAccountId: true } },
       client: { select: { id: true, name: true } },
     },
@@ -98,16 +99,19 @@ export default async function TasksPage({ searchParams }: PageProps<"/tasks">) {
   /**
    * A project task is governed by its project, so a Manager can move the
    * cards on the boards they lead and only read the rest; a standalone task
-   * is personal to whoever raised it. Decided per row rather than once per
-   * page, because one board can show several projects (and `taskVisibilityFilter`
-   * already keeps someone else's standalone tasks off this page entirely).
+   * is personal to whoever raised it; and a Manager/HR login can move the
+   * tasks allotted to them. Decided per row rather than once per page, because
+   * one board can show several projects (and `taskVisibilityFilter` already
+   * keeps someone else's standalone tasks off this page entirely).
    */
-  const canManage = (task: {
-    project: { leadAccountId: string | null } | null;
-    client: { id: string } | null;
-    createdById: string | null;
-  }) =>
-    canManageTask(actor, { ...task, clientId: task.client?.id ?? null });
+  const canMove = (task: (typeof tasks)[number]) =>
+    canUpdateTaskStatus(actor, {
+      project: task.project,
+      clientId: task.client?.id ?? null,
+      createdById: task.createdById,
+      assigneeId: task.assignee?.id ?? null,
+      assigneeAccountId: task.assigneeAccount?.id ?? null,
+    });
 
   const isFiltered = Object.values(filters).some(Boolean);
 
@@ -212,10 +216,10 @@ export default async function TasksPage({ searchParams }: PageProps<"/tasks">) {
           </p>
 
           {view === "board" ? (
-            <TaskBoard tasks={tasks} canManage={canManage} now={now} />
+            <TaskBoard tasks={tasks} canMove={canMove} now={now} />
           ) : (
             <>
-              <TaskList tasks={tasks} canManage={canManage} now={now} />
+              <TaskList tasks={tasks} canMove={canMove} now={now} />
               {meta ? (
                 <Pagination basePath="/tasks" query={query} meta={meta} />
               ) : null}

@@ -11,7 +11,7 @@ import { getActor } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { findTask } from "@/lib/task-data";
 import { canUpdateTaskStatus } from "@/lib/permissions";
-import { completionFor } from "@/lib/tasks";
+import { completionFor, completionNoteFor } from "@/lib/tasks";
 import { taskStatusSchema } from "@/lib/validations/tasks";
 import { safeRecalcEmployeeWorkload } from "@/lib/workload-data";
 import { safeRecalcEmployeePerformance } from "@/lib/performance-data";
@@ -30,7 +30,12 @@ import { safeRecalcEmployeePerformance } from "@/lib/performance-data";
  *
  * Reachable by a company account managing the project (as before) or, since
  * Phases.md Phase 10, by the Employee this task is assigned to, working
- * their own board from `/my-space` — `canUpdateTaskStatus` covers both.
+ * their own board from `/my-space` — or the Manager/HR login it was allotted
+ * to (Plan: allot tasks to a Manager or HR). `canUpdateTaskStatus` covers all
+ * three.
+ *
+ * Moving to Done may carry an optional completion note (Plan: completion
+ * note), which the UI asks for at that moment.
  */
 export async function PATCH(
   request: NextRequest,
@@ -72,8 +77,18 @@ export async function PATCH(
           task.completedAt,
           new Date()
         ),
+        completionNote: completionNoteFor(
+          parsed.data.status,
+          parsed.data.completionNote,
+          task.completionNote
+        ),
       },
-      select: { id: true, status: true, completedAt: true },
+      select: {
+        id: true,
+        status: true,
+        completedAt: true,
+        completionNote: true,
+      },
     });
 
     // Phases.md Phase 6 — moving a task open/closed changes what it costs.

@@ -15,6 +15,7 @@ import { taskFilter, taskVisibilityFilter, TASK_ORDER } from "@/lib/tasks";
 import {
   findTaskClient,
   findTaskProject,
+  resolveAttachmentFiles,
   resolveTaskWrite,
   unknownClient,
   unknownProject,
@@ -60,6 +61,7 @@ export async function GET(request: NextRequest) {
         project: { select: { id: true, name: true } },
         client: { select: { id: true, name: true } },
         assignee: { select: { id: true, fullName: true } },
+        assigneeAccount: { select: { id: true, fullName: true } },
       },
     });
 
@@ -125,11 +127,27 @@ export async function POST(request: NextRequest) {
     const resolved = await resolveTaskWrite(actor, parsed.data, project, client);
     if (!resolved.ok) return writeFailure(resolved);
 
+    // Reference documents uploaded with the form, attached in the same write
+    // so a task never exists without the files it was allotted with.
+    const files = await resolveAttachmentFiles(
+      actor,
+      parsed.data.attachmentFileIds ?? []
+    );
+    if (!files.ok) return writeFailure(files);
+
     const task = await db.task.create({
       data: {
         ...resolved.data,
         companyId: actor.companyId,
         createdById: actor.id,
+        attachments: {
+          create: files.files.map((file) => ({
+            companyId: actor.companyId,
+            fileId: file.id,
+            label: file.name,
+            addedById: actor.id,
+          })),
+        },
       },
       select: { id: true, title: true, status: true },
     });
@@ -149,15 +167,20 @@ export async function POST(request: NextRequest) {
     /**
      * Phase 13 — work that lands on someone should say so. Raising a task
      * already unassigned is the backlog, not an event anyone needs telling
-     * about, so only an assignee notifies.
+     * about, so only an assignee — employee or Manager/HR login — notifies.
      */
-    if (resolved.data.assigneeId) {
+    const assignee = resolved.data.assigneeId
+      ? { employeeId: resolved.data.assigneeId }
+      : resolved.data.assigneeAccountId
+        ? { accountId: resolved.data.assigneeAccountId }
+        : null;
+    if (assignee) {
       await notifyTaskAssigned({
         id: task.id,
         companyId: actor.companyId,
         title: task.title,
         dueDate: resolved.data.dueDate ?? null,
-        assigneeId: resolved.data.assigneeId,
+        assignee,
         assignedById: actor.id,
       });
     }

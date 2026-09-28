@@ -1,13 +1,18 @@
 import { describe, expect, it } from "vitest";
 import {
+  accountAssigneeValue,
+  assigneeOptionValue,
   attachmentLabel,
   completionFor,
+  completionNoteFor,
   completionPercent,
   daysFromToday,
   isHttpUrl,
   isOpen,
   isOverdue,
+  myTaskBucket,
   OPEN_STATUSES,
+  parseAssigneeOption,
   startOfDayUtc,
   taskFilter,
   taskVisibilityFilter,
@@ -137,9 +142,15 @@ describe("taskFilter", () => {
     const where = taskFilter({ q: "northwind" }, NOW) as {
       OR: Record<string, unknown>[];
     };
-    expect(where.OR).toHaveLength(4);
+    expect(where.OR).toHaveLength(5);
     expect(where.OR[0]).toEqual({
       title: { contains: "northwind", mode: "insensitive" },
+    });
+    // Either kind of assignee: an employee or a Manager/HR login.
+    expect(where.OR).toContainEqual({
+      assigneeAccount: {
+        fullName: { contains: "northwind", mode: "insensitive" },
+      },
     });
   });
 
@@ -148,22 +159,27 @@ describe("taskFilter", () => {
   });
 
   it("filters unassigned work by a null assignee, not by the literal word", () => {
+    // Unassigned means neither an employee nor a Manager/HR login holds it.
     expect(taskFilter({ assigneeId: UNASSIGNED }, NOW)).toEqual({
       assigneeId: null,
+      assigneeAccountId: null,
     });
     expect(taskFilter({ assigneeId: "emp_1" }, NOW)).toEqual({
       assigneeId: "emp_1",
     });
   });
 
+  it("filters by a Manager/HR assignee through its prefixed value", () => {
+    expect(
+      taskFilter({ assigneeId: accountAssigneeValue("acct_7") }, NOW)
+    ).toEqual({ assigneeAccountId: "acct_7" });
+  });
+
   it("reaches a client through its projects, or a task filed directly under it", () => {
     expect(taskFilter({ clientId: "cli_1" }, NOW)).toEqual({
       AND: [
         {
-          OR: [
-            { project: { clientId: "cli_1" } },
-            { clientId: "cli_1" },
-          ],
+          OR: [{ project: { clientId: "cli_1" } }, { clientId: "cli_1" }],
         },
       ],
     });
@@ -240,6 +256,14 @@ describe("taskVisibilityFilter", () => {
     expect(where.OR).toContainEqual({ createdById: "acct_1" });
   });
 
+  it("also shows a company actor the standalone tasks allotted to them", () => {
+    const where = taskVisibilityFilter({
+      id: "acct_1",
+      accountType: "company",
+    });
+    expect(where.OR).toContainEqual({ assigneeAccountId: "acct_1" });
+  });
+
   it("scopes a standalone task to its assignee for an employee actor", () => {
     const where = taskVisibilityFilter({
       id: "emp_1",
@@ -262,5 +286,88 @@ describe("attachmentLabel", () => {
 
   it("falls back to the host when the link has no path", () => {
     expect(attachmentLabel("https://figma.com/")).toBe("figma.com");
+  });
+});
+
+describe("myTaskBucket", () => {
+  it("puts finished work in done, even if it was late", () => {
+    expect(
+      myTaskBucket({ status: "Done", dueDate: due("2020-01-01") }, NOW)
+    ).toBe("done");
+  });
+
+  it("lets the deadline outrank the stage", () => {
+    expect(
+      myTaskBucket({ status: "InProgress", dueDate: due("2026-09-08") }, NOW)
+    ).toBe("overdue");
+    expect(
+      myTaskBucket({ status: "InReview", dueDate: due("2026-09-09") }, NOW)
+    ).toBe("dueToday");
+  });
+
+  it("splits the rest into started and not-yet-started work", () => {
+    expect(
+      myTaskBucket({ status: "InProgress", dueDate: due("2026-09-20") }, NOW)
+    ).toBe("inProgress");
+    expect(myTaskBucket({ status: "InReview", dueDate: null }, NOW)).toBe(
+      "inProgress"
+    );
+    expect(
+      myTaskBucket({ status: "Todo", dueDate: due("2026-09-20") }, NOW)
+    ).toBe("upcoming");
+    expect(myTaskBucket({ status: "Todo", dueDate: null }, NOW)).toBe(
+      "upcoming"
+    );
+  });
+});
+
+describe("completionNoteFor", () => {
+  it("stores a trimmed note sent with the move to Done", () => {
+    expect(completionNoteFor("Done", "  Shipped, see PR 12  ", null)).toBe(
+      "Shipped, see PR 12"
+    );
+  });
+
+  it("is optional: a blank note is stored as nothing", () => {
+    expect(completionNoteFor("Done", "   ", null)).toBeNull();
+    expect(completionNoteFor("Done", "", "old note")).toBeNull();
+  });
+
+  it("keeps the stored note when a save of a finished task sends none", () => {
+    expect(completionNoteFor("Done", undefined, "old note")).toBe("old note");
+  });
+
+  it("clears the note when the task leaves Done, like completedAt", () => {
+    expect(completionNoteFor("InReview", undefined, "old note")).toBeNull();
+    expect(completionNoteFor("Todo", "ignored", null)).toBeNull();
+  });
+});
+
+describe("assignee picker values", () => {
+  it("round-trips an employee as a bare id and a login behind the prefix", () => {
+    expect(parseAssigneeOption("emp_1")).toEqual({
+      assigneeId: "emp_1",
+      assigneeAccountId: "",
+    });
+    expect(parseAssigneeOption(accountAssigneeValue("acct_1"))).toEqual({
+      assigneeId: "",
+      assigneeAccountId: "acct_1",
+    });
+    expect(parseAssigneeOption("")).toEqual({
+      assigneeId: "",
+      assigneeAccountId: "",
+    });
+  });
+
+  it("names whoever holds a task now", () => {
+    expect(
+      assigneeOptionValue({ assigneeId: "emp_1", assigneeAccountId: null })
+    ).toBe("emp_1");
+    expect(
+      assigneeOptionValue({ assigneeId: null, assigneeAccountId: "acct_1" })
+    ).toBe(accountAssigneeValue("acct_1"));
+    expect(
+      assigneeOptionValue({ assigneeId: null, assigneeAccountId: null })
+    ).toBe("");
   });
 });

@@ -7,6 +7,7 @@ import { useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { FileUpload, type UploadedFile } from "@/components/ui/file-upload";
 import {
   FormError,
   FormField,
@@ -18,7 +19,12 @@ import {
   taskPriorityLabel,
   taskStatusLabel,
 } from "@/components/tasks/status-badge";
-import { TASK_PRIORITIES, TASK_STATUSES } from "@/lib/tasks";
+import {
+  COMPLETION_NOTE_MAX_LENGTH,
+  parseAssigneeOption,
+  TASK_PRIORITIES,
+  TASK_STATUSES,
+} from "@/lib/tasks";
 import {
   createTaskSchema,
   type CreateTaskInput,
@@ -38,9 +44,9 @@ const TARGET_TYPES: { value: TargetType; label: string }[] = [
  * Create and edit a task (Phases.md Phase 5).
  *
  * One component covers both, because the fields and the validation rules are
- * the same — only the endpoint differs. Comments and attachments live on the
- * task page rather than here, so adding one is a single action and not a form
- * save.
+ * the same — only the endpoint differs. Comments and later attachments live on
+ * the task page, so adding one is a single action and not a form save; only a
+ * new task takes reference files up front, so they arrive with the task.
  */
 const STATUS_OPTIONS = TASK_STATUSES.map((status) => ({
   value: status,
@@ -60,6 +66,7 @@ export function TaskForm({
   clients,
   assigneesByProject,
   allEmployees,
+  assignableAccounts,
   cancelHref,
 }: {
   mode: "create" | "edit";
@@ -72,10 +79,16 @@ export function TaskForm({
   assigneesByProject: Record<string, SelectOption[]>;
   /** Every active employee in the company. */
   allEmployees: SelectOption[];
+  /**
+   * The Manager/HR logins this caller may allot to (Plan: allot tasks to a
+   * Manager or HR), as `accountAssigneeValue`s.
+   */
+  assignableAccounts: SelectOption[];
   cancelHref: string;
 }) {
   const router = useRouter();
   const [formError, setFormError] = useState<string | null>(null);
+  const [files, setFiles] = useState<UploadedFile[]>([]);
   const [targetType, setTargetType] = useState<TargetType>(
     defaultValues.projectId
       ? "project"
@@ -104,6 +117,8 @@ export function TaskForm({
    * field, and it is the variant React Compiler can memoise.
    */
   const projectId = useWatch({ control, name: "projectId" }) ?? "";
+  // Plan: completion note — only asked for once the task is set to Done.
+  const status = useWatch({ control, name: "status" });
   const teamOptions = assigneesByProject[projectId] ?? [];
 
   function selectTargetType(next: TargetType) {
@@ -124,12 +139,21 @@ export function TaskForm({
   const onSubmit = handleSubmit(async (values) => {
     setFormError(null);
 
+    // One picker offers employees and Manager/HR logins; the API takes them
+    // as two fields, exactly one of which is set.
+    const { assigneeId, ...rest } = values;
+    const payload = { ...rest, ...parseAssigneeOption(assigneeId ?? "") };
+
     const response = await fetch(
       mode === "create" ? "/api/tasks" : `/api/tasks/${taskId}`,
       {
         method: mode === "create" ? "POST" : "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(values),
+        body: JSON.stringify(
+          mode === "create"
+            ? { ...payload, attachmentFileIds: files.map((file) => file.id) }
+            : payload
+        ),
       }
     );
 
@@ -140,7 +164,9 @@ export function TaskForm({
         for (const [field, message] of Object.entries(
           body.fieldErrors as Record<string, string>
         )) {
-          setError(field as keyof CreateTaskInput, { message });
+          // Both assignee fields are the one picker on this form.
+          const target = field === "assigneeAccountId" ? "assigneeId" : field;
+          setError(target as keyof CreateTaskInput, { message });
         }
       }
       setFormError(body?.error ?? "Could not save this task.");
@@ -187,7 +213,11 @@ export function TaskForm({
           <span className="text-meta text-text-secondary font-medium">
             File under
           </span>
-          <div role="radiogroup" aria-label="Task target" className="flex gap-1">
+          <div
+            role="radiogroup"
+            aria-label="Task target"
+            className="flex gap-1"
+          >
             {TARGET_TYPES.map((type) => (
               <button
                 key={type.value}
@@ -208,8 +238,8 @@ export function TaskForm({
           </div>
           <p className="text-text-secondary text-meta">
             A project task inherits that project&apos;s team and budget; a
-            client task and a general task are both personal to whoever
-            raises them.
+            client task and a general task are both personal to whoever raises
+            them.
           </p>
         </div>
 
@@ -243,28 +273,22 @@ export function TaskForm({
           id="assigneeId"
           label="Assignee"
           placeholder="Unassigned"
-          options={!projectId ? allEmployees : undefined}
-          groups={
-            projectId
+          groups={[
+            ...(projectId
               ? [
-                  ...(teamOptions.length
-                    ? [{ label: "This project's team", options: teamOptions }]
-                    : []),
-                  ...(otherOptions.length
-                    ? [
-                        {
-                          label: "Other employees — added to the team on save",
-                          options: otherOptions,
-                        },
-                      ]
-                    : []),
+                  { label: "This project's team", options: teamOptions },
+                  {
+                    label: "Other employees — added to the team on save",
+                    options: otherOptions,
+                  },
                 ]
-              : undefined
-          }
+              : [{ label: "Employees", options: allEmployees }]),
+            { label: "Managers & HR", options: assignableAccounts },
+          ].filter((group) => group.options.length > 0)}
           hint={
             !projectId
-              ? "Any active employee can take a personal task."
-              : "Picking someone not yet on the team adds them to it."
+              ? "Any active employee, or a Manager or HR, can take it."
+              : "Picking an employee not yet on the team adds them to it."
           }
           error={errors.assigneeId?.message}
           {...register("assigneeId")}
@@ -320,7 +344,33 @@ export function TaskForm({
           error={errors.description?.message}
           {...register("description")}
         />
+        {status === "Done" ? (
+          <TextareaField
+            id="completionNote"
+            label="Completion note (optional)"
+            rows={3}
+            maxLength={COMPLETION_NOTE_MAX_LENGTH}
+            hint="What was done, where it lives, anything still open."
+            fieldClassName="sm:col-span-2"
+            error={errors.completionNote?.message}
+            {...register("completionNote")}
+          />
+        ) : null}
       </Section>
+
+      {mode === "create" ? (
+        <Section
+          title="Reference files"
+          description="A brief, spec or document the assignee should work from. Up to 5 MB each."
+        >
+          <FileUpload
+            value={files}
+            onChange={setFiles}
+            label="Attach a file"
+            className="sm:col-span-2"
+          />
+        </Section>
+      ) : null}
 
       <div className="flex flex-wrap items-center gap-3">
         <Button type="submit" disabled={isSubmitting}>

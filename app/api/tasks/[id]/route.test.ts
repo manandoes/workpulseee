@@ -5,6 +5,7 @@ import {
   companyActor,
   createClient,
   createCompanyAccount,
+  createEmployee,
   createProject,
   createTask,
   createTestCompany,
@@ -132,6 +133,80 @@ describe("PATCH /api/tasks/[id]", () => {
     );
 
     expect(response.status).toBe(404);
+  });
+});
+
+/** Plan: allot tasks to a Manager or HR, and Plan: completion note. */
+describe("PATCH /api/tasks/[id] — assignee kinds and completion note", () => {
+  beforeEach(() => {
+    vi.mocked(getActor).mockReset();
+  });
+
+  it("hands a task from an employee to an HR login, clearing the employee", async () => {
+    const { companyId, ownerId } = await createTestCompany();
+    const employeeId = await createEmployee(companyId);
+    const hrId = await createCompanyAccount(companyId, "HRHead");
+    const taskId = await createTask(companyId, null, {
+      assigneeId: employeeId,
+      createdById: ownerId,
+    });
+    vi.mocked(getActor).mockResolvedValue(
+      companyActor(companyId, ownerId, "Owner")
+    );
+
+    const response = await PATCH(
+      jsonRequest(`http://localhost/api/tasks/${taskId}`, "PATCH", {
+        title: "Handed to HR",
+        projectId: "",
+        clientId: "",
+        assigneeId: "",
+        assigneeAccountId: hrId,
+      }),
+      { params: Promise.resolve({ id: taskId }) }
+    );
+
+    expect(response.status).toBe(200);
+    const stored = await db.task.findUniqueOrThrow({
+      where: { id: taskId },
+      select: { assigneeId: true, assigneeAccountId: true },
+    });
+    expect(stored).toEqual({ assigneeId: null, assigneeAccountId: hrId });
+    const notified = await db.notification.count({
+      where: { companyId, recipientAccountId: hrId, type: "TaskAssigned" },
+    });
+    expect(notified).toBe(1);
+  });
+
+  it("keeps a finished task's note through an unrelated save", async () => {
+    const { companyId, ownerId } = await createTestCompany();
+    const taskId = await createTask(companyId, null, { createdById: ownerId });
+    await db.task.update({
+      where: { id: taskId },
+      data: {
+        status: "Done",
+        completedAt: new Date(),
+        completionNote: "Shipped",
+      },
+    });
+    vi.mocked(getActor).mockResolvedValue(
+      companyActor(companyId, ownerId, "Owner")
+    );
+
+    const response = await PATCH(
+      jsonRequest(`http://localhost/api/tasks/${taskId}`, "PATCH", {
+        title: "Renamed after it was done",
+        projectId: "",
+        clientId: "",
+      }),
+      { params: Promise.resolve({ id: taskId }) }
+    );
+
+    expect(response.status).toBe(200);
+    const stored = await db.task.findUniqueOrThrow({
+      where: { id: taskId },
+      select: { status: true, completionNote: true },
+    });
+    expect(stored).toEqual({ status: "Done", completionNote: "Shipped" });
   });
 });
 
