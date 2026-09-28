@@ -6,11 +6,8 @@ import {
 } from "@/lib/api";
 import { db } from "@/lib/db";
 import type { SessionActor } from "@/lib/permissions";
-import { resolveLogoutNudge } from "@/lib/attendance";
-import {
-  notifyAutoLoggedOut,
-  notifyLogoutDue,
-} from "@/lib/notification-data";
+import { breakDurationMs, resolveLogoutNudge } from "@/lib/attendance";
+import { notifyAutoLoggedOut, notifyLogoutDue } from "@/lib/notification-data";
 import { stopRunningEntries } from "@/lib/task-timer-data";
 import {
   dayKeyInZone,
@@ -53,8 +50,7 @@ function subjectColumns(actor: SessionActor) {
  * names them — used by the admin-facing reads below, where the subject isn't
  * necessarily the caller. */
 export type AttendanceSubject =
-  | { kind: "employee"; id: string }
-  | { kind: "account"; id: string };
+  { kind: "employee"; id: string } | { kind: "account"; id: string };
 
 function subjectWhereFor(subject: AttendanceSubject) {
   return subject.kind === "employee"
@@ -213,6 +209,50 @@ const loadOpenBreakCached = cache(
     })
 );
 
+/**
+ * What the break overlay counts down from: the company's daily allowance
+ * (`Company.dailyBreakMinutes`) and how much of it the caller's *earlier*
+ * breaks today already used. The open break itself is left out — the overlay
+ * ticks that part live from its `startedAt`.
+ *
+ * "Today" is the company's working day (`Company.timeZone`), the same zone
+ * the logout sweep measures the day in, so the allowance resets at the same
+ * midnight for everyone regardless of where they are viewing from.
+ */
+export async function loadBreakAllowance(
+  actor: Pick<SessionActor, "id" | "companyId" | "accountType">,
+  openBreak: BreakRecordRow
+): Promise<{ allowanceMs: number; usedBeforeMs: number }> {
+  const { dailyBreakMinutes, timeZone } = await db.company.findUniqueOrThrow({
+    where: { id: actor.companyId },
+    select: { dailyBreakMinutes: true, timeZone: true },
+  });
+
+  const dayStart = instantForLocalTime(
+    dayKeyInZone(openBreak.startedAt, timeZone),
+    0,
+    timeZone
+  );
+
+  const earlier = await db.breakRecord.findMany({
+    where: {
+      companyId: actor.companyId,
+      ...(actor.accountType === "employee"
+        ? { employeeId: actor.id }
+        : { accountId: actor.id }),
+      id: { not: openBreak.id },
+      startedAt: { gte: dayStart },
+      endedAt: { not: null },
+    },
+    select: { startedAt: true, endedAt: true },
+  });
+
+  return {
+    allowanceMs: dailyBreakMinutes * 60_000,
+    usedBeforeMs: breakDurationMs(earlier, openBreak.startedAt),
+  };
+}
+
 export type BreakResolution =
   { ok: true; record: BreakRecordRow } | WriteFailure;
 
@@ -225,7 +265,9 @@ export type BreakResolution =
  * the working day, not to one task — and records which tasks so `endBreak`
  * can resume exactly those.
  */
-export async function startBreak(actor: SessionActor): Promise<BreakResolution> {
+export async function startBreak(
+  actor: SessionActor
+): Promise<BreakResolution> {
   const [session, openBreak] = await Promise.all([
     loadOpenSession(actor),
     loadOpenBreak(actor),
@@ -456,7 +498,9 @@ async function autoClockOut(
             where: { id: openBreak.id },
             data: {
               endedAt:
-                openBreak.startedAt > clockOutAt ? openBreak.startedAt : clockOutAt,
+                openBreak.startedAt > clockOutAt
+                  ? openBreak.startedAt
+                  : clockOutAt,
             },
           }),
         ]

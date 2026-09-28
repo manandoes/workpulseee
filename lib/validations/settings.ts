@@ -85,6 +85,26 @@ export const workingDaySettingsSchema = z.object({
 export type WorkingDaySettingsInput = z.infer<typeof workingDaySettingsSchema>;
 
 /**
+ * The daily break allowance (`Company.dailyBreakMinutes`) the break overlay
+ * counts down from. Same string-all-the-way-to-the-column shape as
+ * `workloadSettingsSchema`; capped at a full day.
+ */
+export const breakAllowanceSettingsSchema = z.object({
+  dailyBreakMinutes: z
+    .string()
+    .trim()
+    .regex(/^\d{1,4}$/, "Enter a whole number of minutes")
+    .refine((value) => {
+      const minutes = Number(value);
+      return minutes >= 1 && minutes <= 1440;
+    }, "Enter between 1 and 1440 minutes"),
+});
+
+export type BreakAllowanceSettingsInput = z.infer<
+  typeof breakAllowanceSettingsSchema
+>;
+
+/**
  * The HRMS/PMS sidebar mode (Plan: dashboard-mode toggle) — a display
  * preference, not tenant data, so it is the one setting in this file with no
  * DB column behind it (`app/api/settings/dashboard-mode/route.ts` writes it

@@ -1,10 +1,13 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import { cookies } from "next/headers";
+import { ShieldCheck } from "lucide-react";
 import { getActor } from "@/lib/auth";
 import { db } from "@/lib/db";
 import {
   canManageBilling,
+  canManageBreakAllowance,
   canManageBranding,
   canManageCompanySettings,
   canManageEmailSettings,
@@ -23,7 +26,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { WorkloadSettingsForm } from "@/components/dashboard/workload-settings-form";
 import { AlertSettingsForm } from "@/components/dashboard/alert-settings-form";
 import { WorkingDaySettingsForm } from "@/components/dashboard/working-day-settings-form";
-import { PermissionGrantsTable } from "@/components/dashboard/permission-grants-table";
+import { BreakAllowanceSettingsForm } from "@/components/dashboard/break-allowance-settings-form";
 import { ThemeToggle } from "@/components/dashboard/theme-toggle";
 import { BrandingForm } from "@/components/dashboard/branding-form";
 import { BillingSettingsCard } from "@/components/dashboard/billing-settings-card";
@@ -41,11 +44,10 @@ export const metadata: Metadata = { title: "Settings" };
  * (Phases.md Phase 6), and the early-warning thresholds (Phases.md Phase 9).
  *
  * Every signed-in actor — employee included — may open the page for the
- * Appearance card (Plan: theme toggle, a personal preference); the
- * Workload/Alerts/Branding/Employee-permissions cards below still only
- * render for the roles that could already manage them
- * (`canManageWorkloadSettings`/`canManageCompanySettings`/
- * `canManageBranding`/`canManagePermissionGrants`), same as before.
+ * Appearance card (Plan: theme toggle, a personal preference); every other
+ * card only renders for whoever holds its power (`canManageWorkloadSettings`,
+ * `canManageCompanySettings`, `canManageBranding`, ...), and the Owner's
+ * Authority card links out to `/settings/authority` (Plan: access levels).
  */
 export default async function SettingsPage() {
   const actor = await getActor();
@@ -57,6 +59,7 @@ export default async function SettingsPage() {
       weeklyCapacityHours: true,
       endOfDayMinutes: true,
       timeZone: true,
+      dailyBreakMinutes: true,
       overloadThresholdPercent: true,
       stalledProjectDays: true,
       agingApprovalDays: true,
@@ -79,8 +82,10 @@ export default async function SettingsPage() {
     ? await loadEmailTemplates(actor.companyId)
     : [];
 
-  const templateAttachments: Record<string, Awaited<ReturnType<typeof loadFileSummaries>>> =
-    {};
+  const templateAttachments: Record<
+    string,
+    Awaited<ReturnType<typeof loadFileSummaries>>
+  > = {};
   for (const template of emailTemplates) {
     templateAttachments[template.kind] = await loadFileSummaries(
       actor.companyId,
@@ -115,13 +120,36 @@ export default async function SettingsPage() {
               Appearance
             </h2>
             <p className="text-text-secondary text-meta">
-              Light or dark — a personal preference for your own browser,
-              only on the dashboard.
+              Light or dark — a personal preference for your own browser, only
+              on the dashboard.
             </p>
           </div>
           <ThemeToggle theme={theme} />
         </CardContent>
       </Card>
+
+      {canManagePermissionGrants(actor) ? (
+        <Card>
+          <CardContent className="flex flex-wrap items-center justify-between gap-4 py-2">
+            <div className="flex min-w-0 flex-col gap-1">
+              <h2 className="text-h3 text-brand-brown font-semibold">
+                Authority
+              </h2>
+              <p className="text-text-secondary text-meta">
+                Decide what each manager, HR person and employee can see and do
+                — change levels and switch individual powers on or off.
+              </p>
+            </div>
+            <Link
+              href="/settings/authority"
+              className="border-border hover:bg-brand-yellow-light text-brand-brown inline-flex items-center gap-2 rounded-lg border px-3 py-2 font-medium transition-colors"
+            >
+              <ShieldCheck aria-hidden className="size-4" strokeWidth={1.5} />
+              Open Authority
+            </Link>
+          </CardContent>
+        </Card>
+      ) : null}
 
       {canManageBilling(actor) && subscription ? (
         <Card>
@@ -136,9 +164,9 @@ export default async function SettingsPage() {
             </div>
             <BillingSettingsCard
               plan={subscription.plan}
-              currentPeriodEnd={
-                (subscription.currentPeriodEnd ?? new Date()).toISOString()
-              }
+              currentPeriodEnd={(
+                subscription.currentPeriodEnd ?? new Date()
+              ).toISOString()}
               extraSeats={subscription.extraSeats}
               employeeCap={employeeCapFor(subscription)}
               employeesUsed={employeesUsed}
@@ -155,8 +183,7 @@ export default async function SettingsPage() {
                 Branding
               </h2>
               <p className="text-text-secondary text-meta">
-                The dashboard&apos;s accent color, for everyone in the
-                company.
+                The dashboard&apos;s accent color, for everyone in the company.
               </p>
             </div>
             <BrandingForm brandColor={company.brandColor} />
@@ -274,10 +301,9 @@ export default async function SettingsPage() {
               </h2>
               <p className="text-text-secondary text-meta">
                 When the day is expected to end. An hour past it, anyone still
-                logged in is reminded to log out; if nobody answers, the
-                session is closed after another half hour and their day is
-                recorded as ending at the last time they confirmed they were
-                there.
+                logged in is reminded to log out; if nobody answers, the session
+                is closed after another half hour and their day is recorded as
+                ending at the last time they confirmed they were there.
               </p>
             </div>
             <WorkingDaySettingsForm
@@ -288,20 +314,22 @@ export default async function SettingsPage() {
         </Card>
       ) : null}
 
-      {canManagePermissionGrants(actor) ? (
+      {canManageBreakAllowance(actor) ? (
         <Card>
           <CardContent className="flex flex-col gap-4 py-2">
             <div className="flex flex-col gap-1">
               <h2 className="text-h3 text-brand-brown font-semibold">
-                Employee permissions
+                Break allowance
               </h2>
               <p className="text-text-secondary text-meta">
-                Temporarily hand an employee extra powers, on top of what their
-                role already gives them. Effects show up on their Squad card and
-                My Space.
+                How long everyone may spend on breaks each working day. While on
+                a break, people see what is left counting down; past the limit
+                it keeps counting, in red.
               </p>
             </div>
-            <PermissionGrantsTable />
+            <BreakAllowanceSettingsForm
+              dailyBreakMinutes={company.dailyBreakMinutes}
+            />
           </CardContent>
         </Card>
       ) : null}

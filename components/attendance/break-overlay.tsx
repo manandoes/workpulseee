@@ -12,7 +12,8 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { formatElapsed } from "@/lib/format";
+import { formatCountdown } from "@/lib/format";
+import { cn } from "cn";
 
 /**
  * The non-dismissible overlay shown while an employee is on a break (Plan.md
@@ -24,11 +25,20 @@ import { formatElapsed } from "@/lib/format";
  * hand-rolling an overlay would not — `onEscapeKeyDown`/`onPointerDownOutside`
  * are both suppressed, and `showCloseButton={false}` drops the primitive's own
  * dismiss affordance, so "End break" is the only way out.
+ *
+ * The clock counts *down* what is left of the company's daily allowance
+ * (`Company.dailyBreakMinutes`, less earlier breaks today — see
+ * `loadBreakAllowance`) and keeps going past zero, negative and red, rather
+ * than stopping: overrunning is shown, not prevented.
  */
 export function BreakOverlay({
   openBreak,
 }: {
-  openBreak: { startedAt: string } | null;
+  openBreak: {
+    startedAt: string;
+    allowanceMs: number;
+    usedBeforeMs: number;
+  } | null;
 }) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
@@ -47,6 +57,9 @@ export function BreakOverlay({
     0,
     clock - new Date(openBreak.startedAt).getTime()
   );
+  const remainingMs =
+    openBreak.allowanceMs - openBreak.usedBeforeMs - elapsedMs;
+  const overrun = remainingMs < 0;
 
   async function endBreak() {
     setBusy(true);
@@ -85,12 +98,20 @@ export function BreakOverlay({
           </DialogDescription>
         </DialogHeader>
 
-        <p
-          className="text-brand-brown my-4 font-mono text-2xl font-semibold tabular-nums"
-          aria-live="off"
-        >
-          {formatElapsed(elapsedMs)}
-        </p>
+        <div className="my-4 flex flex-col items-center gap-1">
+          <p className="text-text-secondary text-meta">
+            {overrun ? "Over your break allowance" : "Break time left"}
+          </p>
+          <p
+            className={cn(
+              "font-mono text-2xl font-semibold tabular-nums",
+              overrun ? "text-danger-text" : "text-brand-brown"
+            )}
+            aria-live="off"
+          >
+            {formatCountdown(remainingMs)}
+          </p>
+        </div>
 
         <Button
           type="button"
