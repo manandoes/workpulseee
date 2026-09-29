@@ -7,8 +7,8 @@ import { cn } from "cn";
 import type { DashboardMode } from "@/lib/permissions";
 
 const OPTIONS: { mode: DashboardMode; label: string }[] = [
-  { mode: "hrms", label: "HRMS" },
-  { mode: "pms", label: "PMS" },
+  { mode: "hrms", label: "People" },
+  { mode: "pms", label: "Work" },
 ];
 
 /**

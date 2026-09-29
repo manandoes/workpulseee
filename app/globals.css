@@ -296,6 +296,16 @@
      which would put pale gray on yellow. */
   --primary-foreground: #0a0a0a;
   --sidebar-primary-foreground: #0a0a0a;
+
+  /* Native UI (scrollbars, form controls) follows `color-scheme`, not our
+     tokens — without this every inner scroll container gets a white bar. */
+  color-scheme: dark;
+}
+
+/* The page's own scrollbar belongs to the root element, which sits above the
+   themed dashboard div, so it needs the dark scheme set there too. */
+:root:has(.dashboard-theme[data-theme="dark"]) {
+  color-scheme: dark;
 }
 
 @layer base {
