@@ -50,6 +50,18 @@ jobs:
         run: |
           set -euo pipefail
 
+          # A missing secret arrives as an empty string, which curl rejects as
+          # a malformed URL (exit 3) without saying why. Name the cause instead.
+          APP_URL=$(printf '%s' "${APP_URL}" | tr -d '[:space:]"')
+          if [ -z "${APP_URL}" ] || [ -z "${CRON_SECRET}" ]; then
+            echo "::error::APP_URL and CRON_SECRET repository secrets must both be set."
+            exit 1
+          fi
+          case "${APP_URL}" in
+            http://*|https://*) ;;
+            *) echo "::error::APP_URL must start with http:// or https://"; exit 1 ;;
+          esac
+
           status=$(curl --silent --show-error --fail-with-body \
             --max-time 300 \
             --write-out '%{http_code}' \
@@ -73,6 +85,18 @@ jobs:
       - name: Remind anyone still clocked in, and close unanswered sessions
         run: |
           set -euo pipefail
+
+          # A missing secret arrives as an empty string, which curl rejects as
+          # a malformed URL (exit 3) without saying why. Name the cause instead.
+          APP_URL=$(printf '%s' "${APP_URL}" | tr -d '[:space:]"')
+          if [ -z "${APP_URL}" ] || [ -z "${CRON_SECRET}" ]; then
+            echo "::error::APP_URL and CRON_SECRET repository secrets must both be set."
+            exit 1
+          fi
+          case "${APP_URL}" in
+            http://*|https://*) ;;
+            *) echo "::error::APP_URL must start with http:// or https://"; exit 1 ;;
+          esac
 
           status=$(curl --silent --show-error --fail-with-body \
             --max-time 300 \
