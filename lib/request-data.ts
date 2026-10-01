@@ -17,6 +17,40 @@ import type {
 import type { CreateRequestInput } from "@/lib/validations/requests";
 
 /**
+ * Uploaded files named on a request write, checked before anything is created.
+ *
+ * `/api/files` accepts any signed-in upload, so it is the feature referencing
+ * a file that authorises using it: each one must be in the actor's company,
+ * uploaded by the actor, and not already attached somewhere else.
+ */
+export async function resolveAttachmentFiles(
+  actor: SessionActor,
+  fileIds: string[]
+): Promise<{ ok: true; files: { id: string; name: string }[] } | WriteFailure> {
+  const ids = [...new Set(fileIds)];
+  if (ids.length === 0) return { ok: true, files: [] };
+
+  const files = await db.storedFile.findMany({
+    where: {
+      id: { in: ids },
+      companyId: actor.companyId,
+      uploadedByEmployeeId: actor.id,
+      attachment: { is: null },
+    },
+    select: { id: true, name: true },
+  });
+
+  if (files.length !== ids.length) {
+    return invalidReference(
+      "attachmentFileIds",
+      "One of those files could not be attached. Upload it again."
+    );
+  }
+
+  return { ok: true, files };
+}
+
+/**
  * Database access for requests (Phases.md Phase 7).
  *
  * Mirrors `lib/task-data.ts`: write resolution and the reads the pages share
@@ -40,6 +74,8 @@ export type RequestWriteData = {
   /** Phase 21: the approver this request is addressed to. Exactly one is set. */
   requestedApproverAccountId: string | null;
   requestedApproverEmployeeId: string | null;
+  /** File ids uploaded alongside the request (e.g. a receipt for reimbursement). */
+  attachmentFileIds: string[];
 };
 
 export type RequestWriteResolution =
@@ -76,6 +112,7 @@ export function resolveRequest(
       amount: input.amount || null,
       requestedApproverAccountId: input.requestedApproverAccountId || null,
       requestedApproverEmployeeId: input.requestedApproverEmployeeId || null,
+      attachmentFileIds: input.attachmentFileIds ?? [],
     },
   };
 }

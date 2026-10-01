@@ -19,6 +19,7 @@ import {
  */
 export {
   attachmentSchema,
+  fileAttachmentSchema,
   type AttachmentInput,
 } from "@/lib/validations/tasks";
 
@@ -52,6 +53,11 @@ export const createRequestSchema = z
       .regex(/^\d{1,10}(\.\d{1,2})?$/, "Enter an amount, for example 1500")
       .optional()
       .or(z.literal("")),
+    /** Files already uploaded through `/api/files`, attached as the request is created. */
+    attachmentFileIds: z
+      .array(z.string().trim().min(1).max(40))
+      .max(10, "Attach at most 10 files")
+      .optional(),
     /** The company account (Owner/Admin/Manager/HR) this request is addressed to. */
     requestedApproverAccountId: z.string().trim().optional().or(z.literal("")),
     /** The employee (with a DecideRequests grant) this request is addressed to. */

@@ -14,6 +14,7 @@ import {
   findRequest,
   loadOwnRequests,
   loadRequestsForApprover,
+  resolveAttachmentFiles,
   resolveRequest,
   checkRequestedApprover,
 } from "@/lib/request-data";
@@ -96,15 +97,32 @@ export async function POST(request: NextRequest) {
   const resolved = resolveRequest(parsed.data);
   if (!resolved.ok) return writeFailure(resolved);
 
+  // Reference documents uploaded with the form, attached in the same write
+  // so a request never exists without the files it was allotted with.
+  const files = await resolveAttachmentFiles(
+    actor,
+    parsed.data.attachmentFileIds ?? []
+  );
+  if (!files.ok) return writeFailure(files);
+
   try {
     const approverFailure = await checkRequestedApprover(actor, resolved.data);
     if (approverFailure) return writeFailure(approverFailure);
 
+    const { attachmentFileIds: _attachmentFileIds, ...requestData } = resolved.data;
     const created = await db.request.create({
       data: {
-        ...resolved.data,
+        ...requestData,
         companyId: actor.companyId,
         employeeId: actor.id,
+        attachments: {
+          create: files.files.map((file) => ({
+            companyId: actor.companyId,
+            fileId: file.id,
+            label: file.name,
+            addedByEmployeeId: actor.id,
+          })),
+        },
       },
       select: { id: true, type: true, status: true, subject: true },
     });

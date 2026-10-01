@@ -13,6 +13,7 @@ import {
   SelectField,
   TextareaField,
 } from "@/components/forms/fields";
+import { FileUpload, type UploadedFile } from "@/components/ui/file-upload";
 import { requestTypeLabel } from "@/components/requests/status-badge";
 import {
   LEAVE_DAY_PARTS,
@@ -54,6 +55,8 @@ export function RequestForm() {
   const [loadingApprovers, setLoadingApprovers] = useState(true);
   // "account:<id>" / "employee:<id>" — one picker feeding the two form fields.
   const [approverChoice, setApproverChoice] = useState("");
+  // Files uploaded before form submission; attached alongside the request.
+  const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([]);
 
   const {
     register,
@@ -108,7 +111,10 @@ export function RequestForm() {
     const response = await fetch("/api/requests", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(values),
+      body: JSON.stringify({
+        ...values,
+        attachmentFileIds: uploadedFiles.map((file) => file.id),
+      }),
     });
 
     const body = await response.json().catch(() => null);
@@ -234,6 +240,24 @@ export function RequestForm() {
         error={errors.description?.message}
         {...register("description")}
       />
+
+      {needsAmount ? (
+        <div className="flex flex-col gap-2">
+          <span className="text-sm font-medium text-foreground">
+            Receipt / supporting file
+          </span>
+          <p className="text-sm text-text-secondary">
+            Attach a receipt, invoice, or any other file that supports this
+            claim. PDFs and images are fine — up to 10 files, 5 MB each.
+          </p>
+          <FileUpload
+            value={uploadedFiles}
+            onChange={setUploadedFiles}
+            multiple
+            label="Attach files"
+          />
+        </div>
+      ) : null}
 
       {approvers.length > 0 ? (
         <>

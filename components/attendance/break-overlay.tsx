@@ -47,6 +47,11 @@ export function BreakOverlay({
   useEffect(() => {
     if (!openBreak) return;
 
+    // Sync the clock to "now" the moment a break starts, so the first render
+    // shows the correct elapsed time rather than waiting a full second for
+    // the interval to fire with a stale value from when the overlay first
+    // mounted (which may have been long before the break began).
+    setClock(Date.now());
     const interval = setInterval(() => setClock(Date.now()), 1000);
     return () => clearInterval(interval);
   }, [openBreak]);
