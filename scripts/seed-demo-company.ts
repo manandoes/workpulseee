@@ -1,5 +1,5 @@
 /**
- * One-off demo data seed — NOT part of the app.
+ * One-off demo data seed — LOCAL DEVELOPMENT ONLY.
  *
  * Creates a single self-contained demo company ("Nimbus Creative Studio",
  * slug "nimbus-creative-demo") touching every model in prisma/schema.prisma,
@@ -15,6 +15,17 @@
  *   npx tsx scripts/seed-demo-company.ts
  *
  * Every login uses the password: Demo@1234
+ *
+ * ─────────────────────────────────────────────────────────────────────────────
+ * SAFETY: This script is explicitly BLOCKED from running against a hosted/
+ * production database. It only touches seed-demo-company.ts's DATABASE_URL,
+ * which must point at a local Postgres (the docker-compose container). Running
+ * against a hosted DB (Supabase, Railway, Neon, etc.) would destroy real
+ * customer data — that is the bug this app keeps hitting, and this guard is
+ * the prevention.
+ *
+ * See .env.local for the local connection string.
+ * ─────────────────────────────────────────────────────────────────────────────
  */
 import { config } from "dotenv";
 import { resolve } from "node:path";
@@ -28,7 +39,42 @@ const PASSWORD = "Demo@1234";
 
 const connectionString = process.env.DATABASE_URL;
 if (!connectionString) {
-  throw new Error("DATABASE_URL is not set (check .env.local).");
+  throw new Error(
+    "DATABASE_URL is not set. Check .env.local — it must point at the local docker-compose Postgres (localhost:5432), not a hosted provider."
+  );
+}
+
+// ── Hosted-DB guard ──────────────────────────────────────────────────────────
+// Reject any connection string that targets a known hosted provider. This is
+// the single safety net that prevents the demo-seed script from ever touching
+// a production tenant database. If you need to seed a hosted DB, do it by
+// hand with an explicit --force flag or a separate script — never by accident.
+const HOSTED_DB_PATTERNS = [
+  /supabase\.co/i,
+  /supabase\.com/i,
+  /railway\.app/i,
+  /neon\.tech/i,
+  /aws\.amazon\.com/i,
+  /render\.(com|io)/i,
+  /fly\.io/i,
+  /herokuapp\.com/i,
+  /vercel\.db/i,
+];
+
+const dbUrlLower = connectionString.toLowerCase();
+const isHosted = HOSTED_DB_PATTERNS.some((p) => p.test(dbUrlLower));
+if (isHosted) {
+  console.error(
+    "[seed-demo-company] ABORT: DATABASE_URL points at a hosted/prod " +
+      "database. This script is unsafe for hosted environments."
+  );
+  console.error("");
+  console.error(`  DATABASE_URL = ${connectionString}`);
+  console.error("");
+  console.error("To run locally, switch .env.local to use the docker-compose Postgres:");
+  console.error('  DATABASE_URL="postgresql://workpulse:workpulse@localhost:5432/workpulse?schema=public"');
+  console.error('  DIRECT_URL="postgresql://workpulse:workpulse@localhost:5432/workpulse?schema=public"');
+  process.exit(1);
 }
 
 const db = new PrismaClient({

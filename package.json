@@ -21,7 +21,10 @@
     "db:migrate:deploy": "prisma migrate deploy",
     "db:studio": "prisma studio",
     "db:up": "docker compose up -d",
-    "db:down": "docker compose down"
+    "db:down": "docker compose down",
+    "db:seed:demo": "tsx scripts/seed-demo-company.ts",
+    "db:seed:hiring": "tsx scripts/seed-hiring-demo.ts",
+    "db:seed:smoke": "tsx scripts/smoke-hiring-submit.ts"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.9.1",
