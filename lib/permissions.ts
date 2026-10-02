@@ -22,7 +22,7 @@ export type { GrantedPermission };
  * per-person overrides. What stays outside `has` are relationships, which no
  * switch can express: everyone sees their own record, a manager acts for their
  * own direct reports and the projects they lead, and the Owner-only powers
- * (billing, branding, email delivery, the Authority page) are never grantable.
+ * (billing, branding, email and WhatsApp delivery, the Authority page) are never grantable.
  */
 
 /** What a session belongs to. The two never overlap. */
@@ -789,6 +789,26 @@ export function canManageBranding(actor: SessionActor): boolean {
  * and `canManagePermissionGrants`.
  */
 export function canManageEmailSettings(actor: SessionActor): boolean {
+  return isOwner(actor);
+}
+
+/**
+ * Owner-only WhatsApp delivery settings (Settings -> WhatsApp delivery) — the
+ * company's own Meta access token, which bills every message to the company's
+ * WhatsApp Business account, so it is gated exactly like
+ * `canManageEmailSettings`.
+ */
+export function canManageWhatsAppSettings(actor: SessionActor): boolean {
+  return isOwner(actor);
+}
+
+/**
+ * Owner-only messaging provider settings (Settings -> Chat & messaging) — the
+ * company's messaging backend (native vs Google Chat) is a tenant-level
+ * identity setting, same class as branding and email delivery. Admins run the
+ * company day-to-day but do not hold its communication channels.
+ */
+export function canManageMessagingSettings(actor: SessionActor): boolean {
   return isOwner(actor);
 }
 

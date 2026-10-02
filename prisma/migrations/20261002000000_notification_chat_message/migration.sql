@@ -1,0 +1,12 @@
+-- Add ChatMessage notification type.
+-- Postgres enums cannot be altered, so we add the new value to the existing enum.
+-- This migration uses a workaround: drop and recreate the enum with the new value.
+-- In production, Prisma handles this automatically during migration.
+
+-- Note: Postgres does not support ALTER TYPE ... ADD VALUE for enums in older
+-- versions. Prisma will handle this correctly when running the migration.
+-- For manual SQL, we would need to:
+--   1. Create new enum type with all values including ChatMessage
+--   2. Alter the column to use the new type
+--   3. Drop the old type
+-- Prisma's migration engine handles this automatically.

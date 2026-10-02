@@ -32,6 +32,22 @@ type OtherParticipant = { name: string } | null;
 
 const POLL_MS = 4_000;
 
+/** Small indicator showing the provider for a conversation. */
+function ProviderIndicator({ provider }: { provider: "Native" | "Google" }) {
+  if (provider === "Native") return null;
+  return (
+    <span
+      className="inline-flex items-center gap-1 rounded-full bg-blue-100 dark:bg-blue-900/30 px-2 py-0.5 text-[10px] font-medium text-blue-700 dark:text-blue-300"
+      title="Messages stored in Google Chat"
+    >
+      <svg viewBox="0 0 24 24" className="size-3" fill="currentColor" aria-hidden>
+        <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 14H9V8h2v8zm4 0h-2V8h2v8z"/>
+      </svg>
+      Google
+    </span>
+  );
+}
+
 /**
  * A conversation's thread + composer. Polls while mounted — faster than the
  * notification bell's 30s (this is the page's primary content, not a corner
@@ -40,6 +56,7 @@ const POLL_MS = 4_000;
 export function MessageThread({ conversationId }: { conversationId: string }) {
   const [messages, setMessages] = useState<Message[] | null>(null);
   const [other, setOther] = useState<OtherParticipant>(null);
+  const [provider, setProvider] = useState<"Native" | "Google">("Native");
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
   const [pendingFile, setPendingFile] = useState<Attachment | null>(null);
@@ -53,6 +70,7 @@ export function MessageThread({ conversationId }: { conversationId: string }) {
     const body = await response.json();
     setMessages(body.messages);
     setOther(body.other);
+    if (body.provider) setProvider(body.provider);
   }
 
   useEffect(() => {
@@ -85,6 +103,10 @@ export function MessageThread({ conversationId }: { conversationId: string }) {
       toast.error("That file is larger than 5 MB.");
       return;
     }
+    if (provider === "Google") {
+      toast.info("File attachments are not supported in Google Chat yet.");
+      return;
+    }
 
     setUploading(true);
     try {
@@ -111,6 +133,10 @@ export function MessageThread({ conversationId }: { conversationId: string }) {
     // Text or a file is enough — a bare file share is a valid message, which
     // is what `sendMessageSchema` allows for on the server.
     if ((!body && !pendingFile) || sending) return;
+    if (provider === "Google" && pendingFile) {
+      toast.info("File attachments are not supported in Google Chat yet.");
+      return;
+    }
 
     setSending(true);
     try {
@@ -128,50 +154,62 @@ export function MessageThread({ conversationId }: { conversationId: string }) {
       if (response.ok) {
         setDraft("");
         setPendingFile(null);
+        // Refresh to pick up the new message.
         await refresh();
+      } else {
+        const err = await response.json().catch(() => ({})) as { message?: string };
+        toast.error(err.message ?? "Failed to send message.");
       }
+    } catch {
+      toast.error("Network error. Could not send message.");
     } finally {
       setSending(false);
     }
   }
 
   return (
-    <div className="border-border bg-surface flex h-128 flex-col overflow-hidden rounded-xl border">
-      <div className="border-border border-b px-4 py-2.5">
-        <span className="text-brand-brown font-medium">
-          {other?.name ?? "Conversation"}
-        </span>
+    <div className="flex flex-col h-full">
+      {/* Header with provider indicator */}
+      <div className="flex items-center justify-between border-border border-b px-4 py-3">
+        <div>
+          <p className="text-sm font-medium text-foreground">Chat</p>
+          <p className="text-xs text-text-secondary">
+            {provider === "Google"
+              ? "Messages are stored in Google Chat"
+              : `Messages are stored locally for ${CHAT_MESSAGE_RETENTION_DAYS} days`}
+          </p>
+        </div>
+        <ProviderIndicator provider={provider} />
       </div>
 
-      <div className="flex flex-1 flex-col gap-2 overflow-y-auto px-4 py-3">
+      {/* Message list */}
+      <div className="flex-1 overflow-y-auto p-4 space-y-3">
         {messages === null ? (
-          <p className="text-text-secondary">Loading…</p>
+          <p className="text-text-secondary text-sm">Loading...</p>
         ) : messages.length === 0 ? (
-          <p className="text-text-secondary">
-            No messages yet — say hello. Messages here are removed automatically
-            after {CHAT_MESSAGE_RETENTION_DAYS} days.
-          </p>
+          <p className="text-text-secondary text-sm">No messages yet. Say hello!</p>
         ) : (
-          messages.map((message) => (
+          messages.map((msg) => (
             <div
-              key={message.id}
-              className={cn("flex flex-col", message.fromMe ? "items-end" : "items-start")}
+              key={msg.id}
+              className={cn(
+                "flex flex-col",
+                msg.fromMe ? "items-end" : "items-start"
+              )}
             >
-              <span
+              <div
                 className={cn(
-                  "flex max-w-[80%] flex-col gap-2 rounded-xl px-3 py-2 wrap-break-word",
-                  message.fromMe
-                    ? "bg-brand-yellow-light text-brand-brown"
+                  "max-w-[75%] rounded-lg px-3 py-2 text-sm",
+                  msg.fromMe
+                    ? "bg-brand-yellow text-brand-brown"
                     : "bg-surface-muted text-foreground"
                 )}
               >
-                {message.body ? <span>{message.body}</span> : null}
-                {message.attachment ? (
-                  <MessageAttachment attachment={message.attachment} />
-                ) : null}
-              </span>
-              <span className="text-text-secondary text-meta mt-0.5">
-                <DateTime value={message.createdAt} />
+                {msg.body && <p className="whitespace-pre-wrap">{msg.body}</p>}
+                {msg.attachment && <MessageAttachment attachment={msg.attachment} />}
+              </div>
+              <span className="text-text-secondary text-[10px] mt-1">
+                <DateTime value={msg.createdAt} />
               </span>
             </div>
           ))
@@ -179,25 +217,18 @@ export function MessageThread({ conversationId }: { conversationId: string }) {
         <div ref={bottomRef} />
       </div>
 
+      {/* Composer */}
       <form
-        onSubmit={(event) => {
-          event.preventDefault();
+        onSubmit={(e) => {
+          e.preventDefault();
           send();
         }}
-        className="border-border flex flex-col gap-2 border-t px-4 py-3"
+        className="border-border border-t p-3"
       >
         {pendingFile ? (
-          <div className="border-border bg-surface-muted flex items-center gap-2 rounded-lg border px-3 py-1.5">
-            <Paperclip
-              aria-hidden
-              className="text-brand-brown-soft size-4 shrink-0"
-              strokeWidth={1.5}
-            />
-            <span className="min-w-0 flex-1 truncate text-sm">
-              {pendingFile.name}
-            </span>
-            <span className="text-text-secondary text-meta shrink-0">
-              {formatFileSize(pendingFile.sizeBytes)}
+          <div className="flex items-center gap-2 mb-2 rounded-lg border border-border bg-surface px-3 py-2 text-sm">
+            <span className="min-w-0 flex-1 truncate">
+              {pendingFile.name} ({formatFileSize(pendingFile.sizeBytes)})
             </span>
             <button
               type="button"
@@ -221,16 +252,18 @@ export function MessageThread({ conversationId }: { conversationId: string }) {
               if (file) attach(file);
             }}
           />
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            aria-label="Attach a file"
-            disabled={uploading || Boolean(pendingFile)}
-            onClick={() => fileInputRef.current?.click()}
-          >
-            <Paperclip aria-hidden className="size-4" strokeWidth={1.5} />
-          </Button>
+          {provider === "Native" ? (
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              aria-label="Attach a file"
+              disabled={uploading || Boolean(pendingFile)}
+              onClick={() => fileInputRef.current?.click()}
+            >
+              <Paperclip aria-hidden className="size-4" strokeWidth={1.5} />
+            </Button>
+          ) : null}
           <Textarea
             value={draft}
             onChange={(event) => setDraft(event.target.value)}
@@ -240,7 +273,13 @@ export function MessageThread({ conversationId }: { conversationId: string }) {
                 send();
               }
             }}
-            placeholder={uploading ? "Uploading…" : "Write a message…"}
+            placeholder={
+              uploading
+                ? "Uploading..."
+                : provider === "Google"
+                ? "Write a message (no attachments in Google Chat)..."
+                : "Write a message..."
+            }
             rows={1}
             className="min-h-0 flex-1 resize-none"
           />
@@ -267,7 +306,7 @@ function MessageAttachment({ attachment }: { attachment: Attachment }) {
 
   if (isImageMimeType(attachment.mimeType)) {
     return (
-      <a href={href} target="_blank" rel="noreferrer" className="block">
+      <a href={href} target="_blank" rel="noreferrer" className="block mt-1">
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
           src={href}
@@ -281,7 +320,7 @@ function MessageAttachment({ attachment }: { attachment: Attachment }) {
   return (
     <a
       href={href}
-      className="border-border bg-surface hover:bg-surface-muted flex items-center gap-2 rounded-lg border px-3 py-2 transition-colors"
+      className="border-border bg-surface hover:bg-surface-muted flex items-center gap-2 rounded-lg border px-3 py-2 transition-colors mt-1"
     >
       <Download
         aria-hidden

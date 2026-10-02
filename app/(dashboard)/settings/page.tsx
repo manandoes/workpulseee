@@ -11,7 +11,9 @@ import {
   canManageBranding,
   canManageCompanySettings,
   canManageEmailSettings,
+  canManageMessagingSettings,
   canManagePermissionGrants,
+  canManageWhatsAppSettings,
   canManageWorkloadSettings,
   THEME_COOKIE,
   type ThemeMode,
@@ -32,6 +34,8 @@ import { BrandingForm } from "@/components/dashboard/branding-form";
 import { BillingSettingsCard } from "@/components/dashboard/billing-settings-card";
 import { EmailSettingsForm } from "@/components/dashboard/email-settings-form";
 import { EmailTemplateForm } from "@/components/dashboard/email-template-form";
+import { WhatsAppSettingsForm } from "@/components/dashboard/whatsapp-settings-form";
+import { MessagingSettingsForm } from "@/components/dashboard/messaging-settings-form";
 import { SalarySlipList } from "@/components/payroll/salary-slip-list";
 import { loadEmailTemplates } from "@/lib/email-template-data";
 import { loadFileSummaries } from "@/lib/files-data";
@@ -68,6 +72,14 @@ export default async function SettingsPage() {
       emailProvider: true,
       emailFromAddress: true,
       emailApiKeyEncrypted: true,
+      whatsappPhoneNumberId: true,
+      whatsappAccessTokenEncrypted: true,
+      whatsappTemplateName: true,
+      whatsappTemplateLanguage: true,
+      messagingProvider: true,
+      googleChatEnabled: true,
+      googleChatConnectedByEmail: true,
+      googleChatConnectedAt: true,
     },
   });
 
@@ -212,6 +224,55 @@ export default async function SettingsPage() {
               }
               emailFromAddress={company.emailFromAddress}
               emailApiKeySet={company.emailApiKeyEncrypted !== null}
+            />
+          </CardContent>
+        </Card>
+      ) : null}
+
+      {canManageWhatsAppSettings(actor) ? (
+        <Card>
+          <CardContent className="flex flex-col gap-4 py-2">
+            <div className="flex flex-col gap-1">
+              <h2 className="text-h3 text-brand-brown font-semibold">
+                WhatsApp delivery
+              </h2>
+              <p className="text-text-secondary text-meta">
+                Send notification WhatsApps from your own Meta Business Cloud
+                API account instead of the shared default sender.
+              </p>
+            </div>
+            <WhatsAppSettingsForm
+              whatsappPhoneNumberId={company.whatsappPhoneNumberId}
+              whatsappTemplateName={company.whatsappTemplateName}
+              whatsappTemplateLanguage={company.whatsappTemplateLanguage}
+              whatsappAccessTokenSet={
+                company.whatsappAccessTokenEncrypted !== null
+              }
+            />
+          </CardContent>
+        </Card>
+      ) : null}
+
+      {canManageMessagingSettings(actor) ? (
+        <Card>
+          <CardContent className="flex flex-col gap-4 py-2">
+            <div className="flex flex-col gap-1">
+              <h2 className="text-h3 text-brand-brown font-semibold">
+                Chat &amp; messaging
+              </h2>
+              <p className="text-text-secondary text-meta">
+                Choose between the built-in chat or Google Chat as your
+                messaging backend. Existing conversations keep their original
+                provider when you change the default.
+              </p>
+            </div>
+            <MessagingSettingsForm
+              initial={{
+                messagingProvider: company.messagingProvider,
+                googleChatEnabled: company.googleChatEnabled,
+                googleChatConnectedByEmail:
+                  company.googleChatConnectedByEmail,
+              }}
             />
           </CardContent>
         </Card>

@@ -1,5 +1,17 @@
+import {
+  DEFAULT_WHATSAPP_TEMPLATE_LANGUAGE,
+  DEFAULT_WHATSAPP_TEMPLATE_NAME,
+  type CompanyWhatsAppConfig,
+} from "@/lib/company-whatsapp-config";
+
 /**
  * WhatsApp delivery through the Meta WhatsApp Business Cloud API.
+ *
+ * A company can configure its own Meta credentials at Settings -> WhatsApp
+ * delivery (`lib/company-whatsapp-config.ts`); when it has, `sendWhatsApp`'s
+ * `config` argument carries them and the message is sent from, and billed to,
+ * the company's own WhatsApp Business account. When it hasn't (`config` is
+ * `null`/absent), this falls back to the global `WHATSAPP_*` env vars.
  *
  * Mirrors `lib/mailer.ts` deliberately, down to the return type: a direct
  * `fetch` rather than an SDK, and when the credentials are not configured the
@@ -17,8 +29,8 @@
  *
  * One approved UTILITY template covers every notification type, which keeps
  * approval to a single round-trip with Meta and keeps the cost model simple.
- * Create it in WhatsApp Manager with the name in `WHATSAPP_TEMPLATE_NAME`
- * (default `workpulse_notification`), category Utility, and a body of exactly
+ * Create it in WhatsApp Manager with the name saved in Settings (or
+ * `WHATSAPP_TEMPLATE_NAME`; default `workpulse_notification`), category Utility, and a body of exactly
  * two variables:
  *
  *     Hi {{1}},
@@ -53,16 +65,21 @@ type SendArgs = {
  */
 const GRAPH_API_VERSION = "v21.0";
 
-export async function sendWhatsApp({
-  to,
-  recipientName,
-  message,
-}: SendArgs): Promise<WhatsAppResult> {
-  const token = process.env.WHATSAPP_ACCESS_TOKEN;
-  const phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID;
+export async function sendWhatsApp(
+  { to, recipientName, message }: SendArgs,
+  config?: CompanyWhatsAppConfig | null
+): Promise<WhatsAppResult> {
+  const token = config?.accessToken ?? process.env.WHATSAPP_ACCESS_TOKEN;
+  const phoneNumberId =
+    config?.phoneNumberId ?? process.env.WHATSAPP_PHONE_NUMBER_ID;
   const template =
-    process.env.WHATSAPP_TEMPLATE_NAME ?? "workpulse_notification";
-  const language = process.env.WHATSAPP_TEMPLATE_LANGUAGE ?? "en";
+    config?.templateName ??
+    process.env.WHATSAPP_TEMPLATE_NAME ??
+    DEFAULT_WHATSAPP_TEMPLATE_NAME;
+  const language =
+    config?.templateLanguage ??
+    process.env.WHATSAPP_TEMPLATE_LANGUAGE ??
+    DEFAULT_WHATSAPP_TEMPLATE_LANGUAGE;
 
   if (!token || !phoneNumberId) {
     console.info(

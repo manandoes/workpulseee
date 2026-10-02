@@ -13,9 +13,26 @@ type Conversation = {
   other: { kind: "employee" | "account"; id: string; name: string; avatarUrl: string | null };
   lastMessage: { body: string; preview: string; createdAt: string } | null;
   unread: boolean;
+  /** Which backend this conversation uses. `Native` is the in-app DB chat;
+   * `Google` means messages live in a Google Chat space. */
+  provider: "Native" | "Google";
 };
 
 const POLL_MS = 15_000;
+
+/** Small badge shown beside a Google Chat conversation in the sidebar. */
+function ProviderBadge({ provider }: { provider: "Native" | "Google" }) {
+  if (provider === "Native") return null;
+  return (
+    <span
+      className="text-[10px] font-medium text-blue-600 dark:text-blue-400 shrink-0"
+      title="Google Chat"
+      aria-label="Google Chat"
+    >
+      G
+    </span>
+  );
+}
 
 /**
  * The chat list panel (`/chat` and `/chat/[conversationId]` share it, the
@@ -81,6 +98,7 @@ export function ConversationList() {
                 <span className="text-foreground truncate font-medium">
                   {conversation.other.name}
                 </span>
+                <ProviderBadge provider={conversation.provider} />
                 {conversation.unread ? (
                   <span className="bg-danger size-2 shrink-0 rounded-full" aria-hidden />
                 ) : null}

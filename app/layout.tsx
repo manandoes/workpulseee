@@ -30,11 +30,20 @@ export const metadata: Metadata = {
     locale: "en_GB",
     title: `${SITE_NAME} — Agency Operations & Employee Management`,
     description: SITE_DESCRIPTION,
+    images: [
+      {
+        url: `${SITE_URL}/workpulse-mark.png`,
+        width: 1200,
+        height: 630,
+        alt: `${SITE_NAME} — Agency Operations Dashboard`,
+      },
+    ],
   },
   twitter: {
     card: "summary_large_image",
     title: `${SITE_NAME} — Agency Operations & Employee Management`,
     description: SITE_DESCRIPTION,
+    images: [`${SITE_URL}/workpulse-mark.png`],
   },
   verification: {
     google: process.env.GOOGLE_SITE_VERIFICATION,

@@ -168,3 +168,54 @@ export const emailSettingsSchema = z.object({
 });
 
 export type EmailSettingsInput = z.infer<typeof emailSettingsSchema>;
+
+/**
+ * Owner-only WhatsApp delivery settings (Settings -> WhatsApp delivery,
+ * `canManageWhatsAppSettings`) — the company's own Meta WhatsApp Business
+ * Cloud API credentials (`app/api/settings/whatsapp/route.ts`).
+ *
+ * `whatsappAccessToken` follows `emailApiKey`'s rule: blank means "keep the
+ * stored token", since the form never receives it back. Template name and
+ * language are checked against Meta's own formats so a typo is caught here
+ * rather than as a rejected send later.
+ */
+export const whatsappSettingsSchema = z.object({
+  whatsappPhoneNumberId: z
+    .string()
+    .trim()
+    .regex(/^\d{5,30}$/, "Enter the numeric phone number ID from Meta"),
+  whatsappAccessToken: z
+    .string()
+    .trim()
+    .max(1000, "Keep this under 1000 characters")
+    .optional()
+    .or(z.literal("")),
+  whatsappTemplateName: z
+    .string()
+    .trim()
+    .regex(
+      /^[a-z0-9_]{1,512}$/,
+      "Use lowercase letters, numbers and underscores, exactly as in WhatsApp Manager"
+    ),
+  whatsappTemplateLanguage: z
+    .string()
+    .trim()
+    .regex(/^[a-z]{2,3}(_[A-Z]{2})?$/, "Enter a language code like en or en_US"),
+});
+
+export type WhatsAppSettingsInput = z.infer<typeof whatsappSettingsSchema>;
+
+/**
+ * Owner-only messaging provider settings (Settings -> Chat & messaging,
+ * `canManageMessagingSettings`) — which backend the company may use for chat.
+ * `Native` is the in-app database chat; `Google` adds Google Chat as a backend;
+ * `Both` lets employees pick per conversation. A company on `Google`/`Both`
+ * without a linked Workspace (`googleChatEnabled: false`) silently falls back
+ * to `Native`, matching the convention used for email/WhatsApp keys.
+ */
+export const messagingSettingsSchema = z.object({
+  messagingProvider: z.enum(["Native", "Google", "Both"]),
+  googleChatEnabled: z.boolean(),
+});
+
+export type MessagingSettingsInput = z.infer<typeof messagingSettingsSchema>;

@@ -55,7 +55,7 @@ const FAILURE_MESSAGES = {
     "Add a mobile number with its country code, save, then send the test.",
   channel_off: "Turn WhatsApp on and save before sending a test message.",
   not_configured:
-    "WhatsApp is not set up on this server yet. Ask an administrator to finish the Meta configuration.",
+    "WhatsApp is not set up for your company yet. Ask the owner to add the Meta credentials under Settings → WhatsApp delivery.",
   failed: "Could not send the message. Check the number and try again.",
 } as const;
 

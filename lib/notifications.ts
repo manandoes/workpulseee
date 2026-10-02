@@ -148,6 +148,12 @@ const CHANNELS_BY_TYPE: Record<
    */
   VaultAccessRequested: ["InApp", "Push"],
   VaultAccessDecided: ["InApp", "Push", "Email", "WhatsApp"],
+  /**
+   * A new message in a chat conversation. In-app and push only — email and
+   * WhatsApp would be noisy for every chat message. The notification links to
+   * the conversation so the user can jump straight into the thread.
+   */
+  ChatMessage: ["InApp", "Push"],
 };
 
 /**

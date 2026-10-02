@@ -244,6 +244,9 @@ enum NotificationType {
   /// A vault access request was approved or rejected, or approved access was
   /// revoked - sent to the person who asked.
   VaultAccessDecided
+  /// A new message arrived in a chat conversation. Used by both Native and
+  /// Google Chat — the provider is stored on the `Conversation` row, not here.
+  ChatMessage
 }
 
 /// Where one person's access to one client credential stands (Plan: client
@@ -262,6 +265,18 @@ enum CredentialAccessStatus {
 enum MeetingStatus {
   Scheduled
   Cancelled
+}
+
+/// Which backend a conversation's messages live in. `Native` is the existing
+/// in-app database chat; `Google` routes through the Google Chat API with
+/// Google as the authoritative store. On `Company.messagingProvider`, `Both`
+/// lets employees pick per conversation; on a `Conversation` row it records
+/// the provider that conversation was actually created with and never changes,
+/// so switching the company default never rewrites existing conversations.
+enum MessagingProvider {
+  Native
+  Google
+  Both
 }
 
 /// Tenant root. Every other model in the schema hangs off this.
@@ -328,6 +343,41 @@ model Company {
   emailProvider        String?
   emailFromAddress     String?
   emailApiKeyEncrypted String?
+
+  /// Owner-configured Meta WhatsApp Business Cloud API credentials, used for
+  /// WhatsApp notifications instead of the global WHATSAPP_* env vars once
+  /// set - same convention as the email columns above, so every message is
+  /// billed to the company's own Meta account. The access token is
+  /// AES-256-GCM encrypted (`lib/company-whatsapp-config.ts`). Template name
+  /// and language fall back to the defaults when null. Editable by Owner only
+  /// (`canManageWhatsAppSettings`) at `/settings`.
+  whatsappPhoneNumberId        String?
+  whatsappAccessTokenEncrypted String?
+  whatsappTemplateName         String?
+  whatsappTemplateLanguage     String?
+
+  /// Which messaging backend this company may use (Plan: dual messaging
+  /// providers). `Native` is today's behaviour; `Google` adds the Google
+  /// Chat backend; `Both` lets each employee pick per conversation.
+  /// Defaults to `Native` so every existing organization keeps working
+  /// unchanged. Editable by Owner/Admin only (canManageMessagingSettings)
+  /// at /settings.
+  messagingProvider MessagingProvider @default(Native)
+  /// Whether this company has a linked, authorized Google Chat backend.
+  /// A company on `Google`/`Both` with this false falls back to `Native`
+  /// rather than failing — the same graceful-degradation convention as
+  /// `emailApiKeyEncrypted`.
+  googleChatEnabled Boolean @default(false)
+
+  /// AES-256-GCM encrypted Google OAuth refresh token for the company-level
+  /// chat connection (stored by `lib/company-google-chat-config.ts`). Null
+  /// when no connection exists yet — the UI then shows a "Connect" button.
+  googleChatRefreshTokenEncrypted String?
+  /// The Google email address that completed the OAuth flow, kept for display
+  /// in settings. Null until the first successful connect.
+  googleChatConnectedByEmail String?
+  /// When the company-level Google Chat connection was established.
+  googleChatConnectedAt DateTime?
 
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
@@ -1747,6 +1797,19 @@ model Conversation {
 
   participants ConversationParticipant[]
   messages     ChatMessage[]
+
+  /// The backend this conversation actually lives in. Records the provider it
+  /// was created with and is deliberately never changed by a default-provider
+  /// switch — existing conversations keep their original provider (Plan:
+  /// provider switching and conversation integrity). `Native` conversations
+  /// store messages in `ChatMessage`; `Google` conversations point at a Google
+  /// Chat space via `googleSpaceId` and keep no message bodies here.
+  provider MessagingProvider @default(Native)
+
+  /// The Google Chat space id for a `Google` conversation. Null for `Native`
+  /// conversations. Set when the space is created; never persisted per-message
+  /// here because Google remains the authoritative store for Google messages.
+  googleSpaceId String?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

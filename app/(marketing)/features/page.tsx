@@ -8,6 +8,16 @@ export const metadata: Metadata = {
   description:
     "Company dashboard, employee management, tasks and projects, workload intelligence, performance tracking, employee requests, and client financials.",
   alternates: { canonical: "/features" },
+  openGraph: {
+    images: [
+      {
+        url: "https://workpulse.automovalabs.tech/workpulse-mark.png",
+        width: 1200,
+        height: 630,
+        alt: "WorkPulse features overview",
+      },
+    ],
+  },
 };
 
 export default function FeaturesPage() {

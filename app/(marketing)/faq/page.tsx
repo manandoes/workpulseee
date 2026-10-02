@@ -7,6 +7,16 @@ export const metadata: Metadata = {
   description:
     "Answers about data isolation, employee visibility, inviting your team, and how company and employee logins differ.",
   alternates: { canonical: "/faq" },
+  openGraph: {
+    images: [
+      {
+        url: "https://workpulse.automovalabs.tech/workpulse-mark.png",
+        width: 1200,
+        height: 630,
+        alt: "WorkPulse frequently asked questions",
+      },
+    ],
+  },
 };
 
 export default function FaqPage() {

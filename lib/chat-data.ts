@@ -3,6 +3,13 @@ import { scopedWhere } from "@/lib/tenant";
 import type { SessionActor } from "@/lib/permissions";
 import { LEVEL_LABELS } from "@/lib/permission-grants";
 import { chatMessageCutoff, conversationPreview, otherParticipant } from "@/lib/chat";
+import { createChatSpace } from "@/lib/google-chat";
+import { loadGoogleChatConfig } from "@/lib/company-google-chat-config";
+import { hasUnreadMessages } from "@/lib/google-chat";
+
+/** How many minutes of unread history to show for a Google conversation before
+ * we stop polling and tell the user to check Google Chat directly. */
+const GOOGLE_UNREAD_HOURS = 72;
 
 /**
  * Database access for chat (Phase 11).
@@ -69,10 +76,17 @@ export type ConversationResolution =
  * The 1:1 conversation between the actor and `target`, creating it if this is
  * their first message to each other. Refused if the target does not exist in
  * the actor's own company, or is the actor themself.
+ *
+ * When `provider` is specified (Native|Google), the conversation row is created
+ * with that provider value. For Google conversations, a Google Chat space is
+ * created (if the company has connected Google Chat) and the `googleSpaceId`
+ * is stored. If the Google API call fails, the conversation is still created
+ * as `Native` so the user is not blocked.
  */
 export async function findOrCreateConversation(
   actor: SessionActor,
-  target: ChatTarget
+  target: ChatTarget,
+  provider?: "Native" | "Google"
 ): Promise<ConversationResolution> {
   if (isTargetTheActor(actor, target)) {
     return { ok: false, message: "You cannot message yourself.", status: 400 };
@@ -94,14 +108,38 @@ export async function findOrCreateConversation(
         { participants: { some: target } },
       ],
     },
-    select: { id: true },
+    select: { id: true, provider: true },
   });
 
   if (existing) return { ok: true, conversationId: existing.id };
 
+  // Use the requested provider (Native|Google); falls back to Native when
+  // omitted or invalid — the caller (route handler) already resolved the
+  // effective provider before invoking this function.
+  const resolvedProvider =
+    provider === "Google" ? "Google" : "Native";
+
+  // For Google conversations, try to create a space. If it fails, fall back
+  // to Native so the user is never blocked from starting a conversation.
+  let googleSpaceId: string | undefined = undefined;
+  if (resolvedProvider === "Google") {
+    const spaceName = await resolveSpaceName(actor, target);
+    const spaceId = await createGoogleChatSpace(actor.companyId, spaceName);
+    if (spaceId) {
+      googleSpaceId = spaceId;
+    } else {
+      // Google Chat is unavailable — fall back to Native silently.
+      console.warn(
+        `[chat] Google Chat space creation failed for conversation ${actor.companyId}, falling back to Native`
+      );
+    }
+  }
+
   const created = await db.conversation.create({
     data: {
       companyId: actor.companyId,
+      provider: resolvedProvider,
+      ...(googleSpaceId ? { googleSpaceId } : {}),
       participants: {
         create: [
           { companyId: actor.companyId, ...actorColumn(actor) },
@@ -149,6 +187,10 @@ export type LoadedConversation = {
    * see `conversationPreview` (`body` alone would render blank for one). */
   lastMessage: { body: string; preview: string; createdAt: Date } | null;
   unread: boolean;
+  /** Which backend this conversation lives in: `Native` (DB-stored) or
+   * `Google` (Google Chat space). Shown as a small icon beside the
+   * conversation in the sidebar so the user knows where their messages go. */
+  provider: "Native" | "Google";
 };
 
 /** The actor's conversations, most recently active first. */
@@ -163,6 +205,8 @@ export async function loadConversations(
     orderBy: { updatedAt: "desc" },
     select: {
       id: true,
+      provider: true,
+      googleSpaceId: true,
       participants: { select: participantSelect },
       messages: {
         orderBy: { createdAt: "desc" },
@@ -188,7 +232,9 @@ export async function loadConversations(
     self.map((row) => [row.conversationId, row.lastReadAt])
   );
 
-  return rows.map((row) => {
+  // For Google conversations, we need to check the Google Chat API for unread status
+  // since messages aren't stored in our database. This is async per conversation.
+  const enrichedRows = await Promise.all(rows.map(async (row) => {
     const other = otherParticipant(row.participants, actor);
     const rawLastMessage = row.messages[0] ?? null;
     const lastMessage = rawLastMessage
@@ -203,17 +249,36 @@ export async function loadConversations(
       : null;
     const lastReadAt = lastReadByConversation.get(row.id) ?? null;
 
+    // For Google conversations, check the Google Chat API for unread status
+    let unread = false;
+    if (row.provider === "Google" && row.googleSpaceId) {
+      if (lastReadAt === null) {
+        unread = true;
+      } else {
+        unread = await hasUnreadMessages(
+          actor.companyId,
+          row.googleSpaceId,
+          lastReadAt
+        );
+      }
+    } else {
+      unread = Boolean(
+        lastMessage && (!lastReadAt || lastMessage.createdAt > lastReadAt)
+      );
+    }
+
     return {
       id: row.id,
+      provider: row.provider === "Google" ? ("Google" as const) : ("Native" as const),
       other: other
         ? participantDisplay(other)
-        : { kind: "employee", id: "", name: "Removed member", avatarUrl: null },
+        : { kind: "employee" as const, id: "", name: "Removed member", avatarUrl: null },
       lastMessage,
-      unread: Boolean(
-        lastMessage && (!lastReadAt || lastMessage.createdAt > lastReadAt)
-      ),
+      unread,
     };
-  });
+  }));
+
+  return enrichedRows;
 }
 
 export type LoadedChatMessage = {
@@ -443,6 +508,36 @@ export async function cleanupExpiredChatMessages(
   now: Date = new Date()
 ): Promise<number> {
   return deleteExpiredMessages({ createdAt: { lt: chatMessageCutoff(now) } });
+}
+
+/** Build a human-readable space name for a new Google Chat conversation. */
+function resolveSpaceName(
+  actor: SessionActor,
+  target: ChatTarget
+): Promise<string> {
+  if ("employeeId" in target) {
+    return db.employee.findUnique({
+      where: { id: target.employeeId },
+      select: { fullName: true },
+    }).then((e) => `${actor.accountType === "employee" ? "You" : "Account"} & ${e?.fullName ?? "Someone"}`);
+  }
+  return db.companyAccount.findUnique({
+    where: { id: target.accountId },
+    select: { fullName: true },
+  }).then((a) => `${actor.accountType === "employee" ? "You" : "Account"} & ${a?.fullName ?? "Someone"}`);
+}
+
+/**
+ * Create a Google Chat space for a conversation, falling back to null on any
+ * failure so the conversation still gets created as Native.
+ */
+async function createGoogleChatSpace(
+  companyId: string,
+  spaceName: string
+): Promise<string | null> {
+  const config = await loadGoogleChatConfig(companyId);
+  if (!config) return null;
+  return createChatSpace(companyId, spaceName, "MULTI_USER_DM");
 }
 
 export type ChatDirectoryEntry = {

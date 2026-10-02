@@ -33,6 +33,7 @@ import {
   sendEmail,
 } from "@/lib/mailer";
 import { loadEmailConfig } from "@/lib/company-email-config";
+import { loadWhatsAppConfig } from "@/lib/company-whatsapp-config";
 import { sendWhatsApp } from "@/lib/whatsapp";
 import { sendPush, type PushAction } from "@/lib/push";
 import { paginationMeta, type PaginationMeta } from "@/lib/pagination";
@@ -219,6 +220,7 @@ const EMAIL_SUBJECTS: Record<NotificationType, string> = {
   LogoutReminder: "You're still logged in",
   VaultAccessRequested: "Someone requested client credentials",
   VaultAccessDecided: "Your client credential access changed",
+  ChatMessage: "You have a new message",
 };
 
 /**
@@ -317,11 +319,14 @@ async function deliver({
           }
 
           case "WhatsApp":
-            await sendWhatsApp({
-              to: person.phone!,
-              recipientName: person.name,
-              message,
-            });
+            await sendWhatsApp(
+              {
+                to: person.phone!,
+                recipientName: person.name,
+                message,
+              },
+              await loadWhatsAppConfig(companyId)
+            );
             return;
 
           case "Push":
@@ -1049,11 +1054,14 @@ export async function sendWhatsAppTest(
     return { ok: false, reason: "no_phone" };
   }
 
-  const result = await sendWhatsApp({
-    to: person.phone,
-    recipientName: person.name,
-    message: whatsappTestMessage(person.phone),
-  });
+  const result = await sendWhatsApp(
+    {
+      to: person.phone,
+      recipientName: person.name,
+      message: whatsappTestMessage(person.phone),
+    },
+    await loadWhatsAppConfig(actor.companyId)
+  );
 
   if (result.delivered) return { ok: true, phone: person.phone };
 
@@ -1218,4 +1226,68 @@ export async function markAllNotificationsRead(
     },
     data: { readAt: new Date() },
   });
+}
+
+/**
+ * Notify all participants of a chat conversation that a new message was sent
+ * (except the sender). Works for both Native and Google Chat conversations —
+ * the provider is irrelevant to the notification itself.
+ *
+ * Accepts `fromMe` so the Google-side send path can re-use this helper while
+ * explicitly suppressing the "your own new message" bell for the sender.
+ */
+export async function notifyChatMessage(params: {
+  companyId: string;
+  conversationId: string;
+  senderId: string;
+  senderAccountType: "employee" | "company";
+  body: string;
+  /** When true, skip the sender too — used by the Google-side path where
+   * the message is authored here and we only want to ping other participants.
+   */
+  fromMe?: boolean;
+}): Promise<void> {
+  const { companyId, conversationId, senderId, senderAccountType, body, fromMe } = params;
+
+  // Find all participants except the sender.
+  const participantWhere = {
+    conversationId,
+    companyId,
+    NOT: {
+      ...(senderAccountType === "employee"
+        ? { employeeId: senderId }
+        : { accountId: senderId }),
+    },
+  } as const;
+  const participants = await db.conversationParticipant.findMany({
+    where: participantWhere,
+    select: {
+      employeeId: true,
+      accountId: true,
+      lastReadAt: true,
+    },
+  });
+
+  // Create a notification for each participant who hasn't read the message yet.
+  // In a real implementation we'd also check if the participant has the
+  // conversation open or is actively typing.
+  for (const participant of participants) {
+    const recipientEmployeeId = participant.employeeId;
+    const recipientAccountId = participant.accountId;
+
+    // Skip if already read (would be unusual for a new message, but be safe).
+    if (participant.lastReadAt) continue;
+
+    await db.notification.create({
+      data: {
+        companyId,
+        ...(recipientEmployeeId
+          ? { recipientEmployeeId }
+          : { recipientAccountId: recipientAccountId! }),
+        type: "ChatMessage",
+        message: body.length > 100 ? body.slice(0, 100) + "…" : body,
+        link: `/chat/${conversationId}`,
+      },
+    });
+  }
 }
