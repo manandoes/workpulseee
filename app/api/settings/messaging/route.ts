@@ -57,7 +57,7 @@ export async function POST() {
     return forbidden("Only the owner can change messaging settings.");
   }
 
-  const redirectUri = `${process.env.NEXTAUTH_URL ?? "http://localhost:3000"}${process.env.NEXTAUTH_URL ?? "http://localhost:3000"}/api/settings/messaging/callback`;
+  const redirectUri = `${process.env.NEXTAUTH_URL ?? "http://localhost:3000"}/api/settings/messaging/callback`;
   const statePayload = signOAuthState({
     actorId: actor.id,
     companyId: actor.companyId,

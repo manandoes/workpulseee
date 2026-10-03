@@ -16,13 +16,12 @@ config();
 // .env.example). DIRECT_URL is that connection; it falls back to
 // DATABASE_URL so local dev against an unpooled Postgres (e.g. the
 // docker-compose database) needs nothing extra set.
+//
+// Note: `prisma generate` does NOT need a live connection, so the datasource
+// URL is intentionally optional here. The `prisma migrate deploy` step in
+// the build script will fail with a clear error if the URL is still missing
+// at build time, giving us early feedback on misconfigured deployments.
 const datasourceUrl = process.env["DIRECT_URL"] ?? process.env["DATABASE_URL"];
-
-if (!datasourceUrl) {
-  throw new Error(
-    "DIRECT_URL or DATABASE_URL is not set. Copy .env.example to .env.local and configure it."
-  );
-}
 
 export default defineConfig({
   schema: "prisma/schema.prisma",
