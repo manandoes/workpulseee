@@ -22,10 +22,10 @@
     "db:studio": "prisma studio",
     "db:up": "docker compose up -d",
     "db:down": "docker compose down",
-    "db:seed:demo": "tsx scripts/seed-demo-company.ts",
-    "db:seed:hiring": "tsx scripts/seed-hiring-demo.ts",
-    "db:seed:smoke": "tsx scripts/smoke-hiring-submit.ts",
-    "db:seed:prod": "tsx scripts/seed-demo-company.ts --force"
+    "db:seed:demo": "npx tsx scripts/seed-demo-company.ts",
+    "db:seed:hiring": "npx tsx scripts/seed-hiring-demo.ts",
+    "db:seed:smoke": "npx tsx scripts/smoke-hiring-submit.ts",
+    "db:seed:prod": "npx tsx scripts/seed-demo-company.ts --force"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.9.1",
