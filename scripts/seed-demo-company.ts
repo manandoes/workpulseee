@@ -12,19 +12,19 @@
  * before recreating it, so you can safely run this again after tweaking it.
  *
  * Run with:
- *   npx tsx scripts/seed-demo-company.ts
+ *   npx tsx scripts/seed-demo-company.ts              # local docker only (default)
+ *   npx tsx scripts/seed-demo-company.ts --force       # allow hosted/prod DB
  *
  * Every login uses the password: Demo@1234
  *
  * ─────────────────────────────────────────────────────────────────────────────
- * SAFETY: This script is explicitly BLOCKED from running against a hosted/
- * production database. It only touches seed-demo-company.ts's DATABASE_URL,
- * which must point at a local Postgres (the docker-compose container). Running
- * against a hosted DB (Supabase, Railway, Neon, etc.) would destroy real
- * customer data — that is the bug this app keeps hitting, and this guard is
- * the prevention.
+ * SAFETY: Against a hosted database (Supabase, Railway, Neon, etc.) this script
+ * deletes the previous demo company and recreates it. It is safe because the
+ * demo slug is reserved and never touches real customer data — but you must
+ * opt in with --force to prove you meant it. Running against the wrong DB is
+ * the bug this app has hit before, so the guard is the default.
  *
- * See .env for the local connection string.
+ * See .env for the connection string.
  * ─────────────────────────────────────────────────────────────────────────────
  */
 import { config } from "dotenv";
@@ -37,18 +37,17 @@ import { hashPassword } from "../lib/passwords";
 const DEMO_SLUG = "nimbus-creative-demo";
 const PASSWORD = "Demo@1234";
 
+// --force is parsed before dotenv is even loaded, so process.argv is read raw.
+const FORCE = process.argv.includes("--force");
+
 const connectionString = process.env.DATABASE_URL;
 if (!connectionString) {
   throw new Error(
-    "DATABASE_URL is not set. Check .env — it must point at the local docker-compose Postgres (localhost:5432), not a hosted provider."
+    "DATABASE_URL is not set. Check .env — it must point at the docker-compose Postgres (localhost:5434) or the hosted Supabase DB."
   );
 }
 
 // ── Hosted-DB guard ──────────────────────────────────────────────────────────
-// Reject any connection string that targets a known hosted provider. This is
-// the single safety net that prevents the demo-seed script from ever touching
-// a production tenant database. If you need to seed a hosted DB, do it by
-// hand with an explicit --force flag or a separate script — never by accident.
 const HOSTED_DB_PATTERNS = [
   /supabase\.co/i,
   /supabase\.com/i,
@@ -63,18 +62,28 @@ const HOSTED_DB_PATTERNS = [
 
 const dbUrlLower = connectionString.toLowerCase();
 const isHosted = HOSTED_DB_PATTERNS.some((p) => p.test(dbUrlLower));
-if (isHosted) {
+if (isHosted && !FORCE) {
   console.error(
     "[seed-demo-company] ABORT: DATABASE_URL points at a hosted/prod " +
-      "database. This script is unsafe for hosted environments."
+      "database. Pass --force to override this guard."
   );
   console.error("");
   console.error(`  DATABASE_URL = ${connectionString}`);
   console.error("");
-  console.error("To run locally, switch .env to use the docker-compose Postgres:");
+  console.error("Local dev: switch .env to the docker-compose Postgres:");
   console.error('  DATABASE_URL="postgresql://workpulse:workpulse@localhost:5434/workpulse?schema=public"');
   console.error('  DIRECT_URL="postgresql://workpulse:workpulse@localhost:5434/workpulse?schema=public"');
+  console.error("");
+  console.error("Prod seed (hosted DB): run with --force:");
+  console.error("  npx tsx scripts/seed-demo-company.ts --force");
   process.exit(1);
+}
+
+if (isHosted) {
+  console.warn(
+    `[seed-demo-company] WARNING: running against a hosted DB (${connectionString}). ` +
+      "This will delete and recreate the demo company in production."
+  );
 }
 
 const db = new PrismaClient({
