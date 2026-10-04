@@ -76,6 +76,7 @@ These rules define how the AI should behave while building this project. Read th
 
 - All secrets (DB connection string, auth secrets, email API keys, storage keys) go in `.env` and are never committed.
 - `.env.example` should always be kept up to date with the variables the app needs (without real values).
+- `.env` is the only live env file (local dev). On Vercel, set these same variables in the Vercel Environment Variables UI instead.
 
 ## 10. Testing Expectations (v1)
 

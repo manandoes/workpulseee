@@ -9,7 +9,7 @@ import {
 
 describe("company-whatsapp-config", () => {
   beforeAll(() => {
-    // A fixed 32-byte key so these tests don't depend on `.env.local`.
+    // A fixed 32-byte key so these tests don't depend on `.env`.
     process.env.WHATSAPP_CONFIG_ENCRYPTION_KEY = Buffer.alloc(32, 7).toString(
       "base64"
     );

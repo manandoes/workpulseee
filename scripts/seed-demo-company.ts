@@ -24,12 +24,12 @@
  * customer data — that is the bug this app keeps hitting, and this guard is
  * the prevention.
  *
- * See .env.local for the local connection string.
+ * See .env for the local connection string.
  * ─────────────────────────────────────────────────────────────────────────────
  */
 import { config } from "dotenv";
 import { resolve } from "node:path";
-config({ path: resolve(__dirname, "../.env.local") });
+config({ path: resolve(__dirname, "../.env") });
 import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient } from "../lib/generated/prisma/client";
 import { hashPassword } from "../lib/passwords";
@@ -40,7 +40,7 @@ const PASSWORD = "Demo@1234";
 const connectionString = process.env.DATABASE_URL;
 if (!connectionString) {
   throw new Error(
-    "DATABASE_URL is not set. Check .env.local — it must point at the local docker-compose Postgres (localhost:5432), not a hosted provider."
+    "DATABASE_URL is not set. Check .env — it must point at the local docker-compose Postgres (localhost:5432), not a hosted provider."
   );
 }
 
@@ -71,9 +71,9 @@ if (isHosted) {
   console.error("");
   console.error(`  DATABASE_URL = ${connectionString}`);
   console.error("");
-  console.error("To run locally, switch .env.local to use the docker-compose Postgres:");
-  console.error('  DATABASE_URL="postgresql://workpulse:workpulse@localhost:5432/workpulse?schema=public"');
-  console.error('  DIRECT_URL="postgresql://workpulse:workpulse@localhost:5432/workpulse?schema=public"');
+  console.error("To run locally, switch .env to use the docker-compose Postgres:");
+  console.error('  DATABASE_URL="postgresql://workpulse:workpulse@localhost:5434/workpulse?schema=public"');
+  console.error('  DIRECT_URL="postgresql://workpulse:workpulse@localhost:5434/workpulse?schema=public"');
   process.exit(1);
 }
 

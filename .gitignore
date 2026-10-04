@@ -34,7 +34,6 @@ yarn-error.log*
 # env files (never commit real secrets - see Rules.md section 9)
 .env*
 !.env.example
-!.env.production
 
 # vercel
 .vercel

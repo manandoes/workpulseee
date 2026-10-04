@@ -13,7 +13,7 @@
  */
 import { config } from "dotenv";
 import { resolve } from "node:path";
-config({ path: resolve(__dirname, "../.env.local") });
+config({ path: resolve(__dirname, "../.env") });
 import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient } from "../lib/generated/prisma/client";
 

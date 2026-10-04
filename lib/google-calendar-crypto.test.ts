@@ -9,7 +9,7 @@ import {
 
 describe("google-calendar-crypto", () => {
   beforeAll(() => {
-    // A fixed 32-byte key so these tests don't depend on `.env.local`.
+    // A fixed 32-byte key so these tests don't depend on `.env`.
     process.env.GOOGLE_TOKEN_ENCRYPTION_KEY = Buffer.alloc(32, 7).toString(
       "base64"
     );

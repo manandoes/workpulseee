@@ -3,12 +3,11 @@
 import { config } from "dotenv";
 import { defineConfig } from "prisma/config";
 
-// Next.js loads .env.local itself, but the Prisma CLI is a separate process
-// and only auto-loads plain .env — so load .env.local explicitly here (it's
-// the file actually used in this repo; see .env.example). dotenv never
-// overwrites a key already in process.env, so loading .env.local first gives
-// it priority over .env, matching Next.js's own precedence.
-config({ path: ".env.local" });
+// Next.js loads .env itself, but the Prisma CLI is a separate process and
+// doesn't auto-load it — so load .env here. dotenv never overwrites a key
+// already in process.env, so this gives .env priority over any env vars
+// exported by the shell, matching Next.js's own precedence.
+config({ path: ".env" });
 config();
 
 // Prisma Migrate's schema engine needs a real, unpooled connection — it
