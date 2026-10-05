@@ -64,14 +64,16 @@ export function TaskGroup({
   tasks,
   now,
   emptyText,
+  id,
 }: {
   title: string;
   tasks: MyWorkTask[];
   now: Date;
   emptyText: string;
+  id?: string;
 }) {
   return (
-    <div className="flex flex-col gap-3">
+    <div className="flex flex-col gap-3" id={id}>
       <h2 className="text-h3 text-brand-brown font-semibold">{title}</h2>
       {tasks.length === 0 ? (
         <p className="text-text-secondary text-meta">{emptyText}</p>

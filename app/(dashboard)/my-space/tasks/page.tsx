@@ -4,8 +4,8 @@ import { getActor } from "@/lib/auth";
 import { loadMyTasks, type MyWorkTask } from "@/lib/my-work-data";
 import { MY_TASK_BUCKETS, myTaskBucket, type MyTaskBucket } from "@/lib/tasks";
 import { EmptyState, PageHeader } from "@/components/dashboard/page-header";
-import { MetricTile } from "@/components/dashboard/metric-tile";
 import { TaskGroup } from "@/components/my-space/my-tasks";
+import { MyTasksStats } from "@/components/my-space/my-tasks-stats";
 
 export const metadata: Metadata = { title: "My Tasks" };
 
@@ -45,19 +45,11 @@ export default async function MyTasksPage() {
       {tasks.length === 0 ? (
         <EmptyState
           title="No tasks assigned yet"
-          description="When a manager allots you a task it will show up here."
+          description="When a manager allotts you a task it will show up here."
         />
       ) : (
         <>
-          <div className="grid grid-cols-2 gap-4 sm:grid-cols-5">
-            {MY_TASK_BUCKETS.map((bucket) => (
-              <MetricTile
-                key={bucket}
-                label={BUCKET_COPY[bucket].title}
-                value={String(buckets[bucket].length)}
-              />
-            ))}
-          </div>
+          <MyTasksStats tasks={tasks} now={now} />
 
           <div className="flex flex-col gap-6">
             {MY_TASK_BUCKETS.map((bucket) => (
@@ -67,6 +59,7 @@ export default async function MyTasksPage() {
                 tasks={buckets[bucket]}
                 now={now}
                 emptyText={BUCKET_COPY[bucket].empty}
+                id={`task-bucket-${bucket}`}
               />
             ))}
           </div>

@@ -48,7 +48,13 @@ const DAY_PART_OPTIONS = LEAVE_DAY_PARTS.map((dayPart) => ({
   label: dayPartLabel(dayPart),
 }));
 
-export function RequestForm() {
+export function RequestForm({
+  prefillDate,
+  prefillType,
+}: {
+  prefillDate?: string;
+  prefillType?: "Leave" | "WFH";
+} = {}) {
   const router = useRouter();
   const [formError, setFormError] = useState<string | null>(null);
   const [approvers, setApprovers] = useState<ApproverOption[]>([]);
@@ -68,11 +74,11 @@ export function RequestForm() {
   } = useForm<CreateRequestInput>({
     resolver: zodResolver(createRequestSchema),
     defaultValues: {
-      type: "Leave",
+      type: prefillType ?? "Leave",
       subject: "",
       description: "",
-      startDate: "",
-      endDate: "",
+      startDate: prefillDate ?? "",
+      endDate: prefillDate ?? "",
       dayPart: "FullDay",
       amount: "",
       requestedApproverAccountId: "",

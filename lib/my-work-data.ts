@@ -10,6 +10,8 @@ import type {
   TaskPriority,
   TaskStatus,
 } from "@/lib/generated/prisma/enums";
+import { buildAttendanceDays, type DayLeaveWindow } from "@/lib/attendance-days";
+import { dayKeyInZone } from "@/lib/timezone";
 
 /**
  * Database access for "My Work" (Phases.md Phase 10 — the employee
@@ -143,6 +145,160 @@ const MY_TASK_SELECT = {
     select: { id: true, label: true, url: true, fileId: true },
   },
 } as const;
+
+/**
+ * Everything the My Work calendar needs: attendance sessions + breaks for the
+ * current month (widened by one day on each side so a session that crosses a
+ * midnight is bucketed correctly), approved Leave/WFH requests mapped to day
+ * windows, company timezone, today's date, and per-day task stats (completed
+ * and due on each day) scoped to the same month.
+ */
+
+export type MonthRange = { fromDayKey: string; toDayKey: string };
+
+export type DayTaskStats = {
+  /** Tasks this employee finished on this day (status moved to Done). */
+  doneCount: number;
+  /** Open tasks with dueDate landing on this day. */
+  dueCount: number;
+};
+
+export type MyWorkCalendarData = {
+  /** Attendance sessions for the month, already widened by one day on each
+   * side so `buildAttendanceDays` can bucket them correctly. */
+  sessions: { clockInAt: Date; clockOutAt: Date | null }[];
+  breaks: { startedAt: Date; endedAt: Date | null }[];
+  /** Approved Leave/WFH requests covering any day in the month. */
+  leaveWindows: DayLeaveWindow[];
+  timeZone: string;
+  /** ISO `YYYY-MM-DD` for today in the company's zone. */
+  todayKey: string;
+  /** The first and last `YYYY-MM-DD` of the requested month. */
+  range: MonthRange;
+  /** Per-day task stats keyed by `YYYY-MM-DD`. */
+  dayTasks: Map<string, DayTaskStats>;
+};
+
+/**
+ * Loads everything the attendance calendar on My Work needs for one month.
+ *
+ * `fromDayKey`/`toDayKey` are inclusive bounds in the company's zone. The
+ * attendance rows are widened by one day on each side so `buildAttendanceDays`
+ * can bucket sessions that cross a midnight correctly — the same reasoning
+ * `loadPerformanceBreakdown` follows.
+ */
+export async function loadMyWorkCalendarData(
+  actor: SessionActor,
+  now: Date,
+  range: MonthRange
+): Promise<MyWorkCalendarData> {
+  const { fromDayKey, toDayKey } = range;
+  const widenedFrom = new Date(`${fromDayKey}T00:00:00.000Z`);
+  const widenedTo = new Date(`${toDayKey}T23:59:59.999Z`);
+
+  const [company, sessions, leaveRequests, completedTasks, dueTasks] =
+    await Promise.all([
+      db.company.findUniqueOrThrow({
+        where: { id: actor.companyId },
+        select: { timeZone: true },
+      }),
+      db.attendanceRecord.findMany({
+        where: {
+          companyId: actor.companyId,
+          ...(actor.accountType === "employee"
+            ? { employeeId: actor.id }
+            : { accountId: actor.id }),
+          clockInAt: { gte: new Date(widenedFrom.getTime() - 86_400_000) },
+        },
+        select: {
+          clockInAt: true,
+          clockOutAt: true,
+          breaks: { select: { startedAt: true, endedAt: true } },
+        },
+      }),
+      db.request.findMany({
+        where: {
+          companyId: actor.companyId,
+          employeeId: actor.id,
+          status: "Approved",
+          type: { in: ["Leave", "WFH"] as const },
+          startDate: { lte: new Date(`${toDayKey}T23:59:59.999Z`) },
+          endDate: { gte: new Date(`${fromDayKey}T00:00:00.000Z`) },
+        },
+        select: { type: true, startDate: true, endDate: true, dayPart: true },
+      }),
+      // Tasks completed in the month — used for per-day "done" counts.
+      db.task.findMany({
+        where: scopedWhere(actor, {
+          assigneeId: actor.id,
+          completedAt: { gte: new Date(`${fromDayKey}T00:00:00.000Z`) },
+        }),
+        select: { completedAt: true },
+      }),
+      // Open tasks with dueDate in the month — used for per-day "due" counts.
+      db.task.findMany({
+        where: scopedWhere(actor, {
+          assigneeId: actor.id,
+          status: { not: "Done" as TaskStatus },
+          dueDate: {
+            gte: new Date(`${fromDayKey}T00:00:00.000Z`),
+            lte: new Date(`${toDayKey}T23:59:59.999Z`),
+          },
+        }),
+        select: { dueDate: true },
+      }),
+    ]);
+
+  const sessionsWithBreaks = sessions.flatMap((s) => ({
+    session: { clockInAt: s.clockInAt, clockOutAt: s.clockOutAt },
+    breaks: s.breaks,
+  }));
+
+  const allSessions = sessionsWithBreaks.map((s) => s.session);
+  const allBreaks = sessionsWithBreaks.flatMap((s) => s.breaks);
+
+  const leaveWindows: DayLeaveWindow[] = leaveRequests
+    .filter((r) => r.startDate !== null && r.endDate !== null)
+    .map((r) => ({
+      type: r.type as "Leave" | "WFH",
+      startDayKey: dayKeyInZone(r.startDate!, company.timeZone),
+      endDayKey: dayKeyInZone(r.endDate!, company.timeZone),
+      dayPart: r.dayPart,
+    }));
+
+  const todayKey = dayKeyInZone(now, company.timeZone);
+
+  // Build per-day task stats.
+  const dayTasks = new Map<string, DayTaskStats>();
+
+  for (const task of completedTasks) {
+    if (!task.completedAt) continue;
+    const key = dayKeyInZone(task.completedAt, company.timeZone);
+    const stats = dayTasks.get(key) ?? { doneCount: 0, dueCount: 0 };
+    stats.doneCount += 1;
+    dayTasks.set(key, stats);
+  }
+
+  for (const task of dueTasks) {
+    if (!task.dueDate) continue;
+    const d = task.dueDate instanceof Date ? task.dueDate : new Date(task.dueDate);
+    if (Number.isNaN(d.getTime())) continue;
+    const key = dayKeyInZone(d, company.timeZone);
+    const stats = dayTasks.get(key) ?? { doneCount: 0, dueCount: 0 };
+    stats.dueCount += 1;
+    dayTasks.set(key, stats);
+  }
+
+  return {
+    sessions: allSessions,
+    breaks: allBreaks,
+    leaveWindows,
+    timeZone: company.timeZone,
+    todayKey,
+    range,
+    dayTasks,
+  };
+}
 
 /**
  * Attaches this employee's own timer to each task. A second query rather than

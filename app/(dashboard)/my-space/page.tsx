@@ -6,17 +6,19 @@ import { scopedWhere } from "@/lib/tenant";
 import { canViewProjects } from "@/lib/permissions";
 import { loadMyWork } from "@/lib/my-work-data";
 import {
-  loadMyAttendance,
-  loadOpenBreak,
+  loadMyWorkCalendarData,
+  type MonthRange,
+} from "@/lib/my-work-data";
+import {
   loadOpenSession,
+  loadOpenBreak,
 } from "@/lib/attendance-data";
 import { PageHeader } from "@/components/dashboard/page-header";
-import { MetricTile } from "@/components/dashboard/metric-tile";
-import { WorkloadBar } from "@/components/dashboard/workload-bar";
 import { MyTaskList } from "@/components/my-space/my-tasks";
 import { MyProjectList } from "@/components/my-space/my-projects";
+import { MyWorkStats } from "@/components/my-space/my-work-stats";
 import { AttendanceWidget } from "@/components/attendance/attendance-widget";
-import { AttendanceTable } from "@/components/attendance/attendance-table";
+import { AttendanceCalendar } from "@/components/attendance/attendance-calendar";
 import { Card, CardContent } from "@/components/ui/card";
 
 export const metadata: Metadata = { title: "My Work" };
@@ -34,12 +36,21 @@ export default async function MySpacePage() {
 
   const now = new Date();
   const mayViewProjects = canViewProjects(actor);
-  const [work, openSession, openBreak, attendance, companyProjects] =
+
+  // Build the current month range for the calendar.
+  const year = now.getFullYear();
+  const month = now.getMonth();
+  const monthRange: MonthRange = {
+    fromDayKey: `${year}-${String(month + 1).padStart(2, "0")}-01`,
+    toDayKey: `${year}-${String(month + 1).padStart(2, "0")}-${new Date(year, month + 1, 0).getDate()}`,
+  };
+
+  const [work, openSession, openBreak, calendarData, companyProjects] =
     await Promise.all([
       loadMyWork(actor),
       loadOpenSession(actor),
       loadOpenBreak(actor),
-      loadMyAttendance(actor),
+      loadMyWorkCalendarData(actor, now, monthRange),
       mayViewProjects
         ? db.project.findMany({
             where: scopedWhere(actor, {}),
@@ -77,19 +88,12 @@ export default async function MySpacePage() {
         </CardContent>
       </Card>
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-        <Card>
-          <CardContent className="flex flex-col gap-1 py-2">
-            <p className="text-text-secondary text-meta">Workload</p>
-            <WorkloadBar percent={work.workloadPercent} />
-          </CardContent>
-        </Card>
-        <MetricTile label="Open tasks" value={String(work.tasks.length)} />
-        <MetricTile
-          label="Current projects"
-          value={String(work.projects.length)}
-        />
-      </div>
+      <MyWorkStats
+        tasks={work.tasks}
+        projects={work.projects}
+        workloadPercent={work.workloadPercent}
+        now={now}
+      />
 
       <MyTaskList tasks={work.tasks} now={now} />
 
@@ -101,9 +105,11 @@ export default async function MySpacePage() {
       </div>
 
       <Card>
-        <CardContent className="flex flex-col gap-4 py-2">
-          <h2 className="text-h3 text-brand-brown font-semibold">Attendance</h2>
-          <AttendanceTable records={attendance} now={now} />
+        <CardContent className="py-2">
+          <AttendanceCalendar
+            data={calendarData}
+            todayKey={calendarData.todayKey}
+          />
         </CardContent>
       </Card>
 
