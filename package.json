@@ -25,7 +25,9 @@
     "db:seed:demo": "npx tsx scripts/seed-demo-company.ts",
     "db:seed:hiring": "npx tsx scripts/seed-hiring-demo.ts",
     "db:seed:smoke": "npx tsx scripts/smoke-hiring-submit.ts",
-    "db:seed:prod": "npx tsx scripts/seed-demo-company.ts --force"
+    "db:seed:prod": "npx tsx scripts/seed-demo-company.ts --force",
+    "db:verify": "npx tsx scripts/verify-db.ts",
+    "db:verify:fix": "npx tsx scripts/verify-db.ts --fix"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.9.1",
