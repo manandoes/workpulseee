@@ -4,6 +4,7 @@ import type { MyWorkTask } from "@/lib/my-work-data";
 import { useState } from "react";
 import { WorkloadDetailDialog } from "@/components/my-space/workload-detail-dialog";
 import { TasksDialog } from "@/components/my-space/tasks-dialog";
+import { ProjectsDialog } from "@/components/my-space/projects-dialog";
 import { MetricTile } from "@/components/dashboard/metric-tile";
 import { WorkloadBar } from "@/components/dashboard/workload-bar";
 
@@ -25,6 +26,7 @@ export function MyWorkStats({
 }) {
   const [workloadOpen, setWorkloadOpen] = useState(false);
   const [tasksOpen, setTasksOpen] = useState(false);
+  const [projectsOpen, setProjectsOpen] = useState(false);
 
   return (
     <>
@@ -46,6 +48,7 @@ export function MyWorkStats({
         <MetricTile
           label="Current projects"
           value={String(projects.length)}
+          onClick={() => setProjectsOpen(true)}
         />
       </div>
 
@@ -62,6 +65,11 @@ export function MyWorkStats({
         bucket="inProgress"
         tasks={tasks.filter((t) => t.status === "InProgress")}
         now={now}
+      />
+      <ProjectsDialog
+        open={projectsOpen}
+        onOpenChange={setProjectsOpen}
+        projects={projects}
       />
     </>
   );
