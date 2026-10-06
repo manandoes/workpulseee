@@ -191,7 +191,7 @@ function TaskPreviewCard({
             className={`text-meta ${
               task.status === "Todo"
                 ? "text-text-secondary"
-                : task.status === "In Progress"
+                : task.status === "InProgress"
                   ? "text-success"
                   : "text-text-secondary"
             }`}

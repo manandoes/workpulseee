@@ -48,17 +48,17 @@ async function main() {
   );
 
   // ── 1. Migration log summary ──────────────────────────────────────────────
-  const status = await db.$queryRaw<{
+  const status = await db.$queryRaw<Array<{
     migrations_count: number;
     applied_count: number;
-  }>`
+  }>>`
     SELECT
       COUNT(*) AS migrations_count,
       COUNT(CASE WHEN finished_at IS NOT NULL THEN 1 END) AS applied_count
     FROM "_prisma_migrations"
   `;
-  const totalMigs = (status[0] as any).migrations_count;
-  const appliedMigs = (status[0] as any).applied_count;
+  const totalMigs = status[0].migrations_count;
+  const appliedMigs = status[0].applied_count;
   console.log(`Migration log: ${appliedMigs}/${totalMigs} applied`);
 
   // ── 2. Scan actual DB columns per table ───────────────────────────────────
@@ -82,7 +82,7 @@ async function main() {
   // Relation fields (e.g. `Company.accounts Company[]`) are NOT DB columns —
   // skip them by collecting all model names first and filtering them out.
   const schema = readFileSync(resolve(__dirname, "../prisma/schema.prisma"), "utf8");
-  const tableBlocks = schema.match(/model\s+\w+\s*\{[^}]*\}/gs) ?? [];
+  const tableBlocks = schema.match(/model\s+\w+\s*\{[^}]*\}/g) ?? [];
 
   // Collect all model names so we can distinguish relations from columns.
   const modelNames = new Set(

@@ -60,7 +60,7 @@ export function MyWorkStats({
         open={tasksOpen}
         onOpenChange={setTasksOpen}
         bucket="inProgress"
-        tasks={tasks.filter((t) => t.status === "In Progress")}
+        tasks={tasks.filter((t) => t.status === "InProgress")}
         now={now}
       />
     </>

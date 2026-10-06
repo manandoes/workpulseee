@@ -103,7 +103,7 @@ function TaskRow({ task, now }: { task: MyWorkTask; now: Date; }) {
             className={`text-meta ${
               task.status === "Todo"
                 ? "text-text-secondary"
-                : task.status === "In Progress"
+                : task.status === "InProgress"
                   ? "text-success"
                   : "text-text-secondary"
             }`}
