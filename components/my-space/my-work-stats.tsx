@@ -1,6 +1,6 @@
 "use client";
 
-import type { MyWorkTask } from "@/lib/my-work-data";
+import type { MyWorkTask, MyWorkProject } from "@/lib/my-work-data";
 import { useState } from "react";
 import { WorkloadDetailDialog } from "@/components/my-space/workload-detail-dialog";
 import { TasksDialog } from "@/components/my-space/tasks-dialog";
@@ -20,7 +20,7 @@ export function MyWorkStats({
   now,
 }: {
   tasks: MyWorkTask[];
-  projects: { id: string; name: string; status: string; client: { name: string } }[];
+  projects: MyWorkProject[];
   workloadPercent: number | null;
   now: Date;
 }) {
