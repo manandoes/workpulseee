@@ -32,7 +32,7 @@ export const metadata: Metadata = {
     description: SITE_DESCRIPTION,
     images: [
       {
-        url: `${SITE_URL}/workpulse-mark.png`,
+        url: `${SITE_URL}/workpulsetlm.jpeg`,
         width: 1200,
         height: 630,
         alt: `${SITE_NAME} — Agency Operations Dashboard`,
@@ -43,7 +43,7 @@ export const metadata: Metadata = {
     card: "summary_large_image",
     title: `${SITE_NAME} — Agency Operations & Employee Management`,
     description: SITE_DESCRIPTION,
-    images: [`${SITE_URL}/workpulse-mark.png`],
+    images: [`${SITE_URL}/workpulsetlm.jpeg`],
   },
   verification: {
     google: process.env.GOOGLE_SITE_VERIFICATION,
