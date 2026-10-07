@@ -137,8 +137,7 @@ export async function POST(request: NextRequest) {
       select: { id: true, fullName: true, workEmail: true, role: true },
     });
 
-    const baseUrl = process.env.NEXTAUTH_URL ?? request.nextUrl.origin;
-    const inviteUrl = buildInviteUrl(baseUrl, token);
+    const inviteUrl = buildInviteUrl(request.nextUrl.origin, token);
 
     // Same template fallback as the employee invite — see `buildInviteEmail`.
     const { subject, text, attachments } = await buildInviteEmail(

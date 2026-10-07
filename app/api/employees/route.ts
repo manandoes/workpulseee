@@ -170,8 +170,7 @@ export async function POST(request: NextRequest) {
       select: { id: true, fullName: true, companyEmail: true, status: true },
     });
 
-    const baseUrl = process.env.NEXTAUTH_URL ?? request.nextUrl.origin;
-    const inviteUrl = buildInviteUrl(baseUrl, token);
+    const inviteUrl = buildInviteUrl(request.nextUrl.origin, token);
 
     // Falls back to `inviteEmailBody` when the company has not customised the
     // invite (Plan: editable invite template), so this path is unchanged for
