@@ -204,11 +204,7 @@ export default async function DashboardLayout({ children }: LayoutProps<"/">) {
           </div>
 
           <div className="flex flex-col gap-3">
-            <BrandMark
-              className="px-1.5"
-              logoBoxClassName="size-9"
-              labelClassName="text-body hidden font-medium group-hover:inline-block"
-            />
+            <BrandMark className="px-1.5" />
             <SignOutButton labelClassName="hidden group-hover:inline-block" />
           </div>
         </aside>
@@ -230,7 +226,7 @@ export default async function DashboardLayout({ children }: LayoutProps<"/">) {
             spacing tightens, so the bar fits down to a 320px screen. */}
           <header className="border-border bg-surface flex items-center justify-between gap-1 border-b px-4 py-3 sm:gap-4 sm:px-6 print:hidden">
             <div className="md:hidden">
-              <BrandMark labelClassName="sr-only sm:not-sr-only" />
+              <BrandMark />
             </div>
             <div className="ml-auto flex items-center gap-1 sm:gap-3">
               {/* Plan: client vault — every actor gets the key; what it
