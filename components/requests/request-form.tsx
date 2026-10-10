@@ -22,6 +22,7 @@ import {
   requestNeedsAmount,
   requestNeedsDateRange,
   requestNeedsDayPart,
+  requestNeedsFiles,
 } from "@/lib/requests";
 import {
   createRequestSchema,
@@ -90,6 +91,7 @@ export function RequestForm({
   const needsDateRange = requestNeedsDateRange(type);
   const needsAmount = requestNeedsAmount(type);
   const needsDayPart = requestNeedsDayPart(type);
+  const needsFiles = requestNeedsFiles(type);
 
   // Fetch approvers on mount
   useEffect(() => {
@@ -261,6 +263,23 @@ export function RequestForm({
             onChange={setUploadedFiles}
             multiple
             label="Attach files"
+          />
+        </div>
+      ) : needsFiles ? (
+        <div className="flex flex-col gap-2">
+          <span className="text-sm font-medium text-foreground">
+            Supporting document
+          </span>
+          <p className="text-sm text-text-secondary">
+            Attach a medical certificate, appointment letter, or any other proof.
+            PDFs and images are fine — up to 10 files, 5 MB each.
+          </p>
+          <FileUpload
+            value={uploadedFiles}
+            onChange={setUploadedFiles}
+            multiple
+            label="Attach files"
+            accept="image/*,application/pdf"
           />
         </div>
       ) : null}

@@ -6,6 +6,7 @@ import {
   createCompanyAccount,
   createEmployee,
   createTestCompany,
+  daysFromNowKey,
   employeeActor,
   jsonRequest,
 } from "@/lib/test-helpers";
@@ -28,8 +29,8 @@ describe("POST /api/requests", () => {
         type: "Leave",
         subject: "Annual leave",
         description: "A week off",
-        startDate: "2026-10-01",
-        endDate: "2026-10-05",
+        startDate: daysFromNowKey(2),
+        endDate: daysFromNowKey(5),
         requestedApproverAccountId: ownerId,
       })
     );
@@ -71,8 +72,8 @@ describe("POST /api/requests", () => {
       type: "Leave",
       subject: "Annual leave",
       description: "A week off",
-      startDate: "2026-10-01",
-      endDate: "2026-10-05",
+      startDate: daysFromNowKey(2),
+      endDate: daysFromNowKey(5),
     };
 
     it("refuses a login from another company", async () => {
@@ -182,5 +183,73 @@ describe("POST /api/requests", () => {
     );
 
     expect(response.status).toBe(403);
+  });
+
+  it("400s a Leave request with a start date in the past", async () => {
+    const { companyId, ownerId } = await createTestCompany();
+    const employeeId = await createEmployee(companyId);
+    vi.mocked(getActor).mockResolvedValue(employeeActor(companyId, employeeId));
+
+    const response = await POST(
+      jsonRequest("http://localhost/api/requests", "POST", {
+        type: "Leave",
+        subject: "Past leave",
+        description: "Trying to book past leave",
+        startDate: daysFromNowKey(-2), // 2 days ago
+        endDate: daysFromNowKey(2),   // 2 days from now
+        requestedApproverAccountId: ownerId,
+      })
+    );
+
+    expect(response.status).toBe(400);
+    const body = await response.json();
+    expect(body.code).toBe("invalid_reference");
+    expect(body.fieldErrors?.startDate).toBe("Start date cannot be in the past.");
+    expect(await db.request.count({ where: { employeeId } })).toBe(0);
+  });
+
+  it("400s a Leave request with an end date in the past (both dates in past)", async () => {
+    const { companyId, ownerId } = await createTestCompany();
+    const employeeId = await createEmployee(companyId);
+    vi.mocked(getActor).mockResolvedValue(employeeActor(companyId, employeeId));
+
+    const response = await POST(
+      jsonRequest("http://localhost/api/requests", "POST", {
+        type: "Leave",
+        subject: "Past leave",
+        description: "Trying to book past leave",
+        startDate: daysFromNowKey(-5), // 5 days ago
+        endDate: daysFromNowKey(-5),   // 5 days ago
+        requestedApproverAccountId: ownerId,
+      })
+    );
+
+    expect(response.status).toBe(400);
+    const body = await response.json();
+    expect(body.code).toBe("invalid_reference");
+    expect(body.fieldErrors?.startDate).toBe("Start date cannot be in the past.");
+    expect(await db.request.count({ where: { employeeId } })).toBe(0);
+  });
+
+  it("400s a WFH request with a date in the past", async () => {
+    const { companyId, ownerId } = await createTestCompany();
+    const employeeId = await createEmployee(companyId);
+    vi.mocked(getActor).mockResolvedValue(employeeActor(companyId, employeeId));
+
+    const response = await POST(
+      jsonRequest("http://localhost/api/requests", "POST", {
+        type: "WFH",
+        subject: "Past WFH",
+        description: "Trying to book past WFH",
+        startDate: daysFromNowKey(-1),
+        endDate: daysFromNowKey(-1),
+        requestedApproverAccountId: ownerId,
+      })
+    );
+
+    expect(response.status).toBe(400);
+    const body = await response.json();
+    expect(body.code).toBe("invalid_reference");
+    expect(await db.request.count({ where: { employeeId } })).toBe(0);
   });
 });

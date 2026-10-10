@@ -50,6 +50,11 @@ export function requestNeedsDayPart(type: RequestType): boolean {
   return type === "Leave";
 }
 
+/** Leave and WFH requests can have supporting files attached. */
+export function requestNeedsFiles(type: RequestType): boolean {
+  return type === "Leave" || type === "WFH";
+}
+
 export const LEAVE_DAY_PARTS = [
   "FullDay",
   "FirstHalf",

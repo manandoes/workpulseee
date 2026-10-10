@@ -1,8 +1,23 @@
 import { randomUUID } from "node:crypto";
 import { NextRequest } from "next/server";
 import { db } from "@/lib/db";
+import { dayKeyInZone } from "@/lib/timezone";
 import type { AppRole, SessionActor } from "@/lib/permissions";
 import type { CompanyRole } from "@/lib/generated/prisma/enums";
+
+/** Return a `YYYY-MM-DD` day key `n` days from now in UTC (tests use UTC). */
+export function daysFromNowKey(n: number): string {
+  const d = new Date();
+  d.setUTCDate(d.getUTCDate() + n);
+  return d.toISOString().slice(0, 10);
+}
+
+/** Return a `YYYY-MM-DD` day key `n` days ago in UTC. */
+export function daysAgoKey(n: number): string {
+  const d = new Date();
+  d.setUTCDate(d.getUTCDate() - n);
+  return d.toISOString().slice(0, 10);
+}
 
 /**
  * Fixtures for route-handler tests (Phases.md Phase 12 — automated tests for
