@@ -2,7 +2,11 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { ChevronLeft, ChevronRight } from "lucide-react";
+import { ChevronLeft, ChevronRight, FileText } from "lucide-react";
+import { toast } from "sonner";
+import { Button } from "@/components/ui/button";
+import { FileUpload, type UploadedFile } from "@/components/ui/file-upload";
+import { FormField, TextareaField } from "@/components/forms/fields";
 import {
   buildAttendanceDays,
   type AttendanceDaysBreakdown,
@@ -126,14 +130,40 @@ export function AttendanceCalendar({
     setSelectedDate(null);
   }
 
-  function handleRequestLeave() {
-    if (!selectedDate) return;
-    router.push(`/my-space/requests/new?date=${selectedDate}&type=Leave`);
+  async function submitRequest(type: "Leave" | "WFH", reason: string, files: UploadedFile[]): Promise<boolean> {
+    if (!selectedDate) return false;
+
+    const response = await fetch("/api/requests", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        type,
+        subject: `${type} request for ${formatDayKeyFriendly(selectedDate)}`,
+        description: reason,
+        startDate: selectedDate,
+        endDate: selectedDate,
+        attachmentFileIds: files.map((f) => f.id),
+      }),
+    });
+
+    const body = await response.json().catch(() => null);
+
+    if (!response.ok) {
+      toast.error(body?.error ?? "Could not submit request.");
+      return false;
+    }
+
+    toast.success(`${type} request submitted`);
+    router.refresh();
+    return true;
   }
 
-  function handleRequestWFH() {
-    if (!selectedDate) return;
-    router.push(`/my-space/requests/new?date=${selectedDate}&type=WFH`);
+  function handleRequestLeave(reason: string, files: UploadedFile[]) {
+    return submitRequest("Leave", reason, files);
+  }
+
+  function handleRequestWFH(reason: string, files: UploadedFile[]) {
+    return submitRequest("WFH", reason, files);
   }
 
   return (
@@ -326,9 +356,101 @@ function DayActionSheet({
   classification?: "full" | "half" | "leave" | "wfh";
   stats: { doneCount: number; dueCount: number };
   onClose: () => void;
-  onRequestLeave: () => void;
-  onRequestWFH: () => void;
+  onRequestLeave: (reason: string, files: UploadedFile[]) => Promise<boolean>;
+  onRequestWFH: (reason: string, files: UploadedFile[]) => Promise<boolean>;
 }) {
+  const [mode, setMode] = useState<"choose" | "leave" | "wfh">("choose");
+  const [reason, setReason] = useState("");
+  const [files, setFiles] = useState<UploadedFile[]>([]);
+  const [busy, setBusy] = useState(false);
+
+  async function handleSubmit(type: "Leave" | "WFH") {
+    if (!reason.trim()) {
+      toast.error("Please enter a reason.");
+      return;
+    }
+    setBusy(true);
+    const handler = type === "Leave" ? onRequestLeave : onRequestWFH;
+    const ok = await handler(reason, files);
+    if (ok) {
+      setMode("choose");
+      setReason("");
+      setFiles([]);
+    }
+    setBusy(false);
+  }
+
+  function handleBack() {
+    setMode("choose");
+    setReason("");
+    setFiles([]);
+  }
+
+  // Render the action choice screen
+  if (mode === "choose") {
+    return (
+      <div className="relative w-full max-w-md bg-background border-t border-border rounded-t-2xl p-4 pb-6 pointer-events-auto shadow-lg animate-in slide-in-from-bottom-4 fade-in duration-200">
+        <div className="flex items-center justify-between mb-3">
+          <div>
+            <p className="text-h4 font-semibold text-brand-brown">
+              {formatDayKeyFriendly(dayKey)}
+            </p>
+            <p className="text-meta text-sm text-text-secondary mt-0.5">
+              {classification ? CLASSIFICATION_LABEL[classification] : "No record"}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-lg p-1.5 text-text-secondary hover:bg-surface-muted hover:text-foreground transition-colors"
+            aria-label="Close"
+          >
+            <svg className="size-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+
+        {/* Stats row */}
+        <div className="flex items-center gap-4 mb-4 text-sm">
+          {stats.doneCount > 0 && (
+            <span className="flex items-center gap-1 text-success">
+              <span className="font-semibold">✓</span> {stats.doneCount} done
+            </span>
+          )}
+          {stats.dueCount > 0 && (
+            <span className="flex items-center gap-1 text-warning">
+              <span className="font-semibold">⏰</span> {stats.dueCount} due
+            </span>
+          )}
+          {stats.doneCount === 0 && stats.dueCount === 0 && (
+            <span className="text-text-secondary text-sm">No tasks this day</span>
+          )}
+        </div>
+
+        {/* Action buttons */}
+        <div className="flex gap-2">
+          <button
+            type="button"
+            onClick={() => setMode("leave")}
+            className="flex-1 rounded-lg border border-danger/30 bg-danger/5 text-danger text-sm font-medium px-3 py-2 hover:bg-danger/10 transition-colors"
+          >
+            Request Leave
+          </button>
+          <button
+            type="button"
+            onClick={() => setMode("wfh")}
+            className="flex-1 rounded-lg border border-info/30 bg-info/5 text-info text-sm font-medium px-3 py-2 hover:bg-info/10 transition-colors"
+          >
+            Request WFH
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // Render the request form screen
+  const isLeave = mode === "leave";
   return (
     <div className="relative w-full max-w-md bg-background border-t border-border rounded-t-2xl p-4 pb-6 pointer-events-auto shadow-lg animate-in slide-in-from-bottom-4 fade-in duration-200">
       <div className="flex items-center justify-between mb-3">
@@ -337,54 +459,67 @@ function DayActionSheet({
             {formatDayKeyFriendly(dayKey)}
           </p>
           <p className="text-meta text-sm text-text-secondary mt-0.5">
-            {classification ? CLASSIFICATION_LABEL[classification] : "No record"}
+            {isLeave ? "Leave request" : "WFH request"}
           </p>
         </div>
         <button
           type="button"
-          onClick={onClose}
+          onClick={handleBack}
           className="rounded-lg p-1.5 text-text-secondary hover:bg-surface-muted hover:text-foreground transition-colors"
-          aria-label="Close"
+          aria-label="Back"
         >
           <svg className="size-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+            <path strokeLinecap="round" strokeLinejoin="round" d="M19 12H5M12 19l-7-7 7-7" />
           </svg>
         </button>
       </div>
 
-      {/* Stats row */}
-      <div className="flex items-center gap-4 mb-4 text-sm">
-        {stats.doneCount > 0 && (
-          <span className="flex items-center gap-1 text-success">
-            <span className="font-semibold">✓</span> {stats.doneCount} done
-          </span>
-        )}
-        {stats.dueCount > 0 && (
-          <span className="flex items-center gap-1 text-warning">
-            <span className="font-semibold">⏰</span> {stats.dueCount} due
-          </span>
-        )}
-        {stats.doneCount === 0 && stats.dueCount === 0 && (
-          <span className="text-text-secondary text-sm">No tasks this day</span>
-        )}
-      </div>
+      <div className="flex flex-col gap-4">
+        <TextareaField
+          id="reason"
+          label="Reason"
+          placeholder={isLeave ? "Why are you taking leave?" : "Why do you need to work from home?"}
+          rows={3}
+          value={reason}
+          onChange={(e) => setReason(e.target.value)}
+          error={!reason.trim() && busy ? "Reason is required" : undefined}
+        />
 
-      {/* Action buttons */}
-      <div className="flex gap-2">
-        <button
-          type="button"
-          onClick={onRequestLeave}
-          className="flex-1 rounded-lg border border-danger/30 bg-danger/5 text-danger text-sm font-medium px-3 py-2 hover:bg-danger/10 transition-colors"
-        >
-          Request Leave
-        </button>
-        <button
-          type="button"
-          onClick={onRequestWFH}
-          className="flex-1 rounded-lg border border-info/30 bg-info/5 text-info text-sm font-medium px-3 py-2 hover:bg-info/10 transition-colors"
-        >
-          Request WFH
-        </button>
+        <div className="flex flex-col gap-2">
+          <span className="text-sm font-medium text-foreground">
+            Supporting document (optional)
+          </span>
+          <p className="text-sm text-text-secondary">
+            Attach a medical certificate, appointment letter, or any other proof.
+            PDFs and images up to 5 MB.
+          </p>
+          <FileUpload
+            value={files}
+            onChange={setFiles}
+            multiple
+            label="Attach file"
+            accept="image/*,application/pdf"
+          />
+        </div>
+
+        <div className="flex gap-2">
+          <Button
+            type="button"
+            variant="ghost"
+            onClick={handleBack}
+            className="flex-1"
+          >
+            Cancel
+          </Button>
+          <Button
+            type="button"
+            onClick={() => handleSubmit(isLeave ? "Leave" : "WFH")}
+            disabled={busy}
+            className="flex-1"
+          >
+            {busy ? "Submitting…" : `Submit ${isLeave ? "Leave" : "WFH"} Request`}
+          </Button>
+        </div>
       </div>
     </div>
   );

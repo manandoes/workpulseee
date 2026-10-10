@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import {
   apiError,
   forbidden,
+  invalidReference,
   serverError,
   unauthorized,
   validationError,
@@ -21,6 +22,8 @@ import {
 import { notifyRequestSubmitted } from "@/lib/notification-data";
 import { canApproveRequests } from "@/lib/permissions";
 import { paginationSchema } from "@/lib/pagination";
+import { requestNeedsDateRange } from "@/lib/requests";
+import { dayKeyInZone } from "@/lib/timezone";
 import {
   createRequestSchema,
   requestFiltersSchema,
@@ -93,6 +96,34 @@ export async function POST(request: NextRequest) {
 
   const parsed = createRequestSchema.safeParse(payload);
   if (!parsed.success) return validationError(parsed.error);
+
+  // Reject requests for past dates (before today in the company's timezone).
+  // We need the company's timezone to compute "today" correctly.
+  if (requestNeedsDateRange(parsed.data.type)) {
+    const company = await db.company.findUniqueOrThrow({
+      where: { id: actor.companyId },
+      select: { timeZone: true },
+    });
+    const todayKey = dayKeyInZone(new Date(), company.timeZone);
+    const startKey = parsed.data.startDate ?? "";
+    const endKey = parsed.data.endDate ?? "";
+    if (startKey && startKey < todayKey) {
+      return writeFailure(
+        invalidReference(
+          "startDate",
+          "Start date cannot be in the past."
+        )
+      );
+    }
+    if (endKey && endKey < todayKey) {
+      return writeFailure(
+        invalidReference(
+          "endDate",
+          "End date cannot be in the past."
+        )
+      );
+    }
+  }
 
   const resolved = resolveRequest(parsed.data);
   if (!resolved.ok) return writeFailure(resolved);
