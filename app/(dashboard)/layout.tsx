@@ -25,6 +25,7 @@ import { NotificationBell } from "@/components/dashboard/notification-bell";
 import { AnnouncementBell } from "@/components/dashboard/announcement-bell";
 import { NewChatDialog } from "@/components/chat/new-chat-dialog";
 import { VaultKeyMenu } from "@/components/vault/vault-key-menu";
+import { EisenhowerTopBarButton } from "@/components/eisenhower/eisenhower-top-bar";
 import { Avatar } from "@/components/dashboard/avatar";
 import { ModeToggle } from "@/components/dashboard/mode-toggle";
 import { BreakOverlay } from "@/components/attendance/break-overlay";
@@ -235,6 +236,7 @@ export default async function DashboardLayout({ children }: LayoutProps<"/">) {
               <NewChatDialog />
               <AnnouncementBell canCreate={canCreateAnnouncements} />
               <NotificationBell />
+              <EisenhowerTopBarButton />
               <div className="md:hidden">
                 <SignOutButton labelClassName="sr-only" />
               </div>
