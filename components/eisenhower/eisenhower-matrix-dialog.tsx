@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import React, { useState, useEffect, useCallback } from "react";
 import {
@@ -8,10 +8,8 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Select } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
-import { Search, X, Flag } from "lucide-react";
+import { X, Flag } from "lucide-react";
 import { cn } from "cn";
 
 // ---------------------------------------------------------------------------
@@ -102,8 +100,6 @@ export function EisenhowerMatrixDialog({
 }) {
   const [entries, setEntries] = useState<MatrixEntry[]>([]);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
-  const [searchQuery, setSearchQuery] = useState("");
-  const [priorityFilter, setPriorityFilter] = useState<string>("all");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -134,17 +130,8 @@ export function EisenhowerMatrixDialog({
     }
   }
 
-  // Filter tasks based on search and priority
-  const filteredTasks = tasks.filter((task) => {
-    const matchesSearch =
-      !searchQuery ||
-      task.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      (task.projectName?.toLowerCase().includes(searchQuery.toLowerCase())) ||
-      (task.assigneeName?.toLowerCase().includes(searchQuery.toLowerCase()));
-    const matchesPriority =
-      priorityFilter === "all" || task.priority === priorityFilter;
-    return matchesSearch && matchesPriority;
-  });
+  // Filter tasks based on search
+  const filteredTasks = tasks;
 
   // Get entry for a task
   const getEntry = useCallback(
@@ -281,85 +268,88 @@ export function EisenhowerMatrixDialog({
                 Matrix View
               </h3>
 
-              {/* X-axis labels */}
-              <div className="grid grid-cols-2 gap-2 mb-2">
-                <div className="text-center text-xs font-medium text-muted-foreground">
-                  Urgent
-                </div>
-                <div className="text-center text-xs font-medium text-muted-foreground">
-                  Not Urgent
-                </div>
-              </div>
-
-              {/* Y-axis labels + Grid */}
-              <div className="grid grid-cols-2 gap-3">
-                {/* Row 1: Important */}
-                <div className="flex items-start gap-2">
-                  <div className="flex flex-col justify-center">
-                    <span className="text-xs font-medium text-muted-foreground rotate-90 whitespace-nowrap">
-                      Important
-                    </span>
+              {/* Matrix Grid */}
+              <div className="flex-1 min-h-0">
+                {/* X-axis labels */}
+                <div className="grid grid-cols-2 gap-2 mb-2">
+                  <div className="text-center text-sm font-semibold text-muted-foreground">
+                    Urgent
                   </div>
-                  <div className="flex-1 space-y-2">
-                    <QuadrantCell
-                      quadrant={QUADRANTS[0]}
-                      entries={quadrantEntries.DoNow}
-                      tasks={tasks}
-                      getEntry={getEntry}
-                      selectedIds={selectedIds}
-                      loading={loading}
-                      onRemove={removeFromMatrix}
-                      onMove={moveTask}
-                      onSelect={toggleSelect}
-                      onAddSelected={addToQuadrant}
-                    />
-                    <QuadrantCell
-                      quadrant={QUADRANTS[1]}
-                      entries={quadrantEntries.Schedule}
-                      tasks={tasks}
-                      getEntry={getEntry}
-                      selectedIds={selectedIds}
-                      loading={loading}
-                      onRemove={removeFromMatrix}
-                      onMove={moveTask}
-                      onSelect={toggleSelect}
-                      onAddSelected={addToQuadrant}
-                    />
+                  <div className="text-center text-sm font-semibold text-muted-foreground">
+                    Not Urgent
                   </div>
                 </div>
 
-                {/* Row 2: Not Important */}
-                <div className="flex items-start gap-2">
-                  <div className="flex flex-col justify-center">
-                    <span className="text-xs font-medium text-muted-foreground rotate-90 whitespace-nowrap">
-                      Not Important
-                    </span>
+                {/* Grid with Y-axis labels */}
+                <div className="grid grid-cols-[50px_1fr_1fr] gap-2 h-[calc(100%-2.5rem)]">
+                  {/* Y-axis labels */}
+                  <div className="flex flex-col justify-between py-4">
+                    <div className="h-full flex items-center justify-center">
+                      <span className="text-sm font-semibold text-muted-foreground -rotate-90 whitespace-nowrap">
+                        Important
+                      </span>
+                    </div>
+                    <div className="h-full flex items-center justify-center">
+                      <span className="text-sm font-semibold text-muted-foreground -rotate-90 whitespace-nowrap">
+                        Not Important
+                      </span>
+                    </div>
                   </div>
-                  <div className="flex-1 space-y-2">
-                    <QuadrantCell
-                      quadrant={QUADRANTS[2]}
-                      entries={quadrantEntries.Delegate}
-                      tasks={tasks}
-                      getEntry={getEntry}
-                      selectedIds={selectedIds}
-                      loading={loading}
-                      onRemove={removeFromMatrix}
-                      onMove={moveTask}
-                      onSelect={toggleSelect}
-                      onAddSelected={addToQuadrant}
-                    />
-                    <QuadrantCell
-                      quadrant={QUADRANTS[3]}
-                      entries={quadrantEntries.Eliminate}
-                      tasks={tasks}
-                      getEntry={getEntry}
-                      selectedIds={selectedIds}
-                      loading={loading}
-                      onRemove={removeFromMatrix}
-                      onMove={moveTask}
-                      onSelect={toggleSelect}
-                      onAddSelected={addToQuadrant}
-                    />
+
+                  {/* Quadrant cells */}
+                  <div className="col-span-2 grid grid-rows-2 gap-2 h-full">
+                    <div className="grid grid-cols-2 gap-2 h-full">
+                      <QuadrantCell
+                        quadrant={QUADRANTS[0]}
+                        entries={quadrantEntries.DoNow}
+                        tasks={tasks}
+                        getEntry={getEntry}
+                        selectedIds={selectedIds}
+                        loading={loading}
+                        onRemove={removeFromMatrix}
+                        onMove={moveTask}
+                        onSelect={toggleSelect}
+                        onAddSelected={addToQuadrant}
+                      />
+                      <QuadrantCell
+                        quadrant={QUADRANTS[1]}
+                        entries={quadrantEntries.Schedule}
+                        tasks={tasks}
+                        getEntry={getEntry}
+                        selectedIds={selectedIds}
+                        loading={loading}
+                        onRemove={removeFromMatrix}
+                        onMove={moveTask}
+                        onSelect={toggleSelect}
+                        onAddSelected={addToQuadrant}
+                      />
+                    </div>
+                    <div className="grid grid-cols-2 gap-2 h-full">
+                      <QuadrantCell
+                        quadrant={QUADRANTS[2]}
+                        entries={quadrantEntries.Delegate}
+                        tasks={tasks}
+                        getEntry={getEntry}
+                        selectedIds={selectedIds}
+                        loading={loading}
+                        onRemove={removeFromMatrix}
+                        onMove={moveTask}
+                        onSelect={toggleSelect}
+                        onAddSelected={addToQuadrant}
+                      />
+                      <QuadrantCell
+                        quadrant={QUADRANTS[3]}
+                        entries={quadrantEntries.Eliminate}
+                        tasks={tasks}
+                        getEntry={getEntry}
+                        selectedIds={selectedIds}
+                        loading={loading}
+                        onRemove={removeFromMatrix}
+                        onMove={moveTask}
+                        onSelect={toggleSelect}
+                        onAddSelected={addToQuadrant}
+                      />
+                    </div>
                   </div>
                 </div>
               </div>
@@ -376,29 +366,6 @@ export function EisenhowerMatrixDialog({
                     {selectedIds.size} selected
                   </span>
                 ) : null}
-              </div>
-
-              {/* Search and filter */}
-              <div className="flex gap-2">
-                <div className="relative flex-1">
-                  <Search className="absolute left-2 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground" />
-                  <Input
-                    placeholder="Search tasks..."
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    className="pl-7 h-8 text-sm"
-                  />
-                </div>
-                <Select
-                  value={priorityFilter}
-                  onValueChange={setPriorityFilter}
-                >
-                  <option value="all">All Priority</option>
-                  <option value="Urgent">Urgent</option>
-                  <option value="High">High</option>
-                  <option value="Medium">Medium</option>
-                  <option value="Low">Low</option>
-                </Select>
               </div>
 
               {/* Task list */}
