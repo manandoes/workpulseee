@@ -2,7 +2,8 @@ import Image from "next/image";
 import { cn } from "cn";
 
 /**
- * WorkPulse wordmark: the product logo beside the brand-brown product name.
+ * WorkPulse wordmark: the product logo beside the brand-brown product name
+ * and a "Powered By" sub-line below it.
  */
 export function BrandMark({
   className,
@@ -32,13 +33,18 @@ export function BrandMark({
           className="h-auto w-7 object-contain"
         />
       </span>
-      <span
-        className={cn(
-          "text-brand-brown text-h3 font-semibold tracking-tight",
-          labelClassName
-        )}
-      >
-        WorkPulse
+      <span className="flex shrink-0 flex-col items-start gap-0.5">
+        <span
+          className={cn(
+            "text-brand-brown text-h3 font-bold leading-tight tracking-tight",
+            labelClassName
+          )}
+        >
+          WorkPulse
+        </span>
+        <span className="text-[10px] leading-none text-muted-foreground">
+          Powered By Talking Lens Media Pvt. Ltd.
+        </span>
       </span>
     </span>
   );
