@@ -1,24 +1,3 @@
-// WorkPulse Prisma schema.
-//
-// Data model reference: Architecture.md section 4.
-// Multi-tenancy rule (Rules.md section 2): every company-scoped model carries a
-// `companyId` foreign key, and every query filters by it.
-//
-// Models are introduced phase by phase (Phases.md):
-//   Phase 2 - Company, CompanyAccount, Employee
-//   Phase 3 - Department, employee profile fields, reporting lines
-//   Phase 4 - Client, Project, ProjectMember
-//   Phase 5 - Task, Comment, Attachment
-//   Phase 6 - Company.weeklyCapacityHours, Employee.workloadPercent
-//   Phase 7 - Request, Notification, Attachment widened to cover requests
-//   Phase 8 - PerformanceRecord, Goal, Feedback
-//   Phase 9 - Alert
-//   Phase 10 - AttendanceRecord
-//   Phase 11 - Conversation, ConversationParticipant, ChatMessage,
-//              PermissionGrant
-//   Phase 12 - TaskTimeEntry
-//   Phase 17 - GoogleCalendarConnection, Meeting, MeetingParticipant  <- current
-
 generator client {
   provider = "prisma-client"
   output   = "../lib/generated/prisma"
@@ -26,6 +5,1844 @@ generator client {
 
 datasource db {
   provider = "postgresql"
+}
+
+/// Tenant root. Every other model in the schema hangs off this.
+model Company {
+  id                              String                     @id @default(cuid())
+  name                            String
+  /// Public tenant identifier used on the employee login form and in invite
+  /// links. Globally unique so an employee can name their company at sign-in.
+  slug                            String                     @unique
+  /// PRD.md section 11 - currency defaults to INR, configurable per company.
+  currency                        String                     @default("INR")
+  createdAt                       DateTime                   @default(now())
+  updatedAt                       DateTime                   @updatedAt
+  deletedAt                       DateTime?
+  /// Weekly capacity hours a workload of 100% represents (Phases.md Phase 6).
+  /// One flat number for the whole company rather than per employment type -
+  /// simplest v1 reading of "based on active tasks, estimated effort, and
+  /// deadlines", and it is the number `lib/workload.ts` divides by. Editable
+  /// by Owner/Admin/Manager at `/settings`.
+  weeklyCapacityHours             Int                        @default(40)
+  agingApprovalDays               Int                        @default(5)
+  /// Early-warning thresholds (Phases.md Phase 9 - "configurable thresholds
+  /// per company"), editable by Owner/Admin only (`canManageCompanySettings`)
+  /// at `/settings` - a company-wide alerting policy, narrower than the
+  /// workload capacity Managers can also tune.
+  overloadThresholdPercent        Int                        @default(80)
+  stalledProjectDays              Int                        @default(14)
+  /// Owner-only company branding (Plan: brand color) - the dashboard's single
+  /// accent color (`--brand-yellow` in app/globals.css), company-wide rather
+  /// than a personal preference, hence a Company column rather than the
+  /// cookie `themeMode` uses. Defaults to the dashboard theme's current
+  /// yellow. Editable by Owner only (`canManageBranding`) at `/settings`.
+  brandColor                      String                     @default("#ffcc00")
+  emailApiKeyEncrypted            String?
+  emailFromAddress                String?
+  /// Owner-configured transactional email identity, used for invite and
+  /// notification emails instead of the global RESEND_API_KEY/EMAIL_FROM env
+  /// vars once set. Null means "not configured for this company" - falls
+  /// back to the global env vars, same graceful-degradation convention as
+  /// GoogleCalendarConnection. Editable by Owner only
+  /// (`canManageEmailSettings`) at `/settings`.
+  emailProvider                   String?
+  /// When the working day is expected to end, as minutes from local midnight
+  /// (1080 = 18:00), and the zone that "local" means. Together they are the
+  /// baseline `lib/attendance.ts`'s `resolveLogoutNudge` counts from: an
+  /// attendance session still open an hour past this time earns a logout
+  /// reminder, and an unanswered one is closed automatically.
+  ///
+  /// Company-wide rather than per-person, and a clock time rather than a
+  /// duration, because "the logging out time" is a property of the working
+  /// day, not of when any one person happened to clock in. A zone is stored
+  /// beside it because a clock time means nothing without one - and unlike
+  /// `lib/timezone.ts`'s viewer zone (a cookie, resolved per request), this
+  /// one must be readable by a cron sweep where no viewer exists.
+  endOfDayMinutes                 Int                        @default(1080)
+  timeZone                        String                     @default("Asia/Kolkata")
+  /// How many minutes of break each person gets per working day (counted in
+  /// `timeZone` above), summed across every break that day. The break overlay
+  /// counts down from what is left and keeps counting, negative and red, once
+  /// it runs out - it is a visible allowance, not a hard stop. Editable by
+  /// Owner/Admin/HR (`canManageBreakAllowance`) at `/settings`.
+  dailyBreakMinutes               Int                        @default(60)
+  whatsappAccessTokenEncrypted    String?
+  /// Owner-configured Meta WhatsApp Business Cloud API credentials, used for
+  /// WhatsApp notifications instead of the global WHATSAPP_* env vars once
+  /// set - same convention as the email columns above, so every message is
+  /// billed to the company's own Meta account. The access token is
+  /// AES-256-GCM encrypted (`lib/company-whatsapp-config.ts`). Template name
+  /// and language fall back to the defaults when null. Editable by Owner only
+  /// (`canManageWhatsAppSettings`) at `/settings`.
+  whatsappPhoneNumberId           String?
+  whatsappTemplateLanguage        String?
+  whatsappTemplateName            String?
+  /// Which messaging backend this company may use (Plan: dual messaging
+  /// providers). `Native` is today's behaviour; `Google` adds the Google
+  /// Chat backend; `Both` lets each employee pick per conversation.
+  /// Defaults to `Native` so every existing organization keeps working
+  /// unchanged. Editable by Owner/Admin only (canManageMessagingSettings)
+  /// at /settings.
+  messagingProvider               MessagingProvider          @default(Native)
+  /// Whether this company has a linked, authorized Google Chat backend.
+  /// A company on `Google`/`Both` with this false falls back to `Native`
+  /// rather than failing — the same graceful-degradation convention as
+  /// `emailApiKeyEncrypted`.
+  googleChatEnabled               Boolean                    @default(false)
+  /// AES-256-GCM encrypted Google OAuth refresh token for the company-level
+  /// chat connection (stored by `lib/company-google-chat-config.ts`). Null
+  /// when no connection exists yet — the UI then shows a "Connect" button.
+  googleChatRefreshTokenEncrypted String?
+  /// The Google email address that completed the OAuth flow, kept for display
+  /// in settings. Null until the first successful connect.
+  googleChatConnectedByEmail      String?
+  /// When the company-level Google Chat connection was established.
+  googleChatConnectedAt           DateTime?
+  alerts                          Alert[]
+  announcements                   Announcement[]
+  applicationAnswers              ApplicationAnswer[]
+  applicationNotes                ApplicationNote[]
+  attachments                     Attachment[]
+  attendanceRecords               AttendanceRecord[]
+  breakRecords                    BreakRecord[]
+  bulkEmails                      BulkEmail[]
+  chatMessages                    ChatMessage[]
+  clients                         Client[]
+  clientCredentials               ClientCredential[]
+  clientCredentialAccess          ClientCredentialAccess[]
+  comments                        Comment[]
+  accounts                        CompanyAccount[]
+  conversations                   Conversation[]
+  chatParticipants                ConversationParticipant[]
+  departments                     Department[]
+  emailTemplates                  EmailTemplate[]
+  employees                       Employee[]
+  feedback                        Feedback[]
+  goals                           Goal[]
+  googleCalendarConnections       GoogleCalendarConnection[]
+  googleFormsConnection           GoogleFormsConnection?
+  hiringForms                     HiringForm[]
+  hiringQuestions                 HiringQuestion[]
+  jobApplications                 JobApplication[]
+  meetings                        Meeting[]
+  meetingParticipants             MeetingParticipant[]
+  notifications                   Notification[]
+  notificationPrefs               NotificationPreference[]
+  payments                        Payment[]
+  performanceRecords              PerformanceRecord[]
+  permissionChanges               PermissionChange[]
+  permissionGrants                PermissionGrant[]
+  polls                           Poll[]
+  pollOptions                     PollOption[]
+  pollVotes                       PollVote[]
+  projects                        Project[]
+  members                         ProjectMember[]
+  pushSubscriptions               PushSubscription[]
+  requests                        Request[]
+  salarySlips                     SalarySlip[]
+  salaryTemplate                  SalaryTemplate?
+  storedFiles                     StoredFile[]
+  subscription                    Subscription?
+  tasks                           Task[]
+  TaskMatrix                      TaskMatrix[]
+  taskTimeEntries                 TaskTimeEntry[]
+
+  @@index([deletedAt])
+}
+
+/// Login identity for Owner / Admin / Manager / HR users.
+///
+/// Deliberately separate from `Employee` (Architecture.md section 4): a company
+/// login administers a tenant, an employee login belongs to a member of one.
+/// The two are never cross-checked during authentication.
+model CompanyAccount {
+  id                        String                    @id @default(cuid())
+  companyId                 String
+  fullName                  String
+  workEmail                 String
+  /// Null until the account holder accepts their invite and sets a password.
+  /// The first Owner is created by registration and therefore always has one;
+  /// Admin / Manager / HR accounts are invited (Architecture.md section 4).
+  passwordHash              String?
+  role                      CompanyRole
+  createdAt                 DateTime                  @default(now())
+  updatedAt                 DateTime                  @updatedAt
+  deletedAt                 DateTime?
+  inviteTokenExpiresAt      DateTime?
+  /// Invite link token, stored as a SHA-256 hash only - same scheme as the
+  /// employee invite, so a database leak yields no usable link.
+  inviteTokenHash           String?                   @unique
+  /// Who invited this account. Null for the Owner created at registration.
+  invitedById               String?
+  /// Profile photo as a data URL, resized and compressed client-side before
+  /// upload (`app/api/profile/avatar/route.ts`). No object storage exists in
+  /// this project yet, so a text column is the simplest complete home for it.
+  avatarUrl                 String?
+  /// Mobile number in E.164 form (for example "+919876543210"), used for
+  /// WhatsApp notifications and nothing else. Nullable because an account only
+  /// has one once its holder enters it — `lib/notifications.ts` simply skips
+  /// the WhatsApp channel for an account without one. Employees keep their
+  /// equivalent in `Employee.phone`, which already existed as an HR field.
+  phone                     String?
+  announcementsPosted       Announcement[]
+  applicationNotesWritten   ApplicationNote[]         @relation("ApplicationNoteAuthorAccount")
+  attachmentsAdded          Attachment[]              @relation("AttachmentAddedBy")
+  attendanceRecords         AttendanceRecord[]        @relation("AttendanceRecordSubjectAccount")
+  breakRecords              BreakRecord[]             @relation("BreakRecordSubjectAccount")
+  bulkEmailsSent            BulkEmail[]               @relation("BulkEmailSentBy")
+  chatMessagesSent          ChatMessage[]
+  clientCredentialsCreated  ClientCredential[]        @relation("ClientCredentialCreatedBy")
+  vaultAccessDecided        ClientCredentialAccess[]  @relation("CredentialAccessDecidedBy")
+  vaultAccessRequested      ClientCredentialAccess[]  @relation("CredentialAccessRequesterAccount")
+  comments                  Comment[]                 @relation("CommentAuthor")
+  company                   Company                   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  invitedBy                 CompanyAccount?           @relation("AccountInvitedBy", fields: [invitedById], references: [id])
+  invitesMade               CompanyAccount[]          @relation("AccountInvitedBy")
+  chatParticipations        ConversationParticipant[]
+  invitesSent               Employee[]                @relation("EmployeeInvitedBy")
+  managedEmployees          Employee[]                @relation("EmployeeManagedByAccount")
+  feedbackReceived          Feedback[]                @relation("FeedbackSubjectAccount")
+  feedbackGiven             Feedback[]                @relation("FeedbackGivenBy")
+  goalsReceived             Goal[]                    @relation("GoalSubjectAccount")
+  goalsSet                  Goal[]                    @relation("GoalSetBy")
+  googleCalendarConnection  GoogleCalendarConnection?
+  googleFormsConnected      GoogleFormsConnection[]   @relation("GoogleFormsConnectedBy")
+  hiringFormsCreated        HiringForm[]              @relation("HiringFormCreatedBy")
+  organizedMeetings         Meeting[]                 @relation("MeetingOrganizerAccount")
+  meetingParticipations     MeetingParticipant[]      @relation("MeetingParticipantAccount")
+  notifications             Notification[]            @relation("NotificationAccount")
+  notificationPrefs         NotificationPreference?   @relation("NotificationPrefAccount")
+  performanceRecords        PerformanceRecord[]       @relation("PerformanceRecordSubjectAccount")
+  permissionChangesReceived PermissionChange[]        @relation("PermissionChangeSubjectAccount")
+  permissionChangesMade     PermissionChange[]        @relation("PermissionChangeBy")
+  permissionOverrides       PermissionGrant[]         @relation("PermissionGrantSubjectAccount")
+  permissionGrantsGiven     PermissionGrant[]         @relation("PermissionGrantGivenBy")
+  pollVotes                 PollVote[]
+  ledProjects               Project[]                 @relation("ProjectLead")
+  pushSubscriptions         PushSubscription[]        @relation("PushSubscriptionAccount")
+  decidedRequests           Request[]                 @relation("RequestApprover")
+  requestedApprovals        Request[]                 @relation("RequestRequestedApprover")
+  salarySlipsMade           SalarySlip[]              @relation("SalarySlipCreatedBy")
+  uploadedFiles             StoredFile[]              @relation("StoredFileUploadedByAccount")
+  assignedTasks             Task[]                    @relation("TaskAssigneeAccount")
+  createdTasks              Task[]                    @relation("TaskCreatedBy")
+  matrixEntries             TaskMatrix[]              @relation("TaskMatrixAccount")
+
+  @@unique([companyId, workEmail])
+  @@index([workEmail])
+  @@index([companyId])
+}
+
+/// A team or function within a company (Architecture.md section 4).
+///
+/// Introduced in Phase 3, replacing the free-text `Employee.department` string
+/// that Phase 2 used as a placeholder.
+model Department {
+  id          String     @id @default(cuid())
+  companyId   String
+  name        String
+  description String?
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+  deletedAt   DateTime?
+  company     Company    @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  employees   Employee[]
+
+  @@unique([companyId, name])
+  @@index([companyId])
+}
+
+/// Login identity and HR profile for regular employees.
+///
+/// Always belongs to an existing Company and can never self-register
+/// (Architecture.md section 8) - a row is only created by a CompanyAccount
+/// holding Owner, Admin or HR.
+model Employee {
+  id                       String                    @id @default(cuid())
+  companyId                String
+  /// Company-assigned identifier (for example "EMP-001"). Employees may sign in
+  /// with this or with their company email.
+  employeeCode             String
+  fullName                 String
+  companyEmail             String
+  /// Null until the employee accepts their invite and sets a password.
+  passwordHash             String?
+  /// Job title, for example "Senior Designer".
+  jobRole                  String?
+  managerId                String?
+  status                   EmployeeStatus            @default(Invited)
+  /// Invite link token. Only the SHA-256 hash is stored, so a database leak
+  /// cannot be replayed to claim an account.
+  inviteTokenHash          String?                   @unique
+  inviteTokenExpiresAt     DateTime?
+  invitedById              String?
+  /// When the employee activated their login by accepting the invite.
+  joinedAt                 DateTime?
+  createdAt                DateTime                  @default(now())
+  updatedAt                DateTime                  @updatedAt
+  deletedAt                DateTime?
+  address                  String?
+  dateOfBirth              DateTime?
+  departmentId             String?
+  emergencyContactName     String?
+  emergencyContactPhone    String?
+  employmentType           EmploymentType?
+  location                 String?
+  managerAccountId         String?
+  personalEmail            String?
+  phone                    String?
+  /// Employment start date, as recorded by HR. Distinct from `joinedAt`, which
+  /// is when the person activated their login.
+  startDate                DateTime?
+  /// Cached workload % (Phases.md Phase 6), computed by `lib/workload-data.ts`
+  /// from open assigned tasks and the company's `weeklyCapacityHours`. Cached
+  /// rather than computed on every read (Architecture.md section 6) and kept
+  /// fresh by recomputing on every task write that could change it, plus the
+  /// `/api/jobs/recalculate-workload` sweep as a safety net. Null means "never
+  /// computed yet" - distinct from 0%, which means "computed, and currently
+  /// free".
+  workloadPercent          Decimal?                  @db.Decimal(6, 2)
+  workloadUpdatedAt        DateTime?
+  /// Profile photo as a data URL, resized and compressed client-side before
+  /// upload (`app/api/profile/avatar/route.ts`). No object storage exists in
+  /// this project yet, so a text column is the simplest complete home for it.
+  avatarUrl                String?
+  alerts                   Alert[]
+  applicationNotesWritten  ApplicationNote[]         @relation("ApplicationNoteAuthorEmployee")
+  attachmentsAdded         Attachment[]              @relation("AttachmentAddedByEmployee")
+  attendanceRecords        AttendanceRecord[]
+  breakRecords             BreakRecord[]
+  chatMessagesSent         ChatMessage[]
+  vaultAccessRequested     ClientCredentialAccess[]  @relation("CredentialAccessRequesterEmployee")
+  chatParticipations       ConversationParticipant[]
+  company                  Company                   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  department               Department?               @relation(fields: [departmentId], references: [id])
+  invitedBy                CompanyAccount?           @relation("EmployeeInvitedBy", fields: [invitedById], references: [id])
+  managerAccount           CompanyAccount?           @relation("EmployeeManagedByAccount", fields: [managerAccountId], references: [id])
+  manager                  Employee?                 @relation("EmployeeReportsTo", fields: [managerId], references: [id])
+  reports                  Employee[]                @relation("EmployeeReportsTo")
+  feedbackReceived         Feedback[]
+  goals                    Goal[]
+  googleCalendarConnection GoogleCalendarConnection?
+  organizedMeetings        Meeting[]                 @relation("MeetingOrganizerEmployee")
+  meetingParticipations    MeetingParticipant[]      @relation("MeetingParticipantEmployee")
+  notifications            Notification[]            @relation("NotificationEmployee")
+  notificationPrefs        NotificationPreference?   @relation("NotificationPrefEmployee")
+  performanceRecords       PerformanceRecord[]
+  permissionChanges        PermissionChange[]
+  permissionGrants         PermissionGrant[]
+  pollVotes                PollVote[]
+  projectMemberships       ProjectMember[]
+  pushSubscriptions        PushSubscription[]        @relation("PushSubscriptionEmployee")
+  requestsDecided          Request[]                 @relation("RequestApproverEmployee")
+  requests                 Request[]
+  requestedApprovals       Request[]                 @relation("RequestRequestedApproverEmployee")
+  salarySlips              SalarySlip[]
+  uploadedFiles            StoredFile[]              @relation("StoredFileUploadedByEmployee")
+  assignedTasks            Task[]                    @relation("TaskAssignee")
+  taskTimeEntries          TaskTimeEntry[]
+  matrixEntries            TaskMatrix[]              @relation("TaskMatrixEmployee")
+
+  @@unique([companyId, employeeCode])
+  @@unique([companyId, companyEmail])
+  @@index([companyId])
+  @@index([managerId])
+  @@index([managerAccountId])
+  @@index([departmentId])
+}
+
+/// A client the agency delivers work for (Architecture.md section 4).
+model Client {
+  id           String             @id @default(cuid())
+  companyId    String
+  name         String
+  /// Primary point of contact. All optional: a client can be recorded before
+  /// the contact details are known.
+  contactName  String?
+  contactEmail String?
+  contactPhone String?
+  notes        String?
+  status       ClientStatus       @default(Active)
+  createdAt    DateTime           @default(now())
+  updatedAt    DateTime           @updatedAt
+  deletedAt    DateTime?
+  company      Company            @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  credentials  ClientCredential[]
+  projects     Project[]
+  tasks        Task[]             @relation("TaskClient")
+
+  @@unique([companyId, name])
+  @@index([companyId])
+}
+
+/// One secret the agency holds for a client (Plan: client vault) - a social
+/// login, a portal password, an invoice.
+///
+/// Either text (key/value pairs such as Username/Password) or a file, never
+/// both: `fileEncrypted` being set is what makes it a file credential, so the
+/// kind is not stored twice. `title` is the only part anyone without access
+/// ever sees - it is what a requester picks from.
+///
+/// Everything else is encrypted at rest with AES-256-GCM under
+/// `CLIENT_VAULT_ENCRYPTION_KEY` (`lib/secret-box.ts`): `secretEncrypted`
+/// seals `{ fields, remark }` as JSON, `fileEncrypted` seals the document's
+/// bytes. The file deliberately does not live in `StoredFile` -
+/// `/api/files/[id]` serves any file to anyone in the company, which would
+/// bypass the access rows below.
+model ClientCredential {
+  id              String                   @id @default(cuid())
+  companyId       String
+  clientId        String
+  title           String
+  secretEncrypted String
+  /// Present only for a file credential. Name/type/size are validated by
+  /// `lib/files.ts`'s rules, the same as every other upload.
+  fileName        String?
+  fileMimeType    String?
+  fileSizeBytes   Int?
+  fileEncrypted   Bytes?
+  createdById     String?
+  createdAt       DateTime                 @default(now())
+  updatedAt       DateTime                 @updatedAt
+  client          Client                   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  company         Company                  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  createdBy       CompanyAccount?          @relation("ClientCredentialCreatedBy", fields: [createdById], references: [id])
+  access          ClientCredentialAccess[]
+
+  @@unique([clientId, title])
+  @@index([companyId])
+}
+
+/// One person's access to one client credential (Plan: client vault) - the
+/// request and, once approved, the grant itself, in one row.
+///
+/// One row per person per credential (the two `@@unique`s; Postgres treats
+/// the unset requester column as distinct, the same trick `Notification`
+/// relies on), so asking again after a rejection or revocation reuses the row
+/// rather than stacking duplicates. The requester is an Employee or a
+/// non-manager CompanyAccount (HR) - the usual two-nullable-FK shape, exactly
+/// one set, enforced in `lib/vault-data.ts`.
+model ClientCredentialAccess {
+  id                  String                 @id @default(cuid())
+  companyId           String
+  credentialId        String
+  requesterEmployeeId String?
+  requesterAccountId  String?
+  status              CredentialAccessStatus @default(Pending)
+  /// Why they need it, shown to the vault managers deciding.
+  reason              String?
+  requestedAt         DateTime               @default(now())
+  /// The vault manager who last moved this row out of `Pending` or revoked it.
+  decidedById         String?
+  decidedAt           DateTime?
+  company             Company                @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  credential          ClientCredential       @relation(fields: [credentialId], references: [id], onDelete: Cascade)
+  decidedBy           CompanyAccount?        @relation("CredentialAccessDecidedBy", fields: [decidedById], references: [id])
+  requesterAccount    CompanyAccount?        @relation("CredentialAccessRequesterAccount", fields: [requesterAccountId], references: [id], onDelete: Cascade)
+  requesterEmployee   Employee?              @relation("CredentialAccessRequesterEmployee", fields: [requesterEmployeeId], references: [id], onDelete: Cascade)
+
+  @@unique([credentialId, requesterEmployeeId])
+  @@unique([credentialId, requesterAccountId])
+  @@index([companyId, status])
+  @@index([requesterEmployeeId])
+  @@index([requesterAccountId])
+}
+
+/// A piece of work delivered for a client (Architecture.md section 4).
+///
+/// Tasks (Phase 5) hang off a project, and the financial fields here are what
+/// the Phase 11 per-client margin rollup is computed from.
+model Project {
+  id            String          @id @default(cuid())
+  companyId     String
+  /// Architecture.md section 4: every project belongs to a client.
+  clientId      String
+  name          String
+  /// Short human-readable code, for example "NW-WEB". Unique per company when
+  /// set, so it can be used to refer to a project unambiguously.
+  code          String?
+  description   String?
+  status        ProjectStatus   @default(Planning)
+  startDate     DateTime?
+  dueDate       DateTime?
+  /// Basic financials (Phases.md Phase 4). Stored as exact decimals rather than
+  /// floats so money never accumulates rounding error; the currency is the
+  /// company's (`Company.currency`, PRD.md section 11), not per project.
+  /// Margin is derived at read time, never stored, so it cannot go stale.
+  value         Decimal?        @db.Decimal(14, 2)
+  estimatedCost Decimal?        @db.Decimal(14, 2)
+  /// The company account accountable for the project. A Manager may manage the
+  /// projects they lead (PRD.md section 9 - "own team's projects").
+  leadAccountId String?
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+  deletedAt     DateTime?
+  alerts        Alert[]
+  client        Client          @relation(fields: [clientId], references: [id])
+  company       Company         @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  leadAccount   CompanyAccount? @relation("ProjectLead", fields: [leadAccountId], references: [id])
+  members       ProjectMember[]
+  tasks         Task[]
+
+  @@unique([companyId, code])
+  @@index([companyId])
+  @@index([clientId])
+  @@index([leadAccountId])
+}
+
+/// An employee assigned to a project team (Phases.md Phase 4).
+///
+/// Carries its own `companyId` per Rules.md section 2, and because the Phase 11
+/// rollups count team size straight from this table.
+///
+/// It has no `deletedAt`: a membership records no history of its own, so
+/// removing someone from a team is a real delete, and a soft-deleted row would
+/// only block re-adding them through the `[projectId, employeeId]` unique. Its
+/// rows are therefore never read through `scopedWhere` - every read and write
+/// goes via a Project that was already loaded through the tenant filter, which
+/// is what proves the tenant.
+model ProjectMember {
+  id         String   @id @default(cuid())
+  companyId  String
+  projectId  String
+  employeeId String
+  createdAt  DateTime @default(now())
+  company    Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  employee   Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  project    Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, employeeId])
+  @@index([companyId])
+  @@index([employeeId])
+}
+
+/// A unit of work, optionally on a project (Architecture.md section 4,
+/// PRD.md section 6.3).
+///
+/// A task usually belongs to a project, which is what gives it a client, a
+/// budget and a team. `projectId` is nullable so a task can also be a quick,
+/// personal to-do with none of that — `lib/permissions.ts`'s `canManageTask`
+/// treats a project-less task as personal to whoever raised it (`createdBy`)
+/// rather than governed by a project lead. The assignee is an `Employee` and
+/// never a `CompanyAccount`: company accounts run the work, employees do it,
+/// which is the split Architecture.md section 4 draws.
+model Task {
+  id                String          @id @default(cuid())
+  companyId         String
+  projectId         String?
+  title             String
+  description       String?
+  status            TaskStatus      @default(Todo)
+  priority          TaskPriority    @default(Medium)
+  /// Null is a real state - work sitting in the backlog before anyone picks it
+  /// up. Constrained to the project's team by `resolveTaskWrite`.
+  assigneeId        String?
+  /// The deadline. Stored at UTC midnight like every other date-only field, so
+  /// "due the 9th" does not become the 8th west of Greenwich.
+  dueDate           DateTime?
+  /// Estimated effort in hours (PRD.md section 6.3). A Decimal rather than a
+  /// float because Phase 6 sums these into a workload percentage, and half an
+  /// hour must stay half an hour after a hundred additions.
+  estimatedHours    Decimal?        @db.Decimal(6, 2)
+  /// Actual completion (PRD.md section 6.3). Set when the task first reaches
+  /// Done and cleared if it is moved back out, by `completionFor` in
+  /// lib/tasks.ts - it is an event timestamp, so unlike "overdue" it cannot be
+  /// derived from the current row.
+  completedAt       DateTime?
+  /// Who raised the task. Kept for the audit trail, and null if that account is
+  /// later removed.
+  createdById       String?
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+  deletedAt         DateTime?
+  /// A task filed directly under a client, with no project in between — the
+  /// third target type alongside a project task and a fully general/personal
+  /// task (`projectId` and `clientId` both null). Enforced mutually exclusive
+  /// with `projectId` in `lib/validations/tasks.ts`, not by the database,
+  /// the same style `projectId` alone already used.
+  clientId          String?
+  /// Plan: completion note. What whoever finished the task had to say about
+  /// it - optional, asked for when the task is moved to Done. It belongs to
+  /// that completion, so like `completedAt` it is cleared if the task is moved
+  /// back out of Done (`completionNoteFor` in lib/tasks.ts).
+  completionNote    String?
+  /// Plan: allot tasks to a Manager or HR. Set instead of `assigneeId` when the
+  /// task went to a Manager/HR login rather than an employee - a task has at
+  /// most one assignee, enforced by `resolveTaskWrite`, the same
+  /// two-nullable-FK shape `Notification` uses for its recipient. Who may do
+  /// that is `canAssignTaskToAccount` in lib/permissions.ts.
+  assigneeAccountId String?
+  attachments       Attachment[]
+  comments          Comment[]
+  assigneeAccount   CompanyAccount? @relation("TaskAssigneeAccount", fields: [assigneeAccountId], references: [id])
+  assignee          Employee?       @relation("TaskAssignee", fields: [assigneeId], references: [id])
+  client            Client?         @relation("TaskClient", fields: [clientId], references: [id])
+  company           Company         @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  createdBy         CompanyAccount? @relation("TaskCreatedBy", fields: [createdById], references: [id])
+  project           Project?        @relation(fields: [projectId], references: [id])
+  matrixEntry       TaskMatrix[]
+  timeEntries       TaskTimeEntry[]
+
+  @@index([companyId])
+  @@index([projectId])
+  @@index([clientId])
+  @@index([assigneeId])
+  @@index([assigneeAccountId])
+  @@index([companyId, status, dueDate])
+}
+
+/// One continuous stretch of an employee working on a task (Phases.md
+/// Phase 12 - start / break / stop / done with a running timer).
+///
+/// An interval, not a stopwatch: the row is created open (`endedAt` null) when
+/// the timer starts and closed when it stops, so elapsed time is always
+/// derived from the two timestamps rather than from a counter that would have
+/// to be kept ticking by a job and would lose everything on a crash. The same
+/// shape as `AttendanceRecord`, one level down - a session is to a working day
+/// what one of these is to a task.
+///
+/// At most one open row per (employee, task), enforced in
+/// `lib/task-timer-data.ts`. Deliberately *not* one per employee: a person may
+/// legitimately have several tasks running at once, and the whole point of the
+/// stop action is that putting one task down is a separate decision from
+/// picking another up.
+///
+/// Rows are never edited or deleted, so there is no `deletedAt` - every row is
+/// history (the same reasoning `AttendanceRecord` carries).
+model TaskTimeEntry {
+  id         String              @id @default(cuid())
+  companyId  String
+  taskId     String
+  /// Who was working. Only ever the task's assignee - a manager does not run
+  /// someone else's timer (`canTrackTaskTime` in lib/permissions.ts).
+  employeeId String
+  startedAt  DateTime            @default(now())
+  /// Null while the timer is running.
+  endedAt    DateTime?
+  /// Null exactly while `endedAt` is null - the two are written together.
+  endReason  TimeEntryEndReason?
+  createdAt  DateTime            @default(now())
+  updatedAt  DateTime            @updatedAt
+  company    Company             @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  employee   Employee            @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  task       Task                @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@index([companyId])
+  @@index([taskId, startedAt])
+  @@index([employeeId, endedAt])
+}
+
+/// A message on a task (Architecture.md section 4).
+///
+/// Authored by a CompanyAccount: in Phase 5 tasks are a company-side view, and
+/// employees reach their own work in Phase 10, which is when an employee author
+/// column joins this table.
+model Comment {
+  id              String          @id @default(cuid())
+  companyId       String
+  taskId          String
+  /// Null once the author's account is removed. The message stays, because a
+  /// conversation with a hole in it is worse than one signed "Removed user".
+  authorAccountId String?
+  body            String
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+  /// Soft-deleted (Rules.md section 6): a thread is a record of a decision, so
+  /// removing one message must not silently rewrite the discussion around it.
+  deletedAt       DateTime?
+  authorAccount   CompanyAccount? @relation("CommentAuthor", fields: [authorAccountId], references: [id])
+  company         Company         @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  task            Task            @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@index([taskId, createdAt])
+  @@index([companyId])
+}
+
+/// A file attached to a task or a request (Architecture.md section 4).
+///
+/// Phase 5 records a **link** to a file - the shared document, the design, the
+/// spec - because the S3 bucket Architecture.md section 2 calls for is not
+/// provisioned yet (the `S3_*` variables in .env.example are still blank).
+/// Uploads slot in on top of this row rather than beside it: an uploaded file
+/// adds `storageKey`, `contentType` and `sizeBytes`, and the link stays valid
+/// for everything that already lives in Drive or Figma.
+///
+/// Phase 7 widens this to also hang off a `Request`, since Architecture.md's
+/// ER diagram always drew `Request 1---* Attachment` and a second,
+/// near-identical table would only duplicate this one. `taskId`/`requestId`
+/// and `addedById`/`addedByEmployeeId` are two pairs of nullable foreign keys
+/// rather than a polymorphic column, the same shape `Employee.managerId` /
+/// `managerAccountId` already uses - exactly one of each pair is set, enforced
+/// in `lib/attachments.ts`, not by a database constraint.
+///
+/// Like `ProjectMember`, this is a pointer and not a history, so removing one
+/// is a real delete.
+model Attachment {
+  id                String          @id @default(cuid())
+  companyId         String
+  taskId            String?
+  /// What the file is, in the adder's words. Falls back to the URL's own last
+  /// path segment when they leave it blank.
+  label             String
+  /// Validated to http/https only, so a stored link can never be a `javascript:`
+  /// payload aimed at whoever clicks it (Architecture.md section 8).
+  /// Exactly one of `url` and `fileId` is set: a link, or an uploaded file.
+  url               String?
+  /// A task attachment is always added by a `CompanyAccount` (Phase 5); a
+  /// request attachment may be added by either the submitting `Employee` or
+  /// the `CompanyAccount` deciding it (Phase 7).
+  addedById         String?
+  createdAt         DateTime        @default(now())
+  addedByEmployeeId String?
+  requestId         String?
+  /// An uploaded document, served by the tenant-scoped `/api/files/[id]`.
+  /// Owned by this row - removing the attachment deletes the file too.
+  fileId            String?         @unique
+  addedByEmployee   Employee?       @relation("AttachmentAddedByEmployee", fields: [addedByEmployeeId], references: [id])
+  addedBy           CompanyAccount? @relation("AttachmentAddedBy", fields: [addedById], references: [id])
+  company           Company         @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  file              StoredFile?     @relation(fields: [fileId], references: [id], onDelete: Cascade)
+  request           Request?        @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  task              Task?           @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@index([taskId])
+  @@index([requestId])
+  @@index([companyId])
+}
+
+/// An employee request (PRD.md section 6.6, Phases.md Phase 7) - leave,
+/// reimbursement, equipment, work-from-home, HR, complaint, document or
+/// suggestion, sharing one shape and one approval workflow (Architecture.md
+/// section 6's "polymorphic Request model" decision).
+///
+/// `startDate`/`endDate` and `amount` are only ever set for the request types
+/// that need them (`lib/requests.ts`'s `requestNeedsDateRange`/
+/// `requestNeedsAmount`) and validated accordingly in
+/// `lib/validations/requests.ts` - they stay nullable columns on this one
+/// table rather than becoming per-type tables.
+model Request {
+  id                          String          @id @default(cuid())
+  companyId                   String
+  /// Always an Employee (PRD.md section 6.9 - "My Requests" is part of
+  /// employee self-service) - a CompanyAccount decides, never submits.
+  employeeId                  String
+  type                        RequestType
+  status                      RequestStatus   @default(Pending)
+  subject                     String
+  description                 String
+  /// Leave / WFH only.
+  startDate                   DateTime?
+  endDate                     DateTime?
+  /// Reimbursement only. The company's own currency (`Company.currency`),
+  /// like `Project.value` - never a per-request currency.
+  amount                      Decimal?        @db.Decimal(12, 2)
+  /// Who decided this request, and how. Null until `status` leaves `Pending`.
+  /// A decision is one-time (`lib/request-data.ts` refuses to re-decide an
+  /// already-decided request) - a changed mind is a fresh request, not a
+  /// reopened one.
+  ///
+  /// Two nullable FKs (Phase 11 adds the second): a decider is usually a
+  /// `CompanyAccount`, but an Employee holding a `DecideRequests` grant
+  /// (`lib/permissions.ts`'s `hasGrant`) can decide too - the same
+  /// "Employee or CompanyAccount" shape as everywhere else in this schema.
+  approverId                  String?
+  decisionNote                String?
+  decidedAt                   DateTime?
+  createdAt                   DateTime        @default(now())
+  updatedAt                   DateTime        @updatedAt
+  deletedAt                   DateTime?
+  approverEmployeeId          String?
+  /// Leave only (Plan.md Phase 16). A half day is a single-day request -
+  /// `lib/validations/requests.ts` refuses `startDate` != `endDate` when this
+  /// is `FirstHalf`/`SecondHalf`.
+  dayPart                     LeaveDayPart?
+  /// Who this request was addressed to (Phase 21).
+  ///
+  /// Before this, "who decides" was a role rule: anyone with approval power
+  /// could pick up any pending request. Now the employee picks the person
+  /// they are asking, and only that person (or the founder/owner) can decide.
+  /// Mirrors the decision FKs: a CompanyAccount approver or an Employee
+  /// approver. Null on requests submitted before Phase 21, which keep the
+  /// old role rule (`canDecideOnRequest`).
+  requestedApproverAccountId  String?
+  requestedApproverEmployeeId String?
+  attachments                 Attachment[]
+  approverEmployee            Employee?       @relation("RequestApproverEmployee", fields: [approverEmployeeId], references: [id])
+  approver                    CompanyAccount? @relation("RequestApprover", fields: [approverId], references: [id])
+  company                     Company         @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  employee                    Employee        @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  requestedApprover           CompanyAccount? @relation("RequestRequestedApprover", fields: [requestedApproverAccountId], references: [id])
+  requestedApproverEmployee   Employee?       @relation("RequestRequestedApproverEmployee", fields: [requestedApproverEmployeeId], references: [id])
+
+  @@index([companyId])
+  @@index([requestedApproverAccountId])
+  @@index([employeeId])
+  @@index([companyId, status])
+}
+
+/// An in-app notification (Architecture.md section 7). Fired on a request
+/// being submitted (to its approvers) or decided (to the submitting
+/// employee) - the two Phase 7 events - via `lib/notifications.ts`.
+///
+/// `recipientEmployeeId`/`recipientAccountId` are the same two-nullable-FK
+/// shape as everywhere else in this schema that a row belongs to "an Employee
+/// or a CompanyAccount": exactly one is set, enforced in `lib/notifications.ts`.
+model Notification {
+  id                  String           @id @default(cuid())
+  companyId           String
+  recipientEmployeeId String?
+  recipientAccountId  String?
+  message             String
+  /// Where clicking the notification should go, e.g. `/requests/[id]`.
+  link                String?
+  readAt              DateTime?
+  createdAt           DateTime         @default(now())
+  /// What happened. Drives which channels `lib/notifications.ts` spends on
+  /// this one, and forms half of `dedupeKey` below.
+  type                NotificationType
+  /// Idempotency key for notifications a *sweep* produces rather than a user
+  /// action (currently `DeadlineApproaching`, from `jobs/notifyDeadlines.ts`).
+  ///
+  /// The sweep runs daily and would otherwise re-warn about the same task
+  /// every night, so it writes a key naming the task and the day it is warning
+  /// about; the unique index below turns the second write into a no-op rather
+  /// than a duplicate message. Null for event-driven notifications, which
+  /// cannot repeat because the event cannot — and Postgres treats each NULL as
+  /// distinct, so any number of them coexist under this constraint.
+  dedupeKey           String?
+  company             Company          @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  recipientAccount    CompanyAccount?  @relation("NotificationAccount", fields: [recipientAccountId], references: [id], onDelete: Cascade)
+  recipientEmployee   Employee?        @relation("NotificationEmployee", fields: [recipientEmployeeId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, dedupeKey])
+  @@index([companyId])
+  @@index([recipientEmployeeId])
+  @@index([recipientAccountId])
+}
+
+/// Which channels one person wants notifications on, beyond the bell.
+///
+/// A row exists only once someone has changed something: no row means every
+/// channel is on, which is the product default the Owner chose. That keeps the
+/// table empty for the overwhelming majority of people and needs no backfill
+/// for anyone who already exists. `resolveChannels` in `lib/notifications.ts`
+/// is the single place that turns "row or no row" into a channel list.
+///
+/// There is no `inApp` column: the bell is the permanent record of what
+/// happened and is not a channel anyone may switch off.
+model NotificationPreference {
+  id              String          @id @default(cuid())
+  companyId       String
+  /// The same "exactly one of these" recipient shape as `Notification`, here
+  /// additionally unique so one person cannot hold two conflicting rows.
+  employeeId      String?         @unique
+  accountId       String?         @unique
+  emailEnabled    Boolean         @default(true)
+  whatsappEnabled Boolean         @default(true)
+  pushEnabled     Boolean         @default(true)
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+  account         CompanyAccount? @relation("NotificationPrefAccount", fields: [accountId], references: [id], onDelete: Cascade)
+  company         Company         @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  employee        Employee?       @relation("NotificationPrefEmployee", fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@index([companyId])
+}
+
+/// A company-wide broadcast, optionally carrying a poll (Plan: top bar
+/// rework). Posted by any company account role — Owner, Admin, Manager, HR
+/// — `canManageAnnouncements` in lib/permissions.ts — and readable by
+/// everyone, employees included, which is why it fans out through the
+/// existing `Notification`/`deliver` pipeline (`AnnouncementPosted`) rather
+/// than a bespoke one.
+model Announcement {
+  id                 String         @id @default(cuid())
+  companyId          String
+  createdByAccountId String
+  title              String
+  body               String
+  createdAt          DateTime       @default(now())
+  updatedAt          DateTime       @updatedAt
+  deletedAt          DateTime?
+  company            Company        @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  createdByAccount   CompanyAccount @relation(fields: [createdByAccountId], references: [id], onDelete: Cascade)
+  poll               Poll?
+
+  @@index([companyId, createdAt])
+}
+
+/// At most one per announcement (`announcementId` is `@unique`) — a poll is
+/// an announcement's optional attachment, not a standalone post.
+model Poll {
+  id             String       @id @default(cuid())
+  companyId      String
+  announcementId String       @unique
+  createdAt      DateTime     @default(now())
+  announcement   Announcement @relation(fields: [announcementId], references: [id], onDelete: Cascade)
+  company        Company      @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  options        PollOption[]
+  pollVotes      PollVote[]
+
+  @@index([companyId])
+}
+
+model PollOption {
+  id        String     @id @default(cuid())
+  companyId String
+  pollId    String
+  label     String
+  /// Display order, since Prisma gives no ordering guarantee of its own.
+  order     Int
+  company   Company    @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  poll      Poll       @relation(fields: [pollId], references: [id], onDelete: Cascade)
+  votes     PollVote[]
+
+  @@index([pollId])
+}
+
+/// One voter, one vote per poll — the same "Employee or CompanyAccount"
+/// dual-FK shape as `ConversationParticipant`, with two separate unique
+/// constraints (Postgres treats each NULL as distinct, so each constraint
+/// only ever binds the non-null side) rather than one compound one, which
+/// would not enforce uniqueness the same way.
+///
+/// `pollId` is denormalized here alongside `pollOptionId` — the same
+/// reasoning `companyId` is denormalized onto every child table — so "does
+/// this voter already have a vote on this poll" is one query with no join
+/// through `PollOption` first.
+model PollVote {
+  id              String          @id @default(cuid())
+  companyId       String
+  pollOptionId    String
+  pollId          String
+  voterEmployeeId String?
+  voterAccountId  String?
+  createdAt       DateTime        @default(now())
+  company         Company         @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  poll            Poll            @relation(fields: [pollId], references: [id], onDelete: Cascade)
+  pollOption      PollOption      @relation(fields: [pollOptionId], references: [id], onDelete: Cascade)
+  voterAccount    CompanyAccount? @relation(fields: [voterAccountId], references: [id], onDelete: Cascade)
+  voterEmployee   Employee?       @relation(fields: [voterEmployeeId], references: [id], onDelete: Cascade)
+
+  @@unique([pollId, voterEmployeeId])
+  @@unique([pollId, voterAccountId])
+  @@index([pollOptionId])
+}
+
+/// One browser that has agreed to receive Web Push, as returned by the
+/// browser's own `PushManager.subscribe()` (Architecture.md section 7's
+/// delivery half).
+///
+/// One person can hold several: work laptop, home laptop, phone. `endpoint` is
+/// the push service's URL for that browser and is globally unique by
+/// construction, so it — not the person — is the natural key, and re-subscribing
+/// the same browser updates the existing row instead of piling up dead ones.
+///
+/// Rows are deleted rather than soft-deleted: a subscription the push service
+/// has rejected with 404/410 is not history worth keeping, it is a dead address
+/// that would be retried forever. `lib/push.ts` prunes them on that response.
+model PushSubscription {
+  id         String          @id @default(cuid())
+  companyId  String
+  employeeId String?
+  accountId  String?
+  /// The push service URL this browser listens on.
+  endpoint   String          @unique
+  /// The browser's public key and auth secret, used to encrypt the payload so
+  /// the push service relaying it cannot read the message.
+  p256dh     String
+  auth       String
+  createdAt  DateTime        @default(now())
+  account    CompanyAccount? @relation("PushSubscriptionAccount", fields: [accountId], references: [id], onDelete: Cascade)
+  company    Company         @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  employee   Employee?       @relation("PushSubscriptionEmployee", fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@index([companyId])
+  @@index([employeeId])
+  @@index([accountId])
+}
+
+/// A goal set for an employee (PRD.md section 6.5 - "OKR-style, simple").
+///
+/// Manager-owned: Owner/Admin/HR or the employee's own manager create and
+/// decide a goal (`canEditEmployee`'s existing scope - lib/permissions.ts);
+/// the employee reads it on My Growth but never writes it. No numeric progress
+/// field - a goal is `Active` until explicitly marked `Achieved` or `Missed`,
+/// which is all `lib/performance.ts`'s score needs and all Phases.md's "simple"
+/// tracking asks for.
+model Goal {
+  id          String          @id @default(cuid())
+  companyId   String
+  /// Plan: attendance/performance for all company accounts, not just
+  /// employees — the subject of this goal, either an Employee or a
+  /// CompanyAccount, mirroring `Notification`'s two-nullable-FK recipient
+  /// shape. Exactly one of the two is set, enforced in `lib/performance-data.ts`
+  /// rather than the database, the same way this schema's other "exactly one
+  /// of these" invariants are enforced in lib/*.ts.
+  employeeId  String?
+  /// Who set this goal. Null if that account is later removed - the goal
+  /// itself stays, like a task's `createdBy`.
+  createdById String?
+  title       String
+  description String?
+  targetDate  DateTime?
+  status      GoalStatus      @default(Active)
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+  deletedAt   DateTime?
+  accountId   String?
+  account     CompanyAccount? @relation("GoalSubjectAccount", fields: [accountId], references: [id], onDelete: Cascade)
+  company     Company         @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  createdBy   CompanyAccount? @relation("GoalSetBy", fields: [createdById], references: [id])
+  employee    Employee?       @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@index([companyId])
+  @@index([employeeId])
+  @@index([accountId])
+}
+
+/// A manager feedback log entry (PRD.md section 6.5). Visible to the employee
+/// immediately - there is no private/draft state.
+///
+/// `rating` is a 1-5 number alongside the free-text `body`: the scoring engine
+/// needs a number to average, and the log entry alone can't feed the formula.
+model Feedback {
+  id         String          @id @default(cuid())
+  companyId  String
+  /// Plan: attendance/performance for all company accounts — same
+  /// two-nullable-FK subject shape as `Goal` above.
+  employeeId String?
+  givenById  String?
+  rating     Int
+  body       String
+  createdAt  DateTime        @default(now())
+  accountId  String?
+  account    CompanyAccount? @relation("FeedbackSubjectAccount", fields: [accountId], references: [id], onDelete: Cascade)
+  company    Company         @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  employee   Employee?       @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  givenBy    CompanyAccount? @relation("FeedbackGivenBy", fields: [givenById], references: [id])
+
+  @@index([companyId])
+  @@index([employeeId])
+  @@index([accountId])
+}
+
+/// One point on an employee's performance history timeline (Architecture.md's
+/// ERD: `Employee 1---* PerformanceRecord`, PRD.md section 6.5 - "performance
+/// history timeline per employee").
+///
+/// Unlike `Employee.workloadPercent` (a single cached value overwritten in
+/// place), this is a real history: `lib/performance-data.ts` appends a new row
+/// every time a triggering write (a task reaching Done, new feedback, a
+/// decided goal) produces enough data to compute a score. When there isn't
+/// enough data yet, no row is written at all - simpler than a nullable `score`
+/// sentinel, and "no records yet" already reads correctly as "not enough data".
+model PerformanceRecord {
+  id         String          @id @default(cuid())
+  companyId  String
+  /// Plan: attendance/performance for all company accounts — same
+  /// two-nullable-FK subject shape as `Goal`/`Feedback` above.
+  employeeId String?
+  /// `lib/performance.ts`'s `calculatePerformanceScore` output, 0-100 (may
+  /// read outside that range only if the formula changes - kept as a Decimal
+  /// like `workloadPercent` so it never accumulates float error).
+  score      Decimal         @db.Decimal(5, 2)
+  computedAt DateTime        @default(now())
+  accountId  String?
+  account    CompanyAccount? @relation("PerformanceRecordSubjectAccount", fields: [accountId], references: [id], onDelete: Cascade)
+  company    Company         @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  employee   Employee?       @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@index([companyId])
+  @@index([employeeId, computedAt])
+  @@index([accountId, computedAt])
+}
+
+/// One clock-in/clock-out session for an employee - a "Login"/"Logout" pair,
+/// no approval workflow. `clockOutAt: null` means the employee is currently
+/// clocked in. At most one such row per employee at a time - enforced in
+/// `lib/attendance-data.ts`, not the database, the same way other "exactly
+/// one of these" invariants in this schema are enforced in lib/*.ts rather
+/// than a DB constraint.
+///
+/// Breaks (Plan.md Phase 15) belong to the session, not to one task -
+/// starting one pauses every task timer running for this employee, so the
+/// worked total can honestly exclude lunch without also losing the timers.
+model AttendanceRecord {
+  id                  String               @id @default(cuid())
+  companyId           String
+  /// Plan: attendance for all company accounts, not just employees — same
+  /// two-nullable-FK subject shape as `Goal`/`Feedback`/`PerformanceRecord`
+  /// above.
+  employeeId          String?
+  clockInAt           DateTime             @default(now())
+  clockOutAt          DateTime?
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
+  accountId           String?
+  /// How this session ended. Null while it is still open. `Manual` is somebody
+  /// pressing Log out; `AutoNoResponse` is `jobs/remindLogout.ts` closing a
+  /// session whose logout reminder went unanswered - which also backdates
+  /// `clockOutAt` to the last confirmed presence, so the marker is what
+  /// explains a clock-out stamped earlier than the row was written.
+  clockOutReason      AttendanceEndReason?
+  /// When the most recent logout reminder was sent. Never cleared: the sweep
+  /// compares it against `presenceConfirmedAt` to tell an answered reminder
+  /// from an outstanding one, and counts the next reminder's 2 hours from it.
+  logoutReminderAt    DateTime?
+  /// The last moment we know this person was still working: set by "I'm here"
+  /// on a logout reminder. Null means they have not confirmed since clocking
+  /// in, and `resolveLogoutNudge` falls back to the end of the working day.
+  presenceConfirmedAt DateTime?
+  account             CompanyAccount?      @relation("AttendanceRecordSubjectAccount", fields: [accountId], references: [id], onDelete: Cascade)
+  company             Company              @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  employee            Employee?            @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  breaks              BreakRecord[]
+
+  @@index([companyId])
+  @@index([employeeId, clockInAt])
+  @@index([accountId, clockInAt])
+  @@index([clockOutAt])
+}
+
+/// One break taken during an open attendance session (Plan.md Phase 15). A
+/// break outside a working day is not a thing, so `attendanceRecordId` is
+/// required, not nullable - unlike `AttendanceRecord` itself, which stands on
+/// its own.
+///
+/// `endedAt: null` means the break is open; at most one such row per employee
+/// at a time, enforced in `lib/attendance-data.ts` the same way the single
+/// open `AttendanceRecord` is.
+model BreakRecord {
+  id                 String           @id @default(cuid())
+  companyId          String
+  /// Plan: breaks for all company accounts, not just employees — same
+  /// two-nullable-FK subject shape as `AttendanceRecord` above.
+  employeeId         String?
+  attendanceRecordId String
+  startedAt          DateTime         @default(now())
+  endedAt            DateTime?
+  /// Tasks whose running timer this break paused, so ending it can resume
+  /// exactly those and nothing else. Always empty for a CompanyAccount
+  /// subject — a company account is never a task assignee, so it never has a
+  /// running `TaskTimeEntry` to pause.
+  pausedTaskIds      String[]
+  createdAt          DateTime         @default(now())
+  updatedAt          DateTime         @updatedAt
+  accountId          String?
+  account            CompanyAccount?  @relation("BreakRecordSubjectAccount", fields: [accountId], references: [id], onDelete: Cascade)
+  attendanceRecord   AttendanceRecord @relation(fields: [attendanceRecordId], references: [id], onDelete: Cascade)
+  company            Company          @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  employee           Employee?        @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@index([companyId])
+  @@index([employeeId, startedAt])
+  @@index([accountId, startedAt])
+}
+
+/// A system-generated exception (PRD.md section 6.8, Phases.md Phase 9's
+/// early-warning engine): an overdue task, an overloaded employee, a stalled
+/// project, or a pending request aging past the company's threshold.
+///
+/// A live snapshot, not a history like `PerformanceRecord` - regenerating a
+/// company's alerts (`lib/alert-data.ts`'s `recalcCompanyAlerts`) deletes every
+/// existing row for it and inserts the currently-triggered ones in one
+/// transaction. Simplest correct model for "what needs attention right now",
+/// and avoids a resolved/unresolved state machine nothing asks for.
+///
+/// `employeeId`/`projectId` are two independent, optional pointers (not the
+/// usual "exactly one of these is set" pair) - an `OverdueTask` alert sets
+/// both (the assignee and the task's project), `OverloadedEmployee` and
+/// `AgingApproval` set only `employeeId`, `StalledProject` only `projectId`.
+/// They exist so a Manager's dashboard can filter to alerts about their own
+/// direct reports or led projects, the same scoping already applied to
+/// requests, performance and workload.
+model Alert {
+  id         String        @id @default(cuid())
+  companyId  String
+  type       AlertType
+  severity   AlertSeverity
+  message    String
+  /// Where clicking the alert should go, e.g. `/tasks/[id]`.
+  link       String?
+  employeeId String?
+  projectId  String?
+  createdAt  DateTime      @default(now())
+  company    Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  employee   Employee?     @relation(fields: [employeeId], references: [id])
+  project    Project?      @relation(fields: [projectId], references: [id])
+
+  @@index([companyId])
+  @@index([companyId, type])
+  @@index([employeeId])
+  @@index([projectId])
+}
+
+/// A 1:1 chat between any two members of a company (either an Employee or a
+/// CompanyAccount) - Phase 11. No group chat: the join-table shape (like
+/// `ProjectMember`) is what keeps "find the conversation between X and Y" a
+/// plain query instead of four nullable FK columns directly on this row.
+model Conversation {
+  id            String                    @id @default(cuid())
+  companyId     String
+  createdAt     DateTime                  @default(now())
+  updatedAt     DateTime                  @updatedAt
+  /// The backend this conversation actually lives in. Records the provider it
+  /// was created with and is deliberately never changed by a default-provider
+  /// switch — existing conversations keep their original provider (Plan:
+  /// provider switching and conversation integrity). `Native` conversations
+  /// store messages in `ChatMessage`; `Google` conversations point at a Google
+  /// Chat space via `googleSpaceId` and keep no message bodies here.
+  provider      MessagingProvider         @default(Native)
+  /// The Google Chat space id for a `Google` conversation. Null for `Native`
+  /// conversations. Set when the space is created; never persisted per-message
+  /// here because Google remains the authoritative store for Google messages.
+  googleSpaceId String?
+  messages      ChatMessage[]
+  company       Company                   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  participants  ConversationParticipant[]
+
+  @@index([companyId])
+}
+
+/// One side of a conversation. Same two-nullable-FK shape as `Notification`'s
+/// recipient columns - exactly one of `employeeId`/`accountId` is set,
+/// enforced in `lib/chat-data.ts`, not the database. `lastReadAt` is what the
+/// unread badge/count is computed from, so no separate read-receipt table is
+/// needed.
+model ConversationParticipant {
+  id             String          @id @default(cuid())
+  companyId      String
+  conversationId String
+  employeeId     String?
+  accountId      String?
+  lastReadAt     DateTime?
+  account        CompanyAccount? @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  company        Company         @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  conversation   Conversation    @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  employee       Employee?       @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@unique([conversationId, employeeId])
+  @@unique([conversationId, accountId])
+  @@index([companyId])
+  @@index([employeeId])
+  @@index([accountId])
+}
+
+/// A chat message, hard-deleted 31 days after `createdAt`
+/// (`lib/chat-data.ts`'s lazy cleanup plus the
+/// `/api/jobs/cleanup-chat-messages` sweep). Unlike every other "history"
+/// table in this schema, this one is genuinely temporary by design, so there
+/// is no `deletedAt` soft-delete - a message that ages out is actually gone.
+model ChatMessage {
+  id               String          @id @default(cuid())
+  companyId        String
+  conversationId   String
+  senderEmployeeId String?
+  senderAccountId  String?
+  /// Empty string when the message is a bare file share - `sendMessageSchema`
+  /// requires text or an attachment, not necessarily both.
+  body             String
+  createdAt        DateTime        @default(now())
+  /// Plan: media/file sharing in chat. Nullable because most messages are
+  /// text. The 31-day hard delete above must delete the `StoredFile` too,
+  /// otherwise files outlive the messages that referenced them forever - see
+  /// `lib/chat-data.ts` and `jobs/cleanupChatMessages.ts`.
+  attachmentFileId String?
+  attachmentFile   StoredFile?     @relation(fields: [attachmentFileId], references: [id])
+  company          Company         @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  conversation     Conversation    @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  senderAccount    CompanyAccount? @relation(fields: [senderAccountId], references: [id])
+  senderEmployee   Employee?       @relation(fields: [senderEmployeeId], references: [id])
+
+  @@index([conversationId, createdAt])
+  @@index([companyId])
+}
+
+/// One person's override of their level default (Plan: access levels, grown
+/// from Phase 11's employee-only grants): `Grant` switches on a power their
+/// level lacks, `Revoke` switches off one it would otherwise give. No row
+/// means "follow the level". Read fresh on every request by `getRawActor()`
+/// (lib/auth.ts) and interpreted in exactly one place, `has` in
+/// lib/permissions.ts — so a change applies on the person's next click.
+///
+/// Same two-nullable-FK "Employee or CompanyAccount" shape as `Notification`:
+/// exactly one of `employeeId`/`accountId` is set, enforced by a CHECK
+/// constraint in the migration as well as by lib/permission-grants-data.ts.
+model PermissionGrant {
+  id          String            @id @default(cuid())
+  companyId   String
+  employeeId  String?
+  permission  GrantedPermission
+  /// The Owner who last set this override. Nullable with `SetNull` so that
+  /// removing that login can never delete a `Revoke` and silently hand a
+  /// power back.
+  grantedById String?
+  createdAt   DateTime          @default(now())
+  accountId   String?
+  effect      PermissionEffect  @default(Grant)
+  account     CompanyAccount?   @relation("PermissionGrantSubjectAccount", fields: [accountId], references: [id], onDelete: Cascade)
+  company     Company           @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  employee    Employee?         @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  grantedBy   CompanyAccount?   @relation("PermissionGrantGivenBy", fields: [grantedById], references: [id])
+
+  @@unique([companyId, employeeId, permission])
+  @@unique([companyId, accountId, permission])
+  @@index([companyId])
+  @@index([employeeId])
+  @@index([accountId])
+}
+
+/// Append-only history of the Owner's Authority changes (Plan: access
+/// levels): who changed whose access, to what, and when. Written in the same
+/// transaction as the change itself by lib/permission-grants-data.ts.
+model PermissionChange {
+  id          String               @id @default(cuid())
+  companyId   String
+  /// Who made the change — kept as null if that login is ever removed, so
+  /// the history outlives its author.
+  changedById String?
+  /// Whose access changed. Exactly one is set, like `PermissionGrant`.
+  employeeId  String?
+  accountId   String?
+  kind        PermissionChangeKind
+  /// Set for `PowerOn`/`PowerOff`.
+  permission  GrantedPermission?
+  /// Set for `LevelChanged`.
+  fromRole    CompanyRole?
+  toRole      CompanyRole?
+  createdAt   DateTime             @default(now())
+  account     CompanyAccount?      @relation("PermissionChangeSubjectAccount", fields: [accountId], references: [id], onDelete: Cascade)
+  changedBy   CompanyAccount?      @relation("PermissionChangeBy", fields: [changedById], references: [id])
+  company     Company              @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  employee    Employee?            @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@index([companyId, createdAt])
+  @@index([employeeId])
+  @@index([accountId])
+}
+
+/// One person's connection to their own Google Calendar (Plan.md Phase 17).
+///
+/// Read-only by design (Plan.md's confirmed decision): WorkPulse never writes
+/// to Google, it only previews. `refreshTokenEncrypted` is reversible
+/// (AES-256-GCM via `lib/google-calendar-crypto.ts`), unlike every other
+/// secret this schema stores (invite tokens, passwords), because Google
+/// requires the actual token back on every API call - it cannot be hashed
+/// like a one-time invite link.
+///
+/// Same two-nullable-FK "Employee or CompanyAccount" shape as
+/// `NotificationPreference`, one row per person - each side individually
+/// `@unique` so nobody can hold two.
+model GoogleCalendarConnection {
+  id                    String          @id @default(cuid())
+  companyId             String
+  employeeId            String?         @unique
+  accountId             String?         @unique
+  googleEmail           String
+  /// AES-256-GCM ciphertext, never returned to any client.
+  refreshTokenEncrypted String
+  scope                 String
+  connectedAt           DateTime        @default(now())
+  account               CompanyAccount? @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  company               Company         @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  employee              Employee?       @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@index([companyId])
+}
+
+/// An in-app meeting (Plan.md Phase 17). Booked and stored entirely in
+/// WorkPulse - never written back to Google - so booking works with
+/// colleagues who have never connected a Google account.
+model Meeting {
+  id                  String               @id @default(cuid())
+  companyId           String
+  /// Who booked it. Two nullable FKs, the same "Employee or CompanyAccount"
+  /// shape as `ConversationParticipant` - only the organizer may cancel
+  /// (`canCancelMeeting` in lib/permissions.ts).
+  organizerEmployeeId String?
+  organizerAccountId  String?
+  title               String
+  description         String?
+  startAt             DateTime
+  endAt               DateTime
+  location            String?
+  status              MeetingStatus        @default(Scheduled)
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
+  /// Google Calendar event id, set only when the organizer had a Google
+  /// connection at booking time. Null means this meeting exists in WorkPulse
+  /// only (organizer never connected, or the Google write failed — never
+  /// blocks the WorkPulse-side booking).
+  googleEventId       String?
+  company             Company              @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  organizerAccount    CompanyAccount?      @relation("MeetingOrganizerAccount", fields: [organizerAccountId], references: [id], onDelete: Cascade)
+  organizerEmployee   Employee?            @relation("MeetingOrganizerEmployee", fields: [organizerEmployeeId], references: [id], onDelete: Cascade)
+  participants        MeetingParticipant[]
+
+  @@index([companyId])
+  @@index([companyId, startAt])
+}
+
+/// One invitee of a `Meeting`, including the organizer themselves (so "my
+/// meetings" and "who is on this meeting" both read from one list, the same
+/// way a chat's creator is also one of its own `ConversationParticipant`
+/// rows).
+///
+/// Mirrors `ConversationParticipant` exactly, including the pair of unique
+/// constraints - Postgres treats each NULL as distinct, so a row with
+/// `employeeId: null` never collides with another on that index, only real
+/// (meetingId, employeeId) pairs do.
+model MeetingParticipant {
+  id         String          @id @default(cuid())
+  companyId  String
+  meetingId  String
+  employeeId String?
+  accountId  String?
+  account    CompanyAccount? @relation("MeetingParticipantAccount", fields: [accountId], references: [id], onDelete: Cascade)
+  company    Company         @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  employee   Employee?       @relation("MeetingParticipantEmployee", fields: [employeeId], references: [id], onDelete: Cascade)
+  meeting    Meeting         @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+
+  @@unique([meetingId, employeeId])
+  @@unique([meetingId, accountId])
+  @@index([companyId])
+  @@index([employeeId])
+  @@index([accountId])
+}
+
+/// Binary file storage (Plan: file storage foundation).
+///
+/// Until now the app had no place to put a real file: avatars are base64
+/// strings on their own row and `Attachment` only ever held a pasted URL. Chat
+/// media, bulk-email attachments and uploaded salary slips all need actual
+/// bytes, so they share this one table rather than each inventing storage.
+///
+/// Bytes live in Postgres rather than an object store on purpose - it keeps
+/// deployment to a single dependency the app already has, and every row is
+/// tenant-scoped by the same `companyId` convention as the rest of the schema,
+/// so an authorization bug cannot leak across companies through a guessed
+/// object URL. `lib/files.ts` caps uploads (see `MAX_FILE_BYTES`) so the table
+/// stays a store for documents and images, not a media library.
+///
+/// `uploadedById`/`uploadedByEmployeeId` are the same "exactly one of a pair"
+/// shape `Attachment.addedById` uses, enforced in `lib/files.ts`.
+///
+/// Rows are referenced by feature tables (`ChatMessage.attachmentFileId`,
+/// `SalarySlip.uploadedFileId`, ...) via `onDelete: SetNull`, so deleting a
+/// file never cascades into deleting the record that pointed at it. The
+/// reverse - deleting the record - is what must clean up the file, which is
+/// why the chat cleanup job deletes both.
+model StoredFile {
+  id                   String              @id @default(cuid())
+  companyId            String
+  /// Original filename as the uploader's browser reported it, sanitized in
+  /// `lib/files.ts` - it is echoed back in a `Content-Disposition` header, so
+  /// it can never be trusted raw.
+  name                 String
+  /// Validated against an allowlist (`ALLOWED_MIME_TYPES`); an arbitrary
+  /// client-supplied type would otherwise be served straight back to a
+  /// browser.
+  mimeType             String
+  sizeBytes            Int
+  data                 Bytes
+  uploadedById         String?
+  uploadedByEmployeeId String?
+  createdAt            DateTime            @default(now())
+  applicationAnswers   ApplicationAnswer[] @relation("ApplicationAnswerFile")
+  attachment           Attachment?
+  chatMessages         ChatMessage[]
+  salarySlips          SalarySlip[]
+  company              Company             @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  uploadedByEmployee   Employee?           @relation("StoredFileUploadedByEmployee", fields: [uploadedByEmployeeId], references: [id])
+  uploadedBy           CompanyAccount?     @relation("StoredFileUploadedByAccount", fields: [uploadedById], references: [id])
+
+  @@index([companyId])
+}
+
+/// A record of one mass email sent to the company (Plan: bulk email).
+///
+/// An HRMS needs to be able to answer "what was sent to staff, by whom, when"
+/// long after the fact, so this is an append-only audit row, not a draft - it
+/// is written once the send has been attempted. `deliveredCount` can be lower
+/// than `recipientCount`: `sendEmail` reports per-recipient success and a
+/// provider can reject individual addresses.
+model BulkEmail {
+  id             String            @id @default(cuid())
+  companyId      String
+  sentById       String?
+  subject        String
+  body           String
+  audience       BulkEmailAudience
+  /// Only meaningful for `Specific` - the employee and account ids the sender
+  /// picked. Stored as id arrays rather than a join table because they are
+  /// never queried across, only replayed for the audit view.
+  employeeIds    String[]          @default([])
+  accountIds     String[]          @default([])
+  /// `StoredFile` ids attached to the send. A plain id array, not a relation:
+  /// the audit row must survive the files being deleted later.
+  attachmentIds  String[]          @default([])
+  recipientCount Int
+  deliveredCount Int
+  createdAt      DateTime          @default(now())
+  company        Company           @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  sentBy         CompanyAccount?   @relation("BulkEmailSentBy", fields: [sentById], references: [id])
+
+  @@index([companyId, createdAt])
+}
+
+/// A company's override for one of the built-in transactional emails
+/// (Plan: editable invite template).
+///
+/// Absence of a row is meaningful: `lib/mailer.ts` falls back to the built-in
+/// `inviteEmailBody`/`accountInviteEmailBody` copy, so a company that never
+/// visits this setting keeps today's behaviour exactly. `subject` and `body`
+/// support `{{variable}}` placeholders substituted by `renderTemplate`.
+model EmailTemplate {
+  id            String            @id @default(cuid())
+  companyId     String
+  kind          EmailTemplateKind
+  subject       String
+  body          String
+  /// `StoredFile` ids sent with every email of this kind - an id array for
+  /// the same reason `BulkEmail.attachmentIds` is one.
+  attachmentIds String[]          @default([])
+  updatedAt     DateTime          @updatedAt
+  company       Company           @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, kind])
+  @@index([companyId])
+}
+
+/// The company's reusable salary-slip structure (Plan: salary slips).
+///
+/// `components` is the ordered list of earning and deduction lines a slip is
+/// built from - `[{ key, label, kind: "earning" | "deduction", defaultAmount }]`
+/// - kept as JSON rather than its own table because the whole list is always
+/// read and written together and is never queried across, the same reasoning
+/// `SalarySlip.components` follows.
+model SalaryTemplate {
+  id         String   @id @default(cuid())
+  companyId  String   @unique
+  name       String   @default("Default")
+  components Json
+  updatedAt  DateTime @updatedAt
+  company    Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+}
+
+/// One employee's slip for one month (Plan: salary slips).
+///
+/// Two ways a slip comes to exist, and the row covers both: HR generates it
+/// from `SalaryTemplate` (amounts land in `components`, totals are computed
+/// and stored so a later template edit cannot silently restate a past month),
+/// or HR uploads a finished PDF (`uploadedFileId`). When a file is present it
+/// *is* the slip and the component breakdown is ignored on download.
+///
+/// Totals are stored in whole minor units (paise/cents) to keep money out of
+/// floating point.
+model SalarySlip {
+  id             String          @id @default(cuid())
+  companyId      String
+  employeeId     String
+  /// 1-12, with `year`, forms the period this slip covers.
+  month          Int
+  year           Int
+  components     Json
+  grossMinor     Int
+  deductionMinor Int
+  netMinor       Int
+  /// Set when HR uploaded a finished slip instead of generating one.
+  uploadedFileId String?
+  /// Employees only ever see `Published` slips; `Draft` lets HR prepare a
+  /// month before releasing it.
+  published      Boolean         @default(false)
+  createdById    String?
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+  company        Company         @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  createdBy      CompanyAccount? @relation("SalarySlipCreatedBy", fields: [createdById], references: [id])
+  employee       Employee        @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  uploadedFile   StoredFile?     @relation(fields: [uploadedFileId], references: [id])
+
+  @@unique([employeeId, year, month])
+  @@index([companyId, year, month])
+}
+
+/// An opening's application form (Plan: hiring).
+model HiringForm {
+  id                  String                @id @default(cuid())
+  companyId           String
+  /// The role being hired for — this is the page's h1 on the public form.
+  title               String
+  /// URL segment under `/{companySlug}/recruitmentform/`. Unique per company
+  /// rather than globally: two companies may both be hiring a "designer", and
+  /// the company slug already namespaces the path.
+  slug                String
+  /// One line under the title on the public form. Not a job description — the
+  /// facts strip below it carries the specifics.
+  summary             String?
+  /// The facts strip on the public form. All optional: a company posting a
+  /// single generic "join us" form should not be forced to invent a location.
+  team                String?
+  location            String?
+  employmentType      EmploymentType?
+  status              HiringFormStatus      @default(Draft)
+  destination         HiringFormDestination @default(Hosted)
+  /// Set once a `GoogleForm` destination has been published. `googleFormId`
+  /// is what the Forms API is called with; `googleResponderUrl` is what an
+  /// applicant opens; `googleEditUrl` is where the owner edits it in Google's
+  /// own UI.
+  googleFormId        String?
+  googleResponderUrl  String?
+  googleEditUrl       String?
+  /// The Google question ids of the three identity questions WorkPulse adds
+  /// ahead of the authored ones, in order: full name, email, phone. Stored
+  /// rather than re-derived by title at sync time, so an owner renaming a
+  /// question in Google's own editor cannot quietly detach every applicant
+  /// from their name.
+  googleIdentityIds   String[]              @default([])
+  /// When responses were last pulled in. Null means "never synced".
+  googleSyncedAt      DateTime?
+  publishedAt         DateTime?
+  /// After this instant the public form refuses submissions even while `Live`,
+  /// so a company can set a deadline without having to remember to close it.
+  closesAt            DateTime?
+  createdById         String?
+  createdAt           DateTime              @default(now())
+  updatedAt           DateTime              @updatedAt
+  deletedAt           DateTime?
+  /// What the applicant reads after submitting, in the company's own words —
+  /// usually what happens next and by when. Null falls back to a neutral
+  /// default on the public page, so a company that never wrote one still
+  /// closes the loop rather than showing an empty panel.
+  confirmationMessage String?
+  company             Company               @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  createdBy           CompanyAccount?       @relation("HiringFormCreatedBy", fields: [createdById], references: [id])
+  questions           HiringQuestion[]
+  applications        JobApplication[]
+
+  @@unique([companyId, slug])
+  @@index([companyId, status])
+  @@index([deletedAt])
+}
+
+/// One authored question on a hiring form.
+model HiringQuestion {
+  id           String              @id @default(cuid())
+  companyId    String
+  formId       String
+  /// Position on the form, 0-based. Rewritten wholesale on every save, so
+  /// there are never gaps or ties.
+  order        Int
+  type         HiringQuestionType
+  label        String
+  /// Shown under the label on the public form — the place to say "PDF only"
+  /// or "roughly 200 words".
+  helpText     String?
+  required     Boolean             @default(false)
+  /// Choices for `SingleChoice` / `MultiChoice` / `Dropdown`, empty otherwise.
+  options      String[]            @default([])
+  /// The matching item on the Google Form, when this form was published there.
+  /// Needed to map a Google response back onto the right question.
+  googleItemId String?
+  answers      ApplicationAnswer[]
+  company      Company             @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  form         HiringForm          @relation(fields: [formId], references: [id], onDelete: Cascade)
+
+  @@index([formId, order])
+  @@index([companyId])
+}
+
+/// A submitted application.
+///
+/// Name, email and phone are columns rather than authored questions: the
+/// pipeline has to be able to contact and identify an applicant no matter how
+/// the company built the rest of the form, so those three are collected by the
+/// public page itself and are never the company's to remove.
+model JobApplication {
+  id               String                @id @default(cuid())
+  companyId        String
+  formId           String
+  fullName         String
+  email            String
+  phone            String?
+  stage            ApplicationStage      @default(New)
+  /// Which destination this arrived through, so the pipeline can show a
+  /// Google-sourced application honestly rather than implying it was typed
+  /// into WorkPulse.
+  source           HiringFormDestination @default(Hosted)
+  /// Google's own response id. Unique so re-running a sync updates the row it
+  /// already created instead of duplicating the applicant.
+  googleResponseId String?               @unique
+  /// SHA-256 of the submitting IP, salted per company. Never the raw address:
+  /// this exists only to rate-limit a public endpoint, so the reversible form
+  /// would be personal data the feature has no use for.
+  submitterIpHash  String?
+  submittedAt      DateTime              @default(now())
+  updatedAt        DateTime              @updatedAt
+  answers          ApplicationAnswer[]
+  notes            ApplicationNote[]
+  company          Company               @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  form             HiringForm            @relation(fields: [formId], references: [id], onDelete: Cascade)
+
+  @@index([companyId, formId, stage])
+  @@index([formId, submittedAt])
+  @@index([companyId, submitterIpHash, submittedAt])
+}
+
+/// One applicant's answer to one question.
+model ApplicationAnswer {
+  id            String         @id @default(cuid())
+  companyId     String
+  applicationId String
+  questionId    String
+  /// Everything single-valued: text, a number, an ISO date, one choice.
+  value         String?
+  /// `MultiChoice` only.
+  values        String[]       @default([])
+  /// `Document` only. The bytes live in `StoredFile` like every other upload,
+  /// with both uploader columns null — an applicant is not a user of the app.
+  fileId        String?
+  application   JobApplication @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  company       Company        @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  file          StoredFile?    @relation("ApplicationAnswerFile", fields: [fileId], references: [id])
+  question      HiringQuestion @relation(fields: [questionId], references: [id], onDelete: Cascade)
+
+  @@unique([applicationId, questionId])
+  @@index([companyId])
+}
+
+/// An internal note on an applicant. Never shown to the applicant.
+model ApplicationNote {
+  id               String          @id @default(cuid())
+  companyId        String
+  applicationId    String
+  /// The same "exactly one of a pair" author shape `Comment` uses, so an HR
+  /// lead holding a `ManageRecruitment` grant can leave notes too.
+  authorId         String?
+  authorEmployeeId String?
+  body             String
+  createdAt        DateTime        @default(now())
+  application      JobApplication  @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  authorEmployee   Employee?       @relation("ApplicationNoteAuthorEmployee", fields: [authorEmployeeId], references: [id])
+  author           CompanyAccount? @relation("ApplicationNoteAuthorAccount", fields: [authorId], references: [id])
+  company          Company         @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@index([applicationId, createdAt])
+  @@index([companyId])
+}
+
+/// The company's Google account for the Forms API (Plan: hiring).
+///
+/// Company-level, not per-user, unlike `GoogleCalendarConnection`: a hiring
+/// form belongs to the company and must keep working when the admin who
+/// connected it leaves. Same AES-256-GCM refresh-token storage
+/// (`lib/google-calendar-crypto.ts`), same never-returned-to-a-client rule.
+model GoogleFormsConnection {
+  id                    String          @id @default(cuid())
+  companyId             String          @unique
+  googleEmail           String
+  /// AES-256-GCM ciphertext, never returned to any client.
+  refreshTokenEncrypted String
+  scope                 String
+  connectedById         String?
+  connectedAt           DateTime        @default(now())
+  company               Company         @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  connectedBy           CompanyAccount? @relation("GoogleFormsConnectedBy", fields: [connectedById], references: [id])
+}
+
+/// A company's paid access (Plan: Razorpay billing). Manual monthly renewal,
+/// not Razorpay's recurring-mandate Subscriptions API: `currentPeriodEnd` is
+/// set 30 days out on each successful payment, and the Owner pays again to
+/// extend it — no auto-charge, no webhook required to keep this row correct.
+///
+/// One-to-one with `Company` (`companyId` is `@unique`), the same sidecar
+/// shape as `GoogleCalendarConnection` / `GoogleFormsConnection` — created
+/// lazily on the first plan purchase, not at registration, so there is no
+/// nullable `plan` column to account for before a company has chosen one.
+model Subscription {
+  id               String             @id @default(cuid())
+  companyId        String             @unique
+  plan             SubscriptionPlan
+  status           SubscriptionStatus @default(Inactive)
+  /// Seats purchased beyond the plan's own cap, ₹200/$2.5 each
+  /// (`EXTRA_SEAT_PRICE_PAISE` in lib/plans.ts), one-time and cumulative —
+  /// they never expire or reset on renewal, unlike `currentPeriodEnd`.
+  extraSeats       Int                @default(0)
+  /// Null until the first successful payment. Compared against `now()` at
+  /// read time by `hasActiveSubscription` rather than swept by a job.
+  currentPeriodEnd DateTime?
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @updatedAt
+  payments         Payment[]
+  company          Company            @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@index([status])
+}
+
+/// One Razorpay order, and what it bought (Plan: Razorpay billing). Kept as a
+/// real history — like `TaskTimeEntry`, rows are never edited except the one
+/// status transition from `Created` — so a company's billing history and a
+/// failed/abandoned checkout are both visible, not just the current
+/// `Subscription` snapshot.
+model Payment {
+  id                String            @id @default(cuid())
+  companyId         String
+  subscriptionId    String
+  purpose           PaymentPurpose
+  /// `PlanSubscription` only.
+  plan              SubscriptionPlan?
+  /// `ExtraSeats` only — how many seats this order bought.
+  seats             Int?
+  /// Minor units (paise), like every other money column in this schema
+  /// (`Project.value`, `Request.amount`) — never a float.
+  amount            Int
+  currency          String            @default("INR")
+  /// Razorpay's own ids. `razorpayOrderId` is written when the order is
+  /// created and is this row's natural key for `POST /api/billing/verify` to
+  /// look itself up by; the other two are null until the payment completes.
+  razorpayOrderId   String            @unique
+  razorpayPaymentId String?
+  razorpaySignature String?
+  status            PaymentStatus     @default(Created)
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+  company           Company           @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  subscription      Subscription      @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+
+  @@index([companyId])
+  @@index([subscriptionId])
+  @@index([status])
+}
+
+model TaskMatrix {
+  id String @id @default(cuid())
+
+  companyId String
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  /// Polymorphic recipient: either an Employee or a CompanyAccount, never both.
+  recipientEmployeeId String?
+  recipientEmployee   Employee? @relation("TaskMatrixEmployee", fields: [recipientEmployeeId], references: [id], onDelete: Cascade)
+
+  recipientAccountId String?
+  recipientAccount    CompanyAccount? @relation("TaskMatrixAccount", fields: [recipientAccountId], references: [id], onDelete: Cascade)
+
+  taskId String
+  task   Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  quadrant  String
+  sortOrder Int @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([recipientEmployeeId, taskId])
+  @@unique([recipientAccountId, taskId])
+  @@index([companyId])
+  @@index([recipientEmployeeId])
+  @@index([recipientAccountId])
 }
 
 /// Levels a CompanyAccount can hold (PRD.md section 9, Plan: access levels).
@@ -279,1417 +2096,6 @@ enum MessagingProvider {
   Both
 }
 
-/// Tenant root. Every other model in the schema hangs off this.
-model Company {
-  id String @id @default(cuid())
-
-  name     String
-  /// Public tenant identifier used on the employee login form and in invite
-  /// links. Globally unique so an employee can name their company at sign-in.
-  slug     String @unique
-  /// PRD.md section 11 - currency defaults to INR, configurable per company.
-  currency String @default("INR")
-
-  /// Weekly capacity hours a workload of 100% represents (Phases.md Phase 6).
-  /// One flat number for the whole company rather than per employment type -
-  /// simplest v1 reading of "based on active tasks, estimated effort, and
-  /// deadlines", and it is the number `lib/workload.ts` divides by. Editable
-  /// by Owner/Admin/Manager at `/settings`.
-  weeklyCapacityHours Int @default(40)
-
-  /// When the working day is expected to end, as minutes from local midnight
-  /// (1080 = 18:00), and the zone that "local" means. Together they are the
-  /// baseline `lib/attendance.ts`'s `resolveLogoutNudge` counts from: an
-  /// attendance session still open an hour past this time earns a logout
-  /// reminder, and an unanswered one is closed automatically.
-  ///
-  /// Company-wide rather than per-person, and a clock time rather than a
-  /// duration, because "the logging out time" is a property of the working
-  /// day, not of when any one person happened to clock in. A zone is stored
-  /// beside it because a clock time means nothing without one - and unlike
-  /// `lib/timezone.ts`'s viewer zone (a cookie, resolved per request), this
-  /// one must be readable by a cron sweep where no viewer exists.
-  endOfDayMinutes Int    @default(1080)
-  timeZone        String @default("Asia/Kolkata")
-
-  /// How many minutes of break each person gets per working day (counted in
-  /// `timeZone` above), summed across every break that day. The break overlay
-  /// counts down from what is left and keeps counting, negative and red, once
-  /// it runs out - it is a visible allowance, not a hard stop. Editable by
-  /// Owner/Admin/HR (`canManageBreakAllowance`) at `/settings`.
-  dailyBreakMinutes Int @default(60)
-
-  /// Early-warning thresholds (Phases.md Phase 9 - "configurable thresholds
-  /// per company"), editable by Owner/Admin only (`canManageCompanySettings`)
-  /// at `/settings` - a company-wide alerting policy, narrower than the
-  /// workload capacity Managers can also tune.
-  overloadThresholdPercent Int @default(80)
-  stalledProjectDays       Int @default(14)
-  agingApprovalDays        Int @default(5)
-
-  /// Owner-only company branding (Plan: brand color) - the dashboard's single
-  /// accent color (`--brand-yellow` in app/globals.css), company-wide rather
-  /// than a personal preference, hence a Company column rather than the
-  /// cookie `themeMode` uses. Defaults to the dashboard theme's current
-  /// yellow. Editable by Owner only (`canManageBranding`) at `/settings`.
-  brandColor String @default("#ffcc00")
-
-  /// Owner-configured transactional email identity, used for invite and
-  /// notification emails instead of the global RESEND_API_KEY/EMAIL_FROM env
-  /// vars once set. Null means "not configured for this company" - falls
-  /// back to the global env vars, same graceful-degradation convention as
-  /// GoogleCalendarConnection. Editable by Owner only
-  /// (`canManageEmailSettings`) at `/settings`.
-  emailProvider        String?
-  emailFromAddress     String?
-  emailApiKeyEncrypted String?
-
-  /// Owner-configured Meta WhatsApp Business Cloud API credentials, used for
-  /// WhatsApp notifications instead of the global WHATSAPP_* env vars once
-  /// set - same convention as the email columns above, so every message is
-  /// billed to the company's own Meta account. The access token is
-  /// AES-256-GCM encrypted (`lib/company-whatsapp-config.ts`). Template name
-  /// and language fall back to the defaults when null. Editable by Owner only
-  /// (`canManageWhatsAppSettings`) at `/settings`.
-  whatsappPhoneNumberId        String?
-  whatsappAccessTokenEncrypted String?
-  whatsappTemplateName         String?
-  whatsappTemplateLanguage     String?
-
-  /// Which messaging backend this company may use (Plan: dual messaging
-  /// providers). `Native` is today's behaviour; `Google` adds the Google
-  /// Chat backend; `Both` lets each employee pick per conversation.
-  /// Defaults to `Native` so every existing organization keeps working
-  /// unchanged. Editable by Owner/Admin only (canManageMessagingSettings)
-  /// at /settings.
-  messagingProvider MessagingProvider @default(Native)
-  /// Whether this company has a linked, authorized Google Chat backend.
-  /// A company on `Google`/`Both` with this false falls back to `Native`
-  /// rather than failing — the same graceful-degradation convention as
-  /// `emailApiKeyEncrypted`.
-  googleChatEnabled Boolean @default(false)
-
-  /// AES-256-GCM encrypted Google OAuth refresh token for the company-level
-  /// chat connection (stored by `lib/company-google-chat-config.ts`). Null
-  /// when no connection exists yet — the UI then shows a "Connect" button.
-  googleChatRefreshTokenEncrypted String?
-  /// The Google email address that completed the OAuth flow, kept for display
-  /// in settings. Null until the first successful connect.
-  googleChatConnectedByEmail String?
-  /// When the company-level Google Chat connection was established.
-  googleChatConnectedAt DateTime?
-
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
-  deletedAt DateTime?
-
-  accounts                  CompanyAccount[]
-  employees                 Employee[]
-  departments               Department[]
-  clients                   Client[]
-  projects                  Project[]
-  alerts                    Alert[]
-  members                   ProjectMember[]
-  tasks                     Task[]
-  comments                  Comment[]
-  attachments               Attachment[]
-  requests                  Request[]
-  notifications             Notification[]
-  goals                     Goal[]
-  feedback                  Feedback[]
-  performanceRecords        PerformanceRecord[]
-  attendanceRecords         AttendanceRecord[]
-  breakRecords              BreakRecord[]
-  conversations             Conversation[]
-  chatParticipants          ConversationParticipant[]
-  chatMessages              ChatMessage[]
-  permissionGrants          PermissionGrant[]
-  permissionChanges         PermissionChange[]
-  taskTimeEntries           TaskTimeEntry[]
-  notificationPrefs         NotificationPreference[]
-  pushSubscriptions         PushSubscription[]
-  googleCalendarConnections GoogleCalendarConnection[]
-  meetings                  Meeting[]
-  meetingParticipants       MeetingParticipant[]
-  announcements             Announcement[]
-  polls                     Poll[]
-  pollOptions               PollOption[]
-  pollVotes                 PollVote[]
-  storedFiles               StoredFile[]
-  clientCredentials         ClientCredential[]
-  clientCredentialAccess    ClientCredentialAccess[]
-  bulkEmails                BulkEmail[]
-  emailTemplates            EmailTemplate[]
-  salaryTemplate            SalaryTemplate?
-  salarySlips               SalarySlip[]
-  hiringForms               HiringForm[]
-  hiringQuestions           HiringQuestion[]
-  jobApplications           JobApplication[]
-  applicationAnswers        ApplicationAnswer[]
-  applicationNotes          ApplicationNote[]
-  googleFormsConnection     GoogleFormsConnection?
-
-  /// Billing (Plan: Razorpay subscriptions). At most one per company —
-  /// `companyId`'s own `@unique` on `Subscription`.
-  subscription Subscription?
-  payments     Payment[]
-
-  @@index([deletedAt])
-}
-
-/// Login identity for Owner / Admin / Manager / HR users.
-///
-/// Deliberately separate from `Employee` (Architecture.md section 4): a company
-/// login administers a tenant, an employee login belongs to a member of one.
-/// The two are never cross-checked during authentication.
-model CompanyAccount {
-  id String @id @default(cuid())
-
-  companyId String
-  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
-
-  fullName  String
-  workEmail String
-
-  /// Mobile number in E.164 form (for example "+919876543210"), used for
-  /// WhatsApp notifications and nothing else. Nullable because an account only
-  /// has one once its holder enters it — `lib/notifications.ts` simply skips
-  /// the WhatsApp channel for an account without one. Employees keep their
-  /// equivalent in `Employee.phone`, which already existed as an HR field.
-  phone String?
-
-  /// Profile photo as a data URL, resized and compressed client-side before
-  /// upload (`app/api/profile/avatar/route.ts`). No object storage exists in
-  /// this project yet, so a text column is the simplest complete home for it.
-  avatarUrl String? @db.Text
-
-  /// Null until the account holder accepts their invite and sets a password.
-  /// The first Owner is created by registration and therefore always has one;
-  /// Admin / Manager / HR accounts are invited (Architecture.md section 4).
-  passwordHash String?
-  role         CompanyRole
-
-  /// Invite link token, stored as a SHA-256 hash only - same scheme as the
-  /// employee invite, so a database leak yields no usable link.
-  inviteTokenHash      String?   @unique
-  inviteTokenExpiresAt DateTime?
-
-  /// Who invited this account. Null for the Owner created at registration.
-  invitedById String?
-  invitedBy   CompanyAccount?  @relation("AccountInvitedBy", fields: [invitedById], references: [id], onDelete: SetNull)
-  invitesMade CompanyAccount[] @relation("AccountInvitedBy")
-
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
-  deletedAt DateTime?
-
-  invitesSent      Employee[] @relation("EmployeeInvitedBy")
-  /// Employees whose reporting line ends at this account rather than at
-  /// another employee (Architecture.md section 4 allows either).
-  managedEmployees Employee[] @relation("EmployeeManagedByAccount")
-
-  /// Projects this account leads. A Manager's remit is "own team's projects"
-  /// (PRD.md section 9), and this is what "own" means - see `canManageProject`
-  /// in lib/permissions.ts.
-  ledProjects Project[] @relation("ProjectLead")
-
-  /// What this account has authored (Phases.md Phase 5). All three keep the
-  /// record if the account is later removed - see the `onDelete: SetNull` on
-  /// the far side.
-  createdTasks     Task[]       @relation("TaskCreatedBy")
-  /// Tasks allotted to this Manager/HR login (Plan: allot tasks to a Manager
-  /// or HR) - see `Task.assigneeAccountId`.
-  assignedTasks    Task[]       @relation("TaskAssigneeAccount")
-  comments         Comment[]    @relation("CommentAuthor")
-  attachmentsAdded Attachment[] @relation("AttachmentAddedBy")
-  uploadedFiles    StoredFile[] @relation("StoredFileUploadedByAccount")
-  bulkEmailsSent   BulkEmail[]  @relation("BulkEmailSentBy")
-  salarySlipsMade  SalarySlip[] @relation("SalarySlipCreatedBy")
-
-  /// Requests this account has approved or rejected (Phases.md Phase 7).
-  decidedRequests Request[]      @relation("RequestApprover")
-  requestedApprovals Request[] @relation("RequestRequestedApprover")
-  notifications   Notification[] @relation("NotificationAccount")
-
-  /// Delivery channel toggles and browsers signed up for push. Both carry the
-  /// same two-nullable-FK recipient shape as `Notification` itself.
-  notificationPrefs NotificationPreference? @relation("NotificationPrefAccount")
-  pushSubscriptions PushSubscription[]      @relation("PushSubscriptionAccount")
-
-  /// Goals this account has set and feedback it has given (Phases.md Phase 8).
-  /// Both are `canEditEmployee`'s scope: Owner/Admin/HR for anyone, a Manager
-  /// only for their own direct reports.
-  goalsSet      Goal[]     @relation("GoalSetBy")
-  feedbackGiven Feedback[] @relation("FeedbackGivenBy")
-
-  /// Plan: attendance/performance for all company accounts, not just
-  /// employees — this account as the *subject* of its own goals, feedback,
-  /// performance history, attendance and breaks, mirroring the equivalent
-  /// relations on `Employee`.
-  goalsReceived      Goal[]              @relation("GoalSubjectAccount")
-  feedbackReceived   Feedback[]          @relation("FeedbackSubjectAccount")
-  performanceRecords PerformanceRecord[] @relation("PerformanceRecordSubjectAccount")
-  attendanceRecords  AttendanceRecord[]  @relation("AttendanceRecordSubjectAccount")
-  breakRecords       BreakRecord[]       @relation("BreakRecordSubjectAccount")
-
-  /// Chat (Phase 11). A company account is a `ConversationParticipant` the
-  /// same way it is a `Notification` recipient — the two-nullable-FK shape.
-  chatParticipations ConversationParticipant[]
-  chatMessagesSent   ChatMessage[]
-
-  /// Permission overrides this account has set (Owner only —
-  /// `canManagePermissionGrants` in lib/permissions.ts).
-  permissionGrantsGiven PermissionGrant[] @relation("PermissionGrantGivenBy")
-
-  /// Overrides of this account's own level (Plan: access levels), and the
-  /// Authority history — changes it made, and changes made to it.
-  permissionOverrides       PermissionGrant[]  @relation("PermissionGrantSubjectAccount")
-  permissionChangesMade     PermissionChange[] @relation("PermissionChangeBy")
-  permissionChangesReceived PermissionChange[] @relation("PermissionChangeSubjectAccount")
-
-  /// Calendar (Plan.md Phase 17). At most one Google connection per person,
-  /// enforced by `accountId`'s own `@unique` on `GoogleCalendarConnection`.
-  googleCalendarConnection GoogleCalendarConnection?
-  organizedMeetings        Meeting[]                 @relation("MeetingOrganizerAccount")
-  meetingParticipations    MeetingParticipant[]      @relation("MeetingParticipantAccount")
-
-  /// Announcements/polls (Plan: top bar rework). Any company role may post
-  /// one — see `canManageAnnouncements` in lib/permissions.ts — and vote,
-  /// the same "Employee or CompanyAccount" dual-FK shape `PollVote` uses.
-  announcementsPosted Announcement[]
-  pollVotes           PollVote[]
-
-  /// Hiring (Plan: hiring). Authorship only — who may open the section at all
-  /// is `canManageRecruitment` in lib/permissions.ts, not a relation.
-  hiringFormsCreated      HiringForm[]            @relation("HiringFormCreatedBy")
-  applicationNotesWritten ApplicationNote[]       @relation("ApplicationNoteAuthorAccount")
-  googleFormsConnected    GoogleFormsConnection[] @relation("GoogleFormsConnectedBy")
-
-  /// Client vault (Plan: client vault). Credentials this account stored, the
-  /// access it asked for (an HR account requests like an employee does), and
-  /// the requests it decided as a vault manager.
-  clientCredentialsCreated ClientCredential[]       @relation("ClientCredentialCreatedBy")
-  vaultAccessRequested     ClientCredentialAccess[] @relation("CredentialAccessRequesterAccount")
-  vaultAccessDecided       ClientCredentialAccess[] @relation("CredentialAccessDecidedBy")
-
-  /// Architecture.md section 4: work email is unique *per company*, not
-  /// globally, so the same person can hold accounts in two tenants. The login
-  /// form therefore accepts an optional company slug to disambiguate
-  /// (PRD.md section 8).
-  @@unique([companyId, workEmail])
-  @@index([workEmail])
-  @@index([companyId])
-}
-
-/// A team or function within a company (Architecture.md section 4).
-///
-/// Introduced in Phase 3, replacing the free-text `Employee.department` string
-/// that Phase 2 used as a placeholder.
-model Department {
-  id String @id @default(cuid())
-
-  companyId String
-  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
-
-  name        String
-  description String?
-
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
-  deletedAt DateTime?
-
-  employees Employee[]
-
-  @@unique([companyId, name])
-  @@index([companyId])
-}
-
-/// Login identity and HR profile for regular employees.
-///
-/// Always belongs to an existing Company and can never self-register
-/// (Architecture.md section 8) - a row is only created by a CompanyAccount
-/// holding Owner, Admin or HR.
-model Employee {
-  id String @id @default(cuid())
-
-  companyId String
-  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
-
-  /// Company-assigned identifier (for example "EMP-001"). Employees may sign in
-  /// with this or with their company email.
-  employeeCode String
-  fullName     String
-  companyEmail String
-
-  /// Profile photo as a data URL, resized and compressed client-side before
-  /// upload (`app/api/profile/avatar/route.ts`). No object storage exists in
-  /// this project yet, so a text column is the simplest complete home for it.
-  avatarUrl String? @db.Text
-
-  /// Null until the employee accepts their invite and sets a password.
-  passwordHash String?
-
-  // --- Professional profile (PRD.md section 6.2) ---
-
-  departmentId String?
-  department   Department? @relation(fields: [departmentId], references: [id], onDelete: SetNull)
-
-  /// Job title, for example "Senior Designer".
-  jobRole        String?
-  employmentType EmploymentType?
-  /// Employment start date, as recorded by HR. Distinct from `joinedAt`, which
-  /// is when the person activated their login.
-  startDate      DateTime?
-
-  // --- Personal profile (PRD.md section 6.2) ---
-  //
-  // Rules.md section 3: these are only ever returned to the employee
-  // themselves and whoever holds `ViewPersonalDetails` (by default Owner,
-  // Admin, HR Head and HR Team — never a Manager unless the Owner switches it
-  // on). See `canViewPersonalDetails` in lib/permissions.ts.
-
-  personalEmail         String?
-  phone                 String?
-  dateOfBirth           DateTime?
-  location              String?
-  address               String?
-  emergencyContactName  String?
-  emergencyContactPhone String?
-
-  // --- Reporting line (Phases.md Phase 3 - org structure) ---
-  //
-  // Architecture.md section 4 allows a manager to be either another Employee or
-  // a CompanyAccount. Both are modelled as separate nullable foreign keys
-  // rather than a polymorphic column, so the database keeps referential
-  // integrity. At most one is set; `lib/employees.ts` enforces that.
-
-  managerId String?
-  manager   Employee?  @relation("EmployeeReportsTo", fields: [managerId], references: [id], onDelete: SetNull)
-  reports   Employee[] @relation("EmployeeReportsTo")
-
-  managerAccountId String?
-  managerAccount   CompanyAccount? @relation("EmployeeManagedByAccount", fields: [managerAccountId], references: [id], onDelete: SetNull)
-
-  status EmployeeStatus @default(Invited)
-
-  /// Invite link token. Only the SHA-256 hash is stored, so a database leak
-  /// cannot be replayed to claim an account.
-  inviteTokenHash      String?   @unique
-  inviteTokenExpiresAt DateTime?
-
-  invitedById String?
-  invitedBy   CompanyAccount? @relation("EmployeeInvitedBy", fields: [invitedById], references: [id], onDelete: SetNull)
-
-  /// Projects this employee is assigned to (Phases.md Phase 4).
-  projectMemberships ProjectMember[]
-
-  /// Tasks this employee is the assignee of (Phases.md Phase 5). The Phase 6
-  /// workload calculation is driven from these.
-  assignedTasks Task[] @relation("TaskAssignee")
-
-  /// Requests this employee has submitted (Phases.md Phase 7).
-  requests          Request[]
-  /// Requests this employee has decided, holding a `DecideRequests` grant
-  /// (Phase 11).
-  requestsDecided   Request[]               @relation("RequestApproverEmployee")
-  requestedApprovals Request[]            @relation("RequestRequestedApproverEmployee")
-  notifications     Notification[]          @relation("NotificationEmployee")
-  notificationPrefs NotificationPreference? @relation("NotificationPrefEmployee")
-  pushSubscriptions PushSubscription[]      @relation("PushSubscriptionEmployee")
-  attachmentsAdded  Attachment[]            @relation("AttachmentAddedByEmployee")
-  uploadedFiles     StoredFile[]            @relation("StoredFileUploadedByEmployee")
-  salarySlips       SalarySlip[]
-
-  /// Goals, feedback and score history (Phases.md Phase 8). Goals and feedback
-  /// are manager-owned - an employee reads both on My Growth but never writes
-  /// them (see `canEditEmployee` in lib/permissions.ts). The score history is a
-  /// real timeline (Architecture.md's ERD: `Employee 1---* PerformanceRecord`),
-  /// unlike `workloadPercent`'s single cached value - each recompute that finds
-  /// enough data appends a row rather than overwriting one.
-  goals              Goal[]
-  feedbackReceived   Feedback[]
-  performanceRecords PerformanceRecord[]
-
-  /// Clock-in/clock-out sessions (attendance). At most one open row
-  /// (`clockOutAt: null`) at a time, enforced in `lib/attendance-data.ts`.
-  attendanceRecords AttendanceRecord[]
-
-  /// Breaks taken during an open attendance session (Plan.md Phase 15). At
-  /// most one open row (`endedAt: null`) at a time, enforced in
-  /// `lib/attendance-data.ts` — the same invariant `attendanceRecords` holds.
-  breakRecords BreakRecord[]
-
-  /// Time tracked against tasks (Phase 12). At most one open row per task,
-  /// enforced in `lib/task-timer-data.ts`.
-  taskTimeEntries TaskTimeEntry[]
-
-  /// Chat (Phase 11) — this employee's conversations and sent messages.
-  chatParticipations ConversationParticipant[]
-  chatMessagesSent   ChatMessage[]
-
-  /// The Owner's overrides of this employee's level (Plan: access levels —
-  /// `has` in lib/permissions.ts), and the history of those changes.
-  permissionGrants  PermissionGrant[]
-  permissionChanges PermissionChange[]
-
-  /// Notes left on applicants by an employee holding a `ManageRecruitment`
-  /// grant (Plan: hiring).
-  applicationNotesWritten ApplicationNote[] @relation("ApplicationNoteAuthorEmployee")
-
-  /// Calendar (Plan.md Phase 17). At most one Google connection per person,
-  /// enforced by `employeeId`'s own `@unique` on `GoogleCalendarConnection`.
-  googleCalendarConnection GoogleCalendarConnection?
-  organizedMeetings        Meeting[]                 @relation("MeetingOrganizerEmployee")
-  meetingParticipations    MeetingParticipant[]      @relation("MeetingParticipantEmployee")
-
-  /// Votes this employee has cast on a company poll (Plan: top bar rework),
-  /// the same dual-FK shape as `chatParticipations` above.
-  pollVotes PollVote[]
-
-  /// Client credentials this employee has asked to see (Plan: client vault).
-  vaultAccessRequested ClientCredentialAccess[] @relation("CredentialAccessRequesterEmployee")
-
-  /// Alerts about this employee - an overload, or an aging request they
-  /// submitted (Phases.md Phase 9). Lets a Manager's dashboard filter to
-  /// alerts about their own direct reports.
-  alerts Alert[]
-
-  /// Cached workload % (Phases.md Phase 6), computed by `lib/workload-data.ts`
-  /// from open assigned tasks and the company's `weeklyCapacityHours`. Cached
-  /// rather than computed on every read (Architecture.md section 6) and kept
-  /// fresh by recomputing on every task write that could change it, plus the
-  /// `/api/jobs/recalculate-workload` sweep as a safety net. Null means "never
-  /// computed yet" - distinct from 0%, which means "computed, and currently
-  /// free".
-  workloadPercent   Decimal?  @db.Decimal(6, 2)
-  workloadUpdatedAt DateTime?
-
-  /// When the employee activated their login by accepting the invite.
-  joinedAt  DateTime?
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
-  deletedAt DateTime?
-
-  @@unique([companyId, employeeCode])
-  @@unique([companyId, companyEmail])
-  @@index([companyId])
-  @@index([managerId])
-  @@index([managerAccountId])
-  @@index([departmentId])
-}
-
-/// A client the agency delivers work for (Architecture.md section 4).
-model Client {
-  id String @id @default(cuid())
-
-  companyId String
-  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
-
-  name String
-
-  /// Primary point of contact. All optional: a client can be recorded before
-  /// the contact details are known.
-  contactName  String?
-  contactEmail String?
-  contactPhone String?
-  notes        String?
-
-  status ClientStatus @default(Active)
-
-  projects Project[]
-  /// Tasks filed directly under this client, with no project in between
-  /// (`Task.clientId`) — the third task target type alongside "on a
-  /// project" and "general/personal".
-  tasks    Task[]    @relation("TaskClient")
-  /// Logins, invoices and other secrets held for this client (Plan: client
-  /// vault).
-  credentials ClientCredential[]
-
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
-  deletedAt DateTime?
-
-  /// One client name per company, so the same agency cannot end up with two
-  /// records for the same customer. Names may repeat across tenants.
-  @@unique([companyId, name])
-  @@index([companyId])
-}
-
-/// One secret the agency holds for a client (Plan: client vault) - a social
-/// login, a portal password, an invoice.
-///
-/// Either text (key/value pairs such as Username/Password) or a file, never
-/// both: `fileEncrypted` being set is what makes it a file credential, so the
-/// kind is not stored twice. `title` is the only part anyone without access
-/// ever sees - it is what a requester picks from.
-///
-/// Everything else is encrypted at rest with AES-256-GCM under
-/// `CLIENT_VAULT_ENCRYPTION_KEY` (`lib/secret-box.ts`): `secretEncrypted`
-/// seals `{ fields, remark }` as JSON, `fileEncrypted` seals the document's
-/// bytes. The file deliberately does not live in `StoredFile` -
-/// `/api/files/[id]` serves any file to anyone in the company, which would
-/// bypass the access rows below.
-model ClientCredential {
-  id String @id @default(cuid())
-
-  companyId String
-  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
-
-  clientId String
-  client   Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
-
-  title String
-
-  secretEncrypted String
-
-  /// Present only for a file credential. Name/type/size are validated by
-  /// `lib/files.ts`'s rules, the same as every other upload.
-  fileName      String?
-  fileMimeType  String?
-  fileSizeBytes Int?
-  fileEncrypted Bytes?
-
-  createdById String?
-  createdBy   CompanyAccount? @relation("ClientCredentialCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
-
-  access ClientCredentialAccess[]
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  /// A requester picks by title, so two identical titles on one client would
-  /// be indistinguishable.
-  @@unique([clientId, title])
-  @@index([companyId])
-}
-
-/// One person's access to one client credential (Plan: client vault) - the
-/// request and, once approved, the grant itself, in one row.
-///
-/// One row per person per credential (the two `@@unique`s; Postgres treats
-/// the unset requester column as distinct, the same trick `Notification`
-/// relies on), so asking again after a rejection or revocation reuses the row
-/// rather than stacking duplicates. The requester is an Employee or a
-/// non-manager CompanyAccount (HR) - the usual two-nullable-FK shape, exactly
-/// one set, enforced in `lib/vault-data.ts`.
-model ClientCredentialAccess {
-  id String @id @default(cuid())
-
-  companyId String
-  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
-
-  credentialId String
-  credential   ClientCredential @relation(fields: [credentialId], references: [id], onDelete: Cascade)
-
-  requesterEmployeeId String?
-  requesterEmployee   Employee? @relation("CredentialAccessRequesterEmployee", fields: [requesterEmployeeId], references: [id], onDelete: Cascade)
-
-  requesterAccountId String?
-  requesterAccount   CompanyAccount? @relation("CredentialAccessRequesterAccount", fields: [requesterAccountId], references: [id], onDelete: Cascade)
-
-  status CredentialAccessStatus @default(Pending)
-  /// Why they need it, shown to the vault managers deciding.
-  reason String?
-
-  requestedAt DateTime @default(now())
-
-  /// The vault manager who last moved this row out of `Pending` or revoked it.
-  decidedById String?
-  decidedBy   CompanyAccount? @relation("CredentialAccessDecidedBy", fields: [decidedById], references: [id], onDelete: SetNull)
-  decidedAt   DateTime?
-
-  @@unique([credentialId, requesterEmployeeId])
-  @@unique([credentialId, requesterAccountId])
-  @@index([companyId, status])
-  @@index([requesterEmployeeId])
-  @@index([requesterAccountId])
-}
-
-/// A piece of work delivered for a client (Architecture.md section 4).
-///
-/// Tasks (Phase 5) hang off a project, and the financial fields here are what
-/// the Phase 11 per-client margin rollup is computed from.
-model Project {
-  id String @id @default(cuid())
-
-  companyId String
-  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
-
-  /// Architecture.md section 4: every project belongs to a client.
-  clientId String
-  client   Client @relation(fields: [clientId], references: [id])
-
-  name        String
-  /// Short human-readable code, for example "NW-WEB". Unique per company when
-  /// set, so it can be used to refer to a project unambiguously.
-  code        String?
-  description String?
-
-  status    ProjectStatus @default(Planning)
-  startDate DateTime?
-  dueDate   DateTime?
-
-  /// Basic financials (Phases.md Phase 4). Stored as exact decimals rather than
-  /// floats so money never accumulates rounding error; the currency is the
-  /// company's (`Company.currency`, PRD.md section 11), not per project.
-  /// Margin is derived at read time, never stored, so it cannot go stale.
-  value         Decimal? @db.Decimal(14, 2)
-  estimatedCost Decimal? @db.Decimal(14, 2)
-
-  /// The company account accountable for the project. A Manager may manage the
-  /// projects they lead (PRD.md section 9 - "own team's projects").
-  leadAccountId String?
-  leadAccount   CompanyAccount? @relation("ProjectLead", fields: [leadAccountId], references: [id], onDelete: SetNull)
-
-  members ProjectMember[]
-  tasks   Task[]
-
-  /// Alerts about this project - stalled, or an overdue task on it
-  /// (Phases.md Phase 9). Lets a Manager's dashboard filter to alerts about
-  /// the projects they lead.
-  alerts Alert[]
-
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
-  deletedAt DateTime?
-
-  @@unique([companyId, code])
-  @@index([companyId])
-  @@index([clientId])
-  @@index([leadAccountId])
-}
-
-/// An employee assigned to a project team (Phases.md Phase 4).
-///
-/// Carries its own `companyId` per Rules.md section 2, and because the Phase 11
-/// rollups count team size straight from this table.
-///
-/// It has no `deletedAt`: a membership records no history of its own, so
-/// removing someone from a team is a real delete, and a soft-deleted row would
-/// only block re-adding them through the `[projectId, employeeId]` unique. Its
-/// rows are therefore never read through `scopedWhere` - every read and write
-/// goes via a Project that was already loaded through the tenant filter, which
-/// is what proves the tenant.
-model ProjectMember {
-  id String @id @default(cuid())
-
-  companyId String
-  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
-
-  projectId String
-  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
-
-  employeeId String
-  employee   Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
-
-  createdAt DateTime @default(now())
-
-  /// Somebody is on a team once, not twice.
-  @@unique([projectId, employeeId])
-  @@index([companyId])
-  @@index([employeeId])
-}
-
-/// A unit of work, optionally on a project (Architecture.md section 4,
-/// PRD.md section 6.3).
-///
-/// A task usually belongs to a project, which is what gives it a client, a
-/// budget and a team. `projectId` is nullable so a task can also be a quick,
-/// personal to-do with none of that — `lib/permissions.ts`'s `canManageTask`
-/// treats a project-less task as personal to whoever raised it (`createdBy`)
-/// rather than governed by a project lead. The assignee is an `Employee` and
-/// never a `CompanyAccount`: company accounts run the work, employees do it,
-/// which is the split Architecture.md section 4 draws.
-model Task {
-  id String @id @default(cuid())
-
-  companyId String
-  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
-
-  projectId String?
-  project   Project? @relation(fields: [projectId], references: [id], onDelete: SetNull)
-
-  /// A task filed directly under a client, with no project in between — the
-  /// third target type alongside a project task and a fully general/personal
-  /// task (`projectId` and `clientId` both null). Enforced mutually exclusive
-  /// with `projectId` in `lib/validations/tasks.ts`, not by the database,
-  /// the same style `projectId` alone already used.
-  clientId String?
-  client   Client? @relation("TaskClient", fields: [clientId], references: [id], onDelete: SetNull)
-
-  title       String
-  description String?
-
-  status   TaskStatus   @default(Todo)
-  priority TaskPriority @default(Medium)
-
-  /// Null is a real state - work sitting in the backlog before anyone picks it
-  /// up. Constrained to the project's team by `resolveTaskWrite`.
-  assigneeId String?
-  assignee   Employee? @relation("TaskAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
-
-  /// Plan: allot tasks to a Manager or HR. Set instead of `assigneeId` when the
-  /// task went to a Manager/HR login rather than an employee - a task has at
-  /// most one assignee, enforced by `resolveTaskWrite`, the same
-  /// two-nullable-FK shape `Notification` uses for its recipient. Who may do
-  /// that is `canAssignTaskToAccount` in lib/permissions.ts.
-  assigneeAccountId String?
-  assigneeAccount   CompanyAccount? @relation("TaskAssigneeAccount", fields: [assigneeAccountId], references: [id], onDelete: SetNull)
-
-  /// The deadline. Stored at UTC midnight like every other date-only field, so
-  /// "due the 9th" does not become the 8th west of Greenwich.
-  dueDate DateTime?
-
-  /// Estimated effort in hours (PRD.md section 6.3). A Decimal rather than a
-  /// float because Phase 6 sums these into a workload percentage, and half an
-  /// hour must stay half an hour after a hundred additions.
-  estimatedHours Decimal? @db.Decimal(6, 2)
-
-  /// Actual completion (PRD.md section 6.3). Set when the task first reaches
-  /// Done and cleared if it is moved back out, by `completionFor` in
-  /// lib/tasks.ts - it is an event timestamp, so unlike "overdue" it cannot be
-  /// derived from the current row.
-  completedAt DateTime?
-
-  /// Plan: completion note. What whoever finished the task had to say about
-  /// it - optional, asked for when the task is moved to Done. It belongs to
-  /// that completion, so like `completedAt` it is cleared if the task is moved
-  /// back out of Done (`completionNoteFor` in lib/tasks.ts).
-  completionNote String?
-
-  /// Who raised the task. Kept for the audit trail, and null if that account is
-  /// later removed.
-  createdById String?
-  createdBy   CompanyAccount? @relation("TaskCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
-
-  comments    Comment[]
-  attachments Attachment[]
-
-  /// Stretches of work timed against this task (Phase 12).
-  timeEntries TaskTimeEntry[]
-
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
-  deletedAt DateTime?
-
-  @@index([companyId])
-  @@index([projectId])
-  @@index([clientId])
-  @@index([assigneeId])
-  @@index([assigneeAccountId])
-  /// The board and the overdue sweep both read "open tasks by deadline".
-  @@index([companyId, status, dueDate])
-}
-
-/// One continuous stretch of an employee working on a task (Phases.md
-/// Phase 12 - start / break / stop / done with a running timer).
-///
-/// An interval, not a stopwatch: the row is created open (`endedAt` null) when
-/// the timer starts and closed when it stops, so elapsed time is always
-/// derived from the two timestamps rather than from a counter that would have
-/// to be kept ticking by a job and would lose everything on a crash. The same
-/// shape as `AttendanceRecord`, one level down - a session is to a working day
-/// what one of these is to a task.
-///
-/// At most one open row per (employee, task), enforced in
-/// `lib/task-timer-data.ts`. Deliberately *not* one per employee: a person may
-/// legitimately have several tasks running at once, and the whole point of the
-/// stop action is that putting one task down is a separate decision from
-/// picking another up.
-///
-/// Rows are never edited or deleted, so there is no `deletedAt` - every row is
-/// history (the same reasoning `AttendanceRecord` carries).
-model TaskTimeEntry {
-  id String @id @default(cuid())
-
-  companyId String
-  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
-
-  taskId String
-  task   Task   @relation(fields: [taskId], references: [id], onDelete: Cascade)
-
-  /// Who was working. Only ever the task's assignee - a manager does not run
-  /// someone else's timer (`canTrackTaskTime` in lib/permissions.ts).
-  employeeId String
-  employee   Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
-
-  startedAt DateTime  @default(now())
-  /// Null while the timer is running.
-  endedAt   DateTime?
-
-  /// Null exactly while `endedAt` is null - the two are written together.
-  endReason TimeEntryEndReason?
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  @@index([companyId])
-  /// The task detail page reads "this task's entries, newest first".
-  @@index([taskId, startedAt])
-  /// Sign-out and "what am I running right now" both read open rows by person.
-  @@index([employeeId, endedAt])
-}
-
-/// A message on a task (Architecture.md section 4).
-///
-/// Authored by a CompanyAccount: in Phase 5 tasks are a company-side view, and
-/// employees reach their own work in Phase 10, which is when an employee author
-/// column joins this table.
-model Comment {
-  id String @id @default(cuid())
-
-  companyId String
-  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
-
-  taskId String
-  task   Task   @relation(fields: [taskId], references: [id], onDelete: Cascade)
-
-  /// Null once the author's account is removed. The message stays, because a
-  /// conversation with a hole in it is worse than one signed "Removed user".
-  authorAccountId String?
-  authorAccount   CompanyAccount? @relation("CommentAuthor", fields: [authorAccountId], references: [id], onDelete: SetNull)
-
-  body String
-
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
-  /// Soft-deleted (Rules.md section 6): a thread is a record of a decision, so
-  /// removing one message must not silently rewrite the discussion around it.
-  deletedAt DateTime?
-
-  @@index([taskId, createdAt])
-  @@index([companyId])
-}
-
-/// A file attached to a task or a request (Architecture.md section 4).
-///
-/// Phase 5 records a **link** to a file - the shared document, the design, the
-/// spec - because the S3 bucket Architecture.md section 2 calls for is not
-/// provisioned yet (the `S3_*` variables in .env.example are still blank).
-/// Uploads slot in on top of this row rather than beside it: an uploaded file
-/// adds `storageKey`, `contentType` and `sizeBytes`, and the link stays valid
-/// for everything that already lives in Drive or Figma.
-///
-/// Phase 7 widens this to also hang off a `Request`, since Architecture.md's
-/// ER diagram always drew `Request 1---* Attachment` and a second,
-/// near-identical table would only duplicate this one. `taskId`/`requestId`
-/// and `addedById`/`addedByEmployeeId` are two pairs of nullable foreign keys
-/// rather than a polymorphic column, the same shape `Employee.managerId` /
-/// `managerAccountId` already uses - exactly one of each pair is set, enforced
-/// in `lib/attachments.ts`, not by a database constraint.
-///
-/// Like `ProjectMember`, this is a pointer and not a history, so removing one
-/// is a real delete.
-model Attachment {
-  id String @id @default(cuid())
-
-  companyId String
-  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
-
-  taskId String?
-  task   Task?   @relation(fields: [taskId], references: [id], onDelete: Cascade)
-
-  requestId String?
-  request   Request? @relation(fields: [requestId], references: [id], onDelete: Cascade)
-
-  /// What the file is, in the adder's words. Falls back to the URL's own last
-  /// path segment when they leave it blank.
-  label String
-  /// Validated to http/https only, so a stored link can never be a `javascript:`
-  /// payload aimed at whoever clicks it (Architecture.md section 8).
-  /// Exactly one of `url` and `fileId` is set: a link, or an uploaded file.
-  url   String?
-
-  /// An uploaded document, served by the tenant-scoped `/api/files/[id]`.
-  /// Owned by this row - removing the attachment deletes the file too.
-  fileId String?     @unique
-  file   StoredFile? @relation(fields: [fileId], references: [id], onDelete: Cascade)
-
-  /// A task attachment is always added by a `CompanyAccount` (Phase 5); a
-  /// request attachment may be added by either the submitting `Employee` or
-  /// the `CompanyAccount` deciding it (Phase 7).
-  addedById String?
-  addedBy   CompanyAccount? @relation("AttachmentAddedBy", fields: [addedById], references: [id], onDelete: SetNull)
-
-  addedByEmployeeId String?
-  addedByEmployee   Employee? @relation("AttachmentAddedByEmployee", fields: [addedByEmployeeId], references: [id], onDelete: SetNull)
-
-  createdAt DateTime @default(now())
-
-  @@index([taskId])
-  @@index([requestId])
-  @@index([companyId])
-}
-
-/// An employee request (PRD.md section 6.6, Phases.md Phase 7) - leave,
-/// reimbursement, equipment, work-from-home, HR, complaint, document or
-/// suggestion, sharing one shape and one approval workflow (Architecture.md
-/// section 6's "polymorphic Request model" decision).
-///
-/// `startDate`/`endDate` and `amount` are only ever set for the request types
-/// that need them (`lib/requests.ts`'s `requestNeedsDateRange`/
-/// `requestNeedsAmount`) and validated accordingly in
-/// `lib/validations/requests.ts` - they stay nullable columns on this one
-/// table rather than becoming per-type tables.
-model Request {
-  id String @id @default(cuid())
-
-  companyId String
-  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
-
-  /// Always an Employee (PRD.md section 6.9 - "My Requests" is part of
-  /// employee self-service) - a CompanyAccount decides, never submits.
-  employeeId String
-  employee   Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
-
-  type   RequestType
-  status RequestStatus @default(Pending)
-
-  subject     String
-  description String
-
-  /// Leave / WFH only.
-  startDate DateTime?
-  endDate   DateTime?
-
-  /// Leave only (Plan.md Phase 16). A half day is a single-day request -
-  /// `lib/validations/requests.ts` refuses `startDate` != `endDate` when this
-  /// is `FirstHalf`/`SecondHalf`.
-  dayPart LeaveDayPart?
-
-  /// Reimbursement only. The company's own currency (`Company.currency`),
-  /// like `Project.value` - never a per-request currency.
-  amount Decimal? @db.Decimal(12, 2)
-
-  /// Who decided this request, and how. Null until `status` leaves `Pending`.
-  /// A decision is one-time (`lib/request-data.ts` refuses to re-decide an
-  /// already-decided request) - a changed mind is a fresh request, not a
-  /// reopened one.
-  ///
-  /// Two nullable FKs (Phase 11 adds the second): a decider is usually a
-  /// `CompanyAccount`, but an Employee holding a `DecideRequests` grant
-  /// (`lib/permissions.ts`'s `hasGrant`) can decide too - the same
-  /// "Employee or CompanyAccount" shape as everywhere else in this schema.
-  approverId         String?
-  approver           CompanyAccount? @relation("RequestApprover", fields: [approverId], references: [id], onDelete: SetNull)
-  approverEmployeeId String?
-  approverEmployee   Employee?       @relation("RequestApproverEmployee", fields: [approverEmployeeId], references: [id], onDelete: SetNull)
-  decisionNote       String?
-  decidedAt          DateTime?
-
-  /// Who this request was addressed to (Phase 21).
-  ///
-  /// Before this, "who decides" was a role rule: anyone with approval power
-  /// could pick up any pending request. Now the employee picks the person
-  /// they are asking, and only that person (or the founder/owner) can decide.
-  /// Mirrors the decision FKs: a CompanyAccount approver or an Employee
-  /// approver. Null on requests submitted before Phase 21, which keep the
-  /// old role rule (`canDecideOnRequest`).
-  requestedApproverAccountId   String?
-  requestedApprover            CompanyAccount? @relation("RequestRequestedApprover", fields: [requestedApproverAccountId], references: [id], onDelete: SetNull)
-  requestedApproverEmployeeId  String?
-  requestedApproverEmployee    Employee?       @relation("RequestRequestedApproverEmployee", fields: [requestedApproverEmployeeId], references: [id], onDelete: SetNull)
-
-  attachments Attachment[]
-
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
-  deletedAt DateTime?
-
-  @@index([companyId])
-  @@index([requestedApproverAccountId])
-  @@index([employeeId])
-  @@index([companyId, status])
-}
-
-/// An in-app notification (Architecture.md section 7). Fired on a request
-/// being submitted (to its approvers) or decided (to the submitting
-/// employee) - the two Phase 7 events - via `lib/notifications.ts`.
-///
-/// `recipientEmployeeId`/`recipientAccountId` are the same two-nullable-FK
-/// shape as everywhere else in this schema that a row belongs to "an Employee
-/// or a CompanyAccount": exactly one is set, enforced in `lib/notifications.ts`.
-model Notification {
-  id String @id @default(cuid())
-
-  companyId String
-  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
-
-  recipientEmployeeId String?
-  recipientEmployee   Employee? @relation("NotificationEmployee", fields: [recipientEmployeeId], references: [id], onDelete: Cascade)
-
-  recipientAccountId String?
-  recipientAccount   CompanyAccount? @relation("NotificationAccount", fields: [recipientAccountId], references: [id], onDelete: Cascade)
-
-  /// What happened. Drives which channels `lib/notifications.ts` spends on
-  /// this one, and forms half of `dedupeKey` below.
-  type NotificationType
-
-  message String
-  /// Where clicking the notification should go, e.g. `/requests/[id]`.
-  link    String?
-
-  /// Idempotency key for notifications a *sweep* produces rather than a user
-  /// action (currently `DeadlineApproaching`, from `jobs/notifyDeadlines.ts`).
-  ///
-  /// The sweep runs daily and would otherwise re-warn about the same task
-  /// every night, so it writes a key naming the task and the day it is warning
-  /// about; the unique index below turns the second write into a no-op rather
-  /// than a duplicate message. Null for event-driven notifications, which
-  /// cannot repeat because the event cannot — and Postgres treats each NULL as
-  /// distinct, so any number of them coexist under this constraint.
-  dedupeKey String?
-
-  readAt    DateTime?
-  createdAt DateTime  @default(now())
-
-  @@unique([companyId, dedupeKey])
-  @@index([companyId])
-  @@index([recipientEmployeeId])
-  @@index([recipientAccountId])
-}
-
-/// Which channels one person wants notifications on, beyond the bell.
-///
-/// A row exists only once someone has changed something: no row means every
-/// channel is on, which is the product default the Owner chose. That keeps the
-/// table empty for the overwhelming majority of people and needs no backfill
-/// for anyone who already exists. `resolveChannels` in `lib/notifications.ts`
-/// is the single place that turns "row or no row" into a channel list.
-///
-/// There is no `inApp` column: the bell is the permanent record of what
-/// happened and is not a channel anyone may switch off.
-model NotificationPreference {
-  id String @id @default(cuid())
-
-  companyId String
-  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
-
-  /// The same "exactly one of these" recipient shape as `Notification`, here
-  /// additionally unique so one person cannot hold two conflicting rows.
-  employeeId String?   @unique
-  employee   Employee? @relation("NotificationPrefEmployee", fields: [employeeId], references: [id], onDelete: Cascade)
-
-  accountId String?         @unique
-  account   CompanyAccount? @relation("NotificationPrefAccount", fields: [accountId], references: [id], onDelete: Cascade)
-
-  emailEnabled    Boolean @default(true)
-  whatsappEnabled Boolean @default(true)
-  pushEnabled     Boolean @default(true)
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  @@index([companyId])
-}
-
-/// A company-wide broadcast, optionally carrying a poll (Plan: top bar
-/// rework). Posted by any company account role — Owner, Admin, Manager, HR
-/// — `canManageAnnouncements` in lib/permissions.ts — and readable by
-/// everyone, employees included, which is why it fans out through the
-/// existing `Notification`/`deliver` pipeline (`AnnouncementPosted`) rather
-/// than a bespoke one.
-model Announcement {
-  id String @id @default(cuid())
-
-  companyId String
-  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
-
-  createdByAccountId String
-  createdByAccount   CompanyAccount @relation(fields: [createdByAccountId], references: [id], onDelete: Cascade)
-
-  title String
-  body  String
-
-  poll Poll?
-
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
-  deletedAt DateTime?
-
-  @@index([companyId, createdAt])
-}
-
-/// At most one per announcement (`announcementId` is `@unique`) — a poll is
-/// an announcement's optional attachment, not a standalone post.
-model Poll {
-  id String @id @default(cuid())
-
-  companyId String
-  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
-
-  announcementId String       @unique
-  announcement   Announcement @relation(fields: [announcementId], references: [id], onDelete: Cascade)
-
-  options PollOption[]
-
-  createdAt DateTime   @default(now())
-  pollVotes PollVote[]
-
-  @@index([companyId])
-}
-
-model PollOption {
-  id String @id @default(cuid())
-
-  companyId String
-  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
-
-  pollId String
-  poll   Poll   @relation(fields: [pollId], references: [id], onDelete: Cascade)
-
-  label String
-  /// Display order, since Prisma gives no ordering guarantee of its own.
-  order Int
-
-  votes PollVote[]
-
-  @@index([pollId])
-}
-
-/// One voter, one vote per poll — the same "Employee or CompanyAccount"
-/// dual-FK shape as `ConversationParticipant`, with two separate unique
-/// constraints (Postgres treats each NULL as distinct, so each constraint
-/// only ever binds the non-null side) rather than one compound one, which
-/// would not enforce uniqueness the same way.
-///
-/// `pollId` is denormalized here alongside `pollOptionId` — the same
-/// reasoning `companyId` is denormalized onto every child table — so "does
-/// this voter already have a vote on this poll" is one query with no join
-/// through `PollOption` first.
-model PollVote {
-  id String @id @default(cuid())
-
-  companyId String
-  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
-
-  pollOptionId String
-  pollOption   PollOption @relation(fields: [pollOptionId], references: [id], onDelete: Cascade)
-  pollId       String
-  poll         Poll       @relation(fields: [pollId], references: [id], onDelete: Cascade)
-
-  voterEmployeeId String?
-  voterEmployee   Employee?       @relation(fields: [voterEmployeeId], references: [id], onDelete: Cascade)
-  voterAccountId  String?
-  voterAccount    CompanyAccount? @relation(fields: [voterAccountId], references: [id], onDelete: Cascade)
-
-  createdAt DateTime @default(now())
-
-  @@unique([pollId, voterEmployeeId])
-  @@unique([pollId, voterAccountId])
-  @@index([pollOptionId])
-}
-
-/// One browser that has agreed to receive Web Push, as returned by the
-/// browser's own `PushManager.subscribe()` (Architecture.md section 7's
-/// delivery half).
-///
-/// One person can hold several: work laptop, home laptop, phone. `endpoint` is
-/// the push service's URL for that browser and is globally unique by
-/// construction, so it — not the person — is the natural key, and re-subscribing
-/// the same browser updates the existing row instead of piling up dead ones.
-///
-/// Rows are deleted rather than soft-deleted: a subscription the push service
-/// has rejected with 404/410 is not history worth keeping, it is a dead address
-/// that would be retried forever. `lib/push.ts` prunes them on that response.
-model PushSubscription {
-  id String @id @default(cuid())
-
-  companyId String
-  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
-
-  employeeId String?
-  employee   Employee? @relation("PushSubscriptionEmployee", fields: [employeeId], references: [id], onDelete: Cascade)
-
-  accountId String?
-  account   CompanyAccount? @relation("PushSubscriptionAccount", fields: [accountId], references: [id], onDelete: Cascade)
-
-  /// The push service URL this browser listens on.
-  endpoint String @unique
-  /// The browser's public key and auth secret, used to encrypt the payload so
-  /// the push service relaying it cannot read the message.
-  p256dh   String
-  auth     String
-
-  createdAt DateTime @default(now())
-
-  @@index([companyId])
-  @@index([employeeId])
-  @@index([accountId])
-}
-
-/// A goal set for an employee (PRD.md section 6.5 - "OKR-style, simple").
-///
-/// Manager-owned: Owner/Admin/HR or the employee's own manager create and
-/// decide a goal (`canEditEmployee`'s existing scope - lib/permissions.ts);
-/// the employee reads it on My Growth but never writes it. No numeric progress
-/// field - a goal is `Active` until explicitly marked `Achieved` or `Missed`,
-/// which is all `lib/performance.ts`'s score needs and all Phases.md's "simple"
-/// tracking asks for.
-model Goal {
-  id String @id @default(cuid())
-
-  companyId String
-  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
-
-  /// Plan: attendance/performance for all company accounts, not just
-  /// employees — the subject of this goal, either an Employee or a
-  /// CompanyAccount, mirroring `Notification`'s two-nullable-FK recipient
-  /// shape. Exactly one of the two is set, enforced in `lib/performance-data.ts`
-  /// rather than the database, the same way this schema's other "exactly one
-  /// of these" invariants are enforced in lib/*.ts.
-  employeeId String?
-  employee   Employee? @relation(fields: [employeeId], references: [id], onDelete: Cascade)
-
-  accountId String?
-  account   CompanyAccount? @relation("GoalSubjectAccount", fields: [accountId], references: [id], onDelete: Cascade)
-
-  /// Who set this goal. Null if that account is later removed - the goal
-  /// itself stays, like a task's `createdBy`.
-  createdById String?
-  createdBy   CompanyAccount? @relation("GoalSetBy", fields: [createdById], references: [id], onDelete: SetNull)
-
-  title       String
-  description String?
-  targetDate  DateTime?
-
-  status GoalStatus @default(Active)
-
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
-  deletedAt DateTime?
-
-  @@index([companyId])
-  @@index([employeeId])
-  @@index([accountId])
-}
-
-/// A manager feedback log entry (PRD.md section 6.5). Visible to the employee
-/// immediately - there is no private/draft state.
-///
-/// `rating` is a 1-5 number alongside the free-text `body`: the scoring engine
-/// needs a number to average, and the log entry alone can't feed the formula.
-model Feedback {
-  id String @id @default(cuid())
-
-  companyId String
-  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
-
-  /// Plan: attendance/performance for all company accounts — same
-  /// two-nullable-FK subject shape as `Goal` above.
-  employeeId String?
-  employee   Employee? @relation(fields: [employeeId], references: [id], onDelete: Cascade)
-
-  accountId String?
-  account   CompanyAccount? @relation("FeedbackSubjectAccount", fields: [accountId], references: [id], onDelete: Cascade)
-
-  givenById String?
-  givenBy   CompanyAccount? @relation("FeedbackGivenBy", fields: [givenById], references: [id], onDelete: SetNull)
-
-  rating Int
-  body   String
-
-  createdAt DateTime @default(now())
-
-  @@index([companyId])
-  @@index([employeeId])
-  @@index([accountId])
-}
-
-/// One point on an employee's performance history timeline (Architecture.md's
-/// ERD: `Employee 1---* PerformanceRecord`, PRD.md section 6.5 - "performance
-/// history timeline per employee").
-///
-/// Unlike `Employee.workloadPercent` (a single cached value overwritten in
-/// place), this is a real history: `lib/performance-data.ts` appends a new row
-/// every time a triggering write (a task reaching Done, new feedback, a
-/// decided goal) produces enough data to compute a score. When there isn't
-/// enough data yet, no row is written at all - simpler than a nullable `score`
-/// sentinel, and "no records yet" already reads correctly as "not enough data".
-model PerformanceRecord {
-  id String @id @default(cuid())
-
-  companyId String
-  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
-
-  /// Plan: attendance/performance for all company accounts — same
-  /// two-nullable-FK subject shape as `Goal`/`Feedback` above.
-  employeeId String?
-  employee   Employee? @relation(fields: [employeeId], references: [id], onDelete: Cascade)
-
-  accountId String?
-  account   CompanyAccount? @relation("PerformanceRecordSubjectAccount", fields: [accountId], references: [id], onDelete: Cascade)
-
-  /// `lib/performance.ts`'s `calculatePerformanceScore` output, 0-100 (may
-  /// read outside that range only if the formula changes - kept as a Decimal
-  /// like `workloadPercent` so it never accumulates float error).
-  score Decimal @db.Decimal(5, 2)
-
-  computedAt DateTime @default(now())
-
-  @@index([companyId])
-  @@index([employeeId, computedAt])
-  @@index([accountId, computedAt])
-}
-
-/// One clock-in/clock-out session for an employee - a "Login"/"Logout" pair,
-/// no approval workflow. `clockOutAt: null` means the employee is currently
-/// clocked in. At most one such row per employee at a time - enforced in
-/// `lib/attendance-data.ts`, not the database, the same way other "exactly
-/// one of these" invariants in this schema are enforced in lib/*.ts rather
-/// than a DB constraint.
-///
-/// Breaks (Plan.md Phase 15) belong to the session, not to one task -
-/// starting one pauses every task timer running for this employee, so the
-/// worked total can honestly exclude lunch without also losing the timers.
-model AttendanceRecord {
-  id String @id @default(cuid())
-
-  companyId String
-  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
-
-  /// Plan: attendance for all company accounts, not just employees — same
-  /// two-nullable-FK subject shape as `Goal`/`Feedback`/`PerformanceRecord`
-  /// above.
-  employeeId String?
-  employee   Employee? @relation(fields: [employeeId], references: [id], onDelete: Cascade)
-
-  accountId String?
-  account   CompanyAccount? @relation("AttendanceRecordSubjectAccount", fields: [accountId], references: [id], onDelete: Cascade)
-
-  clockInAt  DateTime  @default(now())
-  clockOutAt DateTime?
-
-  /// How this session ended. Null while it is still open. `Manual` is somebody
-  /// pressing Log out; `AutoNoResponse` is `jobs/remindLogout.ts` closing a
-  /// session whose logout reminder went unanswered - which also backdates
-  /// `clockOutAt` to the last confirmed presence, so the marker is what
-  /// explains a clock-out stamped earlier than the row was written.
-  clockOutReason AttendanceEndReason?
-
-  /// The last moment we know this person was still working: set by "I'm here"
-  /// on a logout reminder. Null means they have not confirmed since clocking
-  /// in, and `resolveLogoutNudge` falls back to the end of the working day.
-  presenceConfirmedAt DateTime?
-
-  /// When the most recent logout reminder was sent. Never cleared: the sweep
-  /// compares it against `presenceConfirmedAt` to tell an answered reminder
-  /// from an outstanding one, and counts the next reminder's 2 hours from it.
-  logoutReminderAt DateTime?
-
-  breaks BreakRecord[]
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  @@index([companyId])
-  @@index([employeeId, clockInAt])
-  @@index([accountId, clockInAt])
-  /// The logout sweep reads every still-open session across every tenant, so
-  /// its filter is `clockOutAt: null` with no company to narrow it first.
-  @@index([clockOutAt])
-}
-
 /// Why an attendance session ended - the same "closed, and here is why" shape
 /// `TimeEntryEndReason` gives a task timer, and for the same reason: a session
 /// the system closed on somebody's behalf must be distinguishable from one
@@ -1697,428 +2103,6 @@ model AttendanceRecord {
 enum AttendanceEndReason {
   Manual
   AutoNoResponse
-}
-
-/// One break taken during an open attendance session (Plan.md Phase 15). A
-/// break outside a working day is not a thing, so `attendanceRecordId` is
-/// required, not nullable - unlike `AttendanceRecord` itself, which stands on
-/// its own.
-///
-/// `endedAt: null` means the break is open; at most one such row per employee
-/// at a time, enforced in `lib/attendance-data.ts` the same way the single
-/// open `AttendanceRecord` is.
-model BreakRecord {
-  id String @id @default(cuid())
-
-  companyId String
-  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
-
-  /// Plan: breaks for all company accounts, not just employees — same
-  /// two-nullable-FK subject shape as `AttendanceRecord` above.
-  employeeId String?
-  employee   Employee? @relation(fields: [employeeId], references: [id], onDelete: Cascade)
-
-  accountId String?
-  account   CompanyAccount? @relation("BreakRecordSubjectAccount", fields: [accountId], references: [id], onDelete: Cascade)
-
-  attendanceRecordId String
-  attendanceRecord   AttendanceRecord @relation(fields: [attendanceRecordId], references: [id], onDelete: Cascade)
-
-  startedAt DateTime  @default(now())
-  endedAt   DateTime?
-
-  /// Tasks whose running timer this break paused, so ending it can resume
-  /// exactly those and nothing else. Always empty for a CompanyAccount
-  /// subject — a company account is never a task assignee, so it never has a
-  /// running `TaskTimeEntry` to pause.
-  pausedTaskIds String[]
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  @@index([companyId])
-  @@index([employeeId, startedAt])
-  @@index([accountId, startedAt])
-}
-
-/// A system-generated exception (PRD.md section 6.8, Phases.md Phase 9's
-/// early-warning engine): an overdue task, an overloaded employee, a stalled
-/// project, or a pending request aging past the company's threshold.
-///
-/// A live snapshot, not a history like `PerformanceRecord` - regenerating a
-/// company's alerts (`lib/alert-data.ts`'s `recalcCompanyAlerts`) deletes every
-/// existing row for it and inserts the currently-triggered ones in one
-/// transaction. Simplest correct model for "what needs attention right now",
-/// and avoids a resolved/unresolved state machine nothing asks for.
-///
-/// `employeeId`/`projectId` are two independent, optional pointers (not the
-/// usual "exactly one of these is set" pair) - an `OverdueTask` alert sets
-/// both (the assignee and the task's project), `OverloadedEmployee` and
-/// `AgingApproval` set only `employeeId`, `StalledProject` only `projectId`.
-/// They exist so a Manager's dashboard can filter to alerts about their own
-/// direct reports or led projects, the same scoping already applied to
-/// requests, performance and workload.
-model Alert {
-  id String @id @default(cuid())
-
-  companyId String
-  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
-
-  type     AlertType
-  severity AlertSeverity
-
-  message String
-  /// Where clicking the alert should go, e.g. `/tasks/[id]`.
-  link    String?
-
-  employeeId String?
-  employee   Employee? @relation(fields: [employeeId], references: [id], onDelete: SetNull)
-
-  projectId String?
-  project   Project? @relation(fields: [projectId], references: [id], onDelete: SetNull)
-
-  createdAt DateTime @default(now())
-
-  @@index([companyId])
-  @@index([companyId, type])
-  @@index([employeeId])
-  @@index([projectId])
-}
-
-/// A 1:1 chat between any two members of a company (either an Employee or a
-/// CompanyAccount) - Phase 11. No group chat: the join-table shape (like
-/// `ProjectMember`) is what keeps "find the conversation between X and Y" a
-/// plain query instead of four nullable FK columns directly on this row.
-model Conversation {
-  id String @id @default(cuid())
-
-  companyId String
-  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
-
-  participants ConversationParticipant[]
-  messages     ChatMessage[]
-
-  /// The backend this conversation actually lives in. Records the provider it
-  /// was created with and is deliberately never changed by a default-provider
-  /// switch — existing conversations keep their original provider (Plan:
-  /// provider switching and conversation integrity). `Native` conversations
-  /// store messages in `ChatMessage`; `Google` conversations point at a Google
-  /// Chat space via `googleSpaceId` and keep no message bodies here.
-  provider MessagingProvider @default(Native)
-
-  /// The Google Chat space id for a `Google` conversation. Null for `Native`
-  /// conversations. Set when the space is created; never persisted per-message
-  /// here because Google remains the authoritative store for Google messages.
-  googleSpaceId String?
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  @@index([companyId])
-}
-
-/// One side of a conversation. Same two-nullable-FK shape as `Notification`'s
-/// recipient columns - exactly one of `employeeId`/`accountId` is set,
-/// enforced in `lib/chat-data.ts`, not the database. `lastReadAt` is what the
-/// unread badge/count is computed from, so no separate read-receipt table is
-/// needed.
-model ConversationParticipant {
-  id String @id @default(cuid())
-
-  companyId String
-  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
-
-  conversationId String
-  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
-
-  employeeId String?
-  employee   Employee? @relation(fields: [employeeId], references: [id], onDelete: Cascade)
-
-  accountId String?
-  account   CompanyAccount? @relation(fields: [accountId], references: [id], onDelete: Cascade)
-
-  lastReadAt DateTime?
-
-  @@unique([conversationId, employeeId])
-  @@unique([conversationId, accountId])
-  @@index([companyId])
-  @@index([employeeId])
-  @@index([accountId])
-}
-
-/// A chat message, hard-deleted 31 days after `createdAt`
-/// (`lib/chat-data.ts`'s lazy cleanup plus the
-/// `/api/jobs/cleanup-chat-messages` sweep). Unlike every other "history"
-/// table in this schema, this one is genuinely temporary by design, so there
-/// is no `deletedAt` soft-delete - a message that ages out is actually gone.
-model ChatMessage {
-  id String @id @default(cuid())
-
-  companyId String
-  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
-
-  conversationId String
-  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
-
-  senderEmployeeId String?
-  senderEmployee   Employee? @relation(fields: [senderEmployeeId], references: [id], onDelete: SetNull)
-
-  senderAccountId String?
-  senderAccount   CompanyAccount? @relation(fields: [senderAccountId], references: [id], onDelete: SetNull)
-
-  /// Empty string when the message is a bare file share - `sendMessageSchema`
-  /// requires text or an attachment, not necessarily both.
-  body String
-
-  /// Plan: media/file sharing in chat. Nullable because most messages are
-  /// text. The 31-day hard delete above must delete the `StoredFile` too,
-  /// otherwise files outlive the messages that referenced them forever - see
-  /// `lib/chat-data.ts` and `jobs/cleanupChatMessages.ts`.
-  attachmentFileId String?
-  attachmentFile   StoredFile? @relation(fields: [attachmentFileId], references: [id], onDelete: SetNull)
-
-  createdAt DateTime @default(now())
-
-  @@index([conversationId, createdAt])
-  @@index([companyId])
-}
-
-/// One person's override of their level default (Plan: access levels, grown
-/// from Phase 11's employee-only grants): `Grant` switches on a power their
-/// level lacks, `Revoke` switches off one it would otherwise give. No row
-/// means "follow the level". Read fresh on every request by `getRawActor()`
-/// (lib/auth.ts) and interpreted in exactly one place, `has` in
-/// lib/permissions.ts — so a change applies on the person's next click.
-///
-/// Same two-nullable-FK "Employee or CompanyAccount" shape as `Notification`:
-/// exactly one of `employeeId`/`accountId` is set, enforced by a CHECK
-/// constraint in the migration as well as by lib/permission-grants-data.ts.
-model PermissionGrant {
-  id String @id @default(cuid())
-
-  companyId String
-  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
-
-  employeeId String?
-  employee   Employee? @relation(fields: [employeeId], references: [id], onDelete: Cascade)
-
-  accountId String?
-  account   CompanyAccount? @relation("PermissionGrantSubjectAccount", fields: [accountId], references: [id], onDelete: Cascade)
-
-  permission GrantedPermission
-  effect     PermissionEffect  @default(Grant)
-
-  /// The Owner who last set this override. Nullable with `SetNull` so that
-  /// removing that login can never delete a `Revoke` and silently hand a
-  /// power back.
-  grantedById String?
-  grantedBy   CompanyAccount? @relation("PermissionGrantGivenBy", fields: [grantedById], references: [id], onDelete: SetNull)
-
-  createdAt DateTime @default(now())
-
-  @@unique([companyId, employeeId, permission])
-  @@unique([companyId, accountId, permission])
-  @@index([companyId])
-  @@index([employeeId])
-  @@index([accountId])
-}
-
-/// Append-only history of the Owner's Authority changes (Plan: access
-/// levels): who changed whose access, to what, and when. Written in the same
-/// transaction as the change itself by lib/permission-grants-data.ts.
-model PermissionChange {
-  id String @id @default(cuid())
-
-  companyId String
-  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
-
-  /// Who made the change — kept as null if that login is ever removed, so
-  /// the history outlives its author.
-  changedById String?
-  changedBy   CompanyAccount? @relation("PermissionChangeBy", fields: [changedById], references: [id], onDelete: SetNull)
-
-  /// Whose access changed. Exactly one is set, like `PermissionGrant`.
-  employeeId String?
-  employee   Employee?       @relation(fields: [employeeId], references: [id], onDelete: Cascade)
-  accountId  String?
-  account    CompanyAccount? @relation("PermissionChangeSubjectAccount", fields: [accountId], references: [id], onDelete: Cascade)
-
-  kind       PermissionChangeKind
-  /// Set for `PowerOn`/`PowerOff`.
-  permission GrantedPermission?
-  /// Set for `LevelChanged`.
-  fromRole   CompanyRole?
-  toRole     CompanyRole?
-
-  createdAt DateTime @default(now())
-
-  @@index([companyId, createdAt])
-  @@index([employeeId])
-  @@index([accountId])
-}
-
-/// One person's connection to their own Google Calendar (Plan.md Phase 17).
-///
-/// Read-only by design (Plan.md's confirmed decision): WorkPulse never writes
-/// to Google, it only previews. `refreshTokenEncrypted` is reversible
-/// (AES-256-GCM via `lib/google-calendar-crypto.ts`), unlike every other
-/// secret this schema stores (invite tokens, passwords), because Google
-/// requires the actual token back on every API call - it cannot be hashed
-/// like a one-time invite link.
-///
-/// Same two-nullable-FK "Employee or CompanyAccount" shape as
-/// `NotificationPreference`, one row per person - each side individually
-/// `@unique` so nobody can hold two.
-model GoogleCalendarConnection {
-  id String @id @default(cuid())
-
-  companyId String
-  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
-
-  employeeId String?   @unique
-  employee   Employee? @relation(fields: [employeeId], references: [id], onDelete: Cascade)
-
-  accountId String?         @unique
-  account   CompanyAccount? @relation(fields: [accountId], references: [id], onDelete: Cascade)
-
-  googleEmail String
-
-  /// AES-256-GCM ciphertext, never returned to any client.
-  refreshTokenEncrypted String @db.Text
-  scope                 String
-
-  connectedAt DateTime @default(now())
-
-  @@index([companyId])
-}
-
-/// An in-app meeting (Plan.md Phase 17). Booked and stored entirely in
-/// WorkPulse - never written back to Google - so booking works with
-/// colleagues who have never connected a Google account.
-model Meeting {
-  id String @id @default(cuid())
-
-  companyId String
-  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
-
-  /// Who booked it. Two nullable FKs, the same "Employee or CompanyAccount"
-  /// shape as `ConversationParticipant` - only the organizer may cancel
-  /// (`canCancelMeeting` in lib/permissions.ts).
-  organizerEmployeeId String?
-  organizerEmployee   Employee?       @relation("MeetingOrganizerEmployee", fields: [organizerEmployeeId], references: [id], onDelete: Cascade)
-  organizerAccountId  String?
-  organizerAccount    CompanyAccount? @relation("MeetingOrganizerAccount", fields: [organizerAccountId], references: [id], onDelete: Cascade)
-
-  title       String
-  description String?
-  startAt     DateTime
-  endAt       DateTime
-  location    String?
-
-  status MeetingStatus @default(Scheduled)
-
-  /// Google Calendar event id, set only when the organizer had a Google
-  /// connection at booking time. Null means this meeting exists in WorkPulse
-  /// only (organizer never connected, or the Google write failed — never
-  /// blocks the WorkPulse-side booking).
-  googleEventId String?
-
-  participants MeetingParticipant[]
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  @@index([companyId])
-  @@index([companyId, startAt])
-}
-
-/// One invitee of a `Meeting`, including the organizer themselves (so "my
-/// meetings" and "who is on this meeting" both read from one list, the same
-/// way a chat's creator is also one of its own `ConversationParticipant`
-/// rows).
-///
-/// Mirrors `ConversationParticipant` exactly, including the pair of unique
-/// constraints - Postgres treats each NULL as distinct, so a row with
-/// `employeeId: null` never collides with another on that index, only real
-/// (meetingId, employeeId) pairs do.
-model MeetingParticipant {
-  id String @id @default(cuid())
-
-  companyId String
-  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
-
-  meetingId String
-  meeting   Meeting @relation(fields: [meetingId], references: [id], onDelete: Cascade)
-
-  employeeId String?
-  employee   Employee? @relation("MeetingParticipantEmployee", fields: [employeeId], references: [id], onDelete: Cascade)
-
-  accountId String?
-  account   CompanyAccount? @relation("MeetingParticipantAccount", fields: [accountId], references: [id], onDelete: Cascade)
-
-  @@unique([meetingId, employeeId])
-  @@unique([meetingId, accountId])
-  @@index([companyId])
-  @@index([employeeId])
-  @@index([accountId])
-}
-
-/// Binary file storage (Plan: file storage foundation).
-///
-/// Until now the app had no place to put a real file: avatars are base64
-/// strings on their own row and `Attachment` only ever held a pasted URL. Chat
-/// media, bulk-email attachments and uploaded salary slips all need actual
-/// bytes, so they share this one table rather than each inventing storage.
-///
-/// Bytes live in Postgres rather than an object store on purpose - it keeps
-/// deployment to a single dependency the app already has, and every row is
-/// tenant-scoped by the same `companyId` convention as the rest of the schema,
-/// so an authorization bug cannot leak across companies through a guessed
-/// object URL. `lib/files.ts` caps uploads (see `MAX_FILE_BYTES`) so the table
-/// stays a store for documents and images, not a media library.
-///
-/// `uploadedById`/`uploadedByEmployeeId` are the same "exactly one of a pair"
-/// shape `Attachment.addedById` uses, enforced in `lib/files.ts`.
-///
-/// Rows are referenced by feature tables (`ChatMessage.attachmentFileId`,
-/// `SalarySlip.uploadedFileId`, ...) via `onDelete: SetNull`, so deleting a
-/// file never cascades into deleting the record that pointed at it. The
-/// reverse - deleting the record - is what must clean up the file, which is
-/// why the chat cleanup job deletes both.
-model StoredFile {
-  id String @id @default(cuid())
-
-  companyId String
-  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
-
-  /// Original filename as the uploader's browser reported it, sanitized in
-  /// `lib/files.ts` - it is echoed back in a `Content-Disposition` header, so
-  /// it can never be trusted raw.
-  name      String
-  /// Validated against an allowlist (`ALLOWED_MIME_TYPES`); an arbitrary
-  /// client-supplied type would otherwise be served straight back to a
-  /// browser.
-  mimeType  String
-  sizeBytes Int
-  data      Bytes
-
-  uploadedById String?
-  uploadedBy   CompanyAccount? @relation("StoredFileUploadedByAccount", fields: [uploadedById], references: [id], onDelete: SetNull)
-
-  uploadedByEmployeeId String?
-  uploadedByEmployee   Employee? @relation("StoredFileUploadedByEmployee", fields: [uploadedByEmployeeId], references: [id], onDelete: SetNull)
-
-  createdAt DateTime @default(now())
-
-  chatMessages       ChatMessage[]
-  salarySlips        SalarySlip[]
-  /// Applicant document uploads (Plan: hiring). Both uploader columns above
-  /// stay null for these — an applicant is not a user of the app.
-  applicationAnswers ApplicationAnswer[] @relation("ApplicationAnswerFile")
-  /// A document attached to a task or request.
-  attachment         Attachment?
-
-  @@index([companyId])
 }
 
 /// Who a bulk email went to (Plan: email the whole organisation).
@@ -2134,143 +2118,10 @@ enum BulkEmailAudience {
   Specific
 }
 
-/// A record of one mass email sent to the company (Plan: bulk email).
-///
-/// An HRMS needs to be able to answer "what was sent to staff, by whom, when"
-/// long after the fact, so this is an append-only audit row, not a draft - it
-/// is written once the send has been attempted. `deliveredCount` can be lower
-/// than `recipientCount`: `sendEmail` reports per-recipient success and a
-/// provider can reject individual addresses.
-model BulkEmail {
-  id String @id @default(cuid())
-
-  companyId String
-  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
-
-  sentById String?
-  sentBy   CompanyAccount? @relation("BulkEmailSentBy", fields: [sentById], references: [id], onDelete: SetNull)
-
-  subject String
-  body    String
-
-  audience BulkEmailAudience
-
-  /// Only meaningful for `Specific` - the employee and account ids the sender
-  /// picked. Stored as id arrays rather than a join table because they are
-  /// never queried across, only replayed for the audit view.
-  employeeIds String[] @default([])
-  accountIds  String[] @default([])
-
-  /// `StoredFile` ids attached to the send. A plain id array, not a relation:
-  /// the audit row must survive the files being deleted later.
-  attachmentIds String[] @default([])
-
-  recipientCount Int
-  deliveredCount Int
-
-  createdAt DateTime @default(now())
-
-  @@index([companyId, createdAt])
-}
-
 /// Which transactional email a company has customised.
 enum EmailTemplateKind {
   EmployeeInvite
   AccountInvite
-}
-
-/// A company's override for one of the built-in transactional emails
-/// (Plan: editable invite template).
-///
-/// Absence of a row is meaningful: `lib/mailer.ts` falls back to the built-in
-/// `inviteEmailBody`/`accountInviteEmailBody` copy, so a company that never
-/// visits this setting keeps today's behaviour exactly. `subject` and `body`
-/// support `{{variable}}` placeholders substituted by `renderTemplate`.
-model EmailTemplate {
-  id String @id @default(cuid())
-
-  companyId String
-  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
-
-  kind EmailTemplateKind
-
-  subject String
-  body    String
-
-  /// `StoredFile` ids sent with every email of this kind - an id array for
-  /// the same reason `BulkEmail.attachmentIds` is one.
-  attachmentIds String[] @default([])
-
-  updatedAt DateTime @updatedAt
-
-  @@unique([companyId, kind])
-  @@index([companyId])
-}
-
-/// The company's reusable salary-slip structure (Plan: salary slips).
-///
-/// `components` is the ordered list of earning and deduction lines a slip is
-/// built from - `[{ key, label, kind: "earning" | "deduction", defaultAmount }]`
-/// - kept as JSON rather than its own table because the whole list is always
-/// read and written together and is never queried across, the same reasoning
-/// `SalarySlip.components` follows.
-model SalaryTemplate {
-  id String @id @default(cuid())
-
-  companyId String  @unique
-  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
-
-  name       String @default("Default")
-  components Json
-
-  updatedAt DateTime @updatedAt
-}
-
-/// One employee's slip for one month (Plan: salary slips).
-///
-/// Two ways a slip comes to exist, and the row covers both: HR generates it
-/// from `SalaryTemplate` (amounts land in `components`, totals are computed
-/// and stored so a later template edit cannot silently restate a past month),
-/// or HR uploads a finished PDF (`uploadedFileId`). When a file is present it
-/// *is* the slip and the component breakdown is ignored on download.
-///
-/// Totals are stored in whole minor units (paise/cents) to keep money out of
-/// floating point.
-model SalarySlip {
-  id String @id @default(cuid())
-
-  companyId String
-  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
-
-  employeeId String
-  employee   Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
-
-  /// 1-12, with `year`, forms the period this slip covers.
-  month Int
-  year  Int
-
-  components Json
-
-  grossMinor     Int
-  deductionMinor Int
-  netMinor       Int
-
-  /// Set when HR uploaded a finished slip instead of generating one.
-  uploadedFileId String?
-  uploadedFile   StoredFile? @relation(fields: [uploadedFileId], references: [id], onDelete: SetNull)
-
-  /// Employees only ever see `Published` slips; `Draft` lets HR prepare a
-  /// month before releasing it.
-  published Boolean @default(false)
-
-  createdById String?
-  createdBy   CompanyAccount? @relation("SalarySlipCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  @@unique([employeeId, year, month])
-  @@index([companyId, year, month])
 }
 
 /// What a hiring form is doing right now (Plan: hiring).
@@ -2327,230 +2178,6 @@ enum ApplicationStage {
   Rejected
 }
 
-/// An opening's application form (Plan: hiring).
-model HiringForm {
-  id String @id @default(cuid())
-
-  companyId String
-  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
-
-  /// The role being hired for — this is the page's h1 on the public form.
-  title String
-  /// URL segment under `/{companySlug}/recruitmentform/`. Unique per company
-  /// rather than globally: two companies may both be hiring a "designer", and
-  /// the company slug already namespaces the path.
-  slug  String
-
-  /// One line under the title on the public form. Not a job description — the
-  /// facts strip below it carries the specifics.
-  summary String?
-
-  /// What the applicant reads after submitting, in the company's own words —
-  /// usually what happens next and by when. Null falls back to a neutral
-  /// default on the public page, so a company that never wrote one still
-  /// closes the loop rather than showing an empty panel.
-  confirmationMessage String?
-
-  /// The facts strip on the public form. All optional: a company posting a
-  /// single generic "join us" form should not be forced to invent a location.
-  team           String?
-  location       String?
-  employmentType EmploymentType?
-
-  status      HiringFormStatus      @default(Draft)
-  destination HiringFormDestination @default(Hosted)
-
-  /// Set once a `GoogleForm` destination has been published. `googleFormId`
-  /// is what the Forms API is called with; `googleResponderUrl` is what an
-  /// applicant opens; `googleEditUrl` is where the owner edits it in Google's
-  /// own UI.
-  googleFormId       String?
-  googleResponderUrl String?
-  googleEditUrl      String?
-  /// The Google question ids of the three identity questions WorkPulse adds
-  /// ahead of the authored ones, in order: full name, email, phone. Stored
-  /// rather than re-derived by title at sync time, so an owner renaming a
-  /// question in Google's own editor cannot quietly detach every applicant
-  /// from their name.
-  googleIdentityIds  String[]  @default([])
-  /// When responses were last pulled in. Null means "never synced".
-  googleSyncedAt     DateTime?
-
-  publishedAt DateTime?
-  /// After this instant the public form refuses submissions even while `Live`,
-  /// so a company can set a deadline without having to remember to close it.
-  closesAt    DateTime?
-
-  createdById String?
-  createdBy   CompanyAccount? @relation("HiringFormCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
-
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
-  deletedAt DateTime?
-
-  questions    HiringQuestion[]
-  applications JobApplication[]
-
-  @@unique([companyId, slug])
-  @@index([companyId, status])
-  @@index([deletedAt])
-}
-
-/// One authored question on a hiring form.
-model HiringQuestion {
-  id String @id @default(cuid())
-
-  companyId String
-  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
-
-  formId String
-  form   HiringForm @relation(fields: [formId], references: [id], onDelete: Cascade)
-
-  /// Position on the form, 0-based. Rewritten wholesale on every save, so
-  /// there are never gaps or ties.
-  order Int
-
-  type     HiringQuestionType
-  label    String
-  /// Shown under the label on the public form — the place to say "PDF only"
-  /// or "roughly 200 words".
-  helpText String?
-  required Boolean            @default(false)
-
-  /// Choices for `SingleChoice` / `MultiChoice` / `Dropdown`, empty otherwise.
-  options String[] @default([])
-
-  /// The matching item on the Google Form, when this form was published there.
-  /// Needed to map a Google response back onto the right question.
-  googleItemId String?
-
-  answers ApplicationAnswer[]
-
-  @@index([formId, order])
-  @@index([companyId])
-}
-
-/// A submitted application.
-///
-/// Name, email and phone are columns rather than authored questions: the
-/// pipeline has to be able to contact and identify an applicant no matter how
-/// the company built the rest of the form, so those three are collected by the
-/// public page itself and are never the company's to remove.
-model JobApplication {
-  id String @id @default(cuid())
-
-  companyId String
-  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
-
-  formId String
-  form   HiringForm @relation(fields: [formId], references: [id], onDelete: Cascade)
-
-  fullName String
-  email    String
-  phone    String?
-
-  stage ApplicationStage @default(New)
-
-  /// Which destination this arrived through, so the pipeline can show a
-  /// Google-sourced application honestly rather than implying it was typed
-  /// into WorkPulse.
-  source           HiringFormDestination @default(Hosted)
-  /// Google's own response id. Unique so re-running a sync updates the row it
-  /// already created instead of duplicating the applicant.
-  googleResponseId String?               @unique
-
-  /// SHA-256 of the submitting IP, salted per company. Never the raw address:
-  /// this exists only to rate-limit a public endpoint, so the reversible form
-  /// would be personal data the feature has no use for.
-  submitterIpHash String?
-
-  submittedAt DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-
-  answers ApplicationAnswer[]
-  notes   ApplicationNote[]
-
-  @@index([companyId, formId, stage])
-  @@index([formId, submittedAt])
-  @@index([companyId, submitterIpHash, submittedAt])
-}
-
-/// One applicant's answer to one question.
-model ApplicationAnswer {
-  id String @id @default(cuid())
-
-  companyId String
-  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
-
-  applicationId String
-  application   JobApplication @relation(fields: [applicationId], references: [id], onDelete: Cascade)
-
-  questionId String
-  question   HiringQuestion @relation(fields: [questionId], references: [id], onDelete: Cascade)
-
-  /// Everything single-valued: text, a number, an ISO date, one choice.
-  value  String?
-  /// `MultiChoice` only.
-  values String[] @default([])
-
-  /// `Document` only. The bytes live in `StoredFile` like every other upload,
-  /// with both uploader columns null — an applicant is not a user of the app.
-  fileId String?
-  file   StoredFile? @relation("ApplicationAnswerFile", fields: [fileId], references: [id], onDelete: SetNull)
-
-  @@unique([applicationId, questionId])
-  @@index([companyId])
-}
-
-/// An internal note on an applicant. Never shown to the applicant.
-model ApplicationNote {
-  id String @id @default(cuid())
-
-  companyId String
-  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
-
-  applicationId String
-  application   JobApplication @relation(fields: [applicationId], references: [id], onDelete: Cascade)
-
-  /// The same "exactly one of a pair" author shape `Comment` uses, so an HR
-  /// lead holding a `ManageRecruitment` grant can leave notes too.
-  authorId         String?
-  author           CompanyAccount? @relation("ApplicationNoteAuthorAccount", fields: [authorId], references: [id], onDelete: SetNull)
-  authorEmployeeId String?
-  authorEmployee   Employee?       @relation("ApplicationNoteAuthorEmployee", fields: [authorEmployeeId], references: [id], onDelete: SetNull)
-
-  body String
-
-  createdAt DateTime @default(now())
-
-  @@index([applicationId, createdAt])
-  @@index([companyId])
-}
-
-/// The company's Google account for the Forms API (Plan: hiring).
-///
-/// Company-level, not per-user, unlike `GoogleCalendarConnection`: a hiring
-/// form belongs to the company and must keep working when the admin who
-/// connected it leaves. Same AES-256-GCM refresh-token storage
-/// (`lib/google-calendar-crypto.ts`), same never-returned-to-a-client rule.
-model GoogleFormsConnection {
-  id String @id @default(cuid())
-
-  companyId String  @unique
-  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
-
-  googleEmail String
-
-  /// AES-256-GCM ciphertext, never returned to any client.
-  refreshTokenEncrypted String @db.Text
-  scope                 String
-
-  connectedById String?
-  connectedBy   CompanyAccount? @relation("GoogleFormsConnectedBy", fields: [connectedById], references: [id], onDelete: SetNull)
-
-  connectedAt DateTime @default(now())
-}
-
 /// The three self-serve tiers (PRD.md pricing section / `lib/plans.ts` — the
 /// single source of truth for names, caps and prices). `Enterprise`, shown on
 /// the marketing pricing page, is deliberately not a member here: it is a
@@ -2573,41 +2200,6 @@ enum SubscriptionStatus {
   Active
 }
 
-/// A company's paid access (Plan: Razorpay billing). Manual monthly renewal,
-/// not Razorpay's recurring-mandate Subscriptions API: `currentPeriodEnd` is
-/// set 30 days out on each successful payment, and the Owner pays again to
-/// extend it — no auto-charge, no webhook required to keep this row correct.
-///
-/// One-to-one with `Company` (`companyId` is `@unique`), the same sidecar
-/// shape as `GoogleCalendarConnection` / `GoogleFormsConnection` — created
-/// lazily on the first plan purchase, not at registration, so there is no
-/// nullable `plan` column to account for before a company has chosen one.
-model Subscription {
-  id String @id @default(cuid())
-
-  companyId String  @unique
-  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
-
-  plan   SubscriptionPlan
-  status SubscriptionStatus @default(Inactive)
-
-  /// Seats purchased beyond the plan's own cap, ₹200/$2.5 each
-  /// (`EXTRA_SEAT_PRICE_PAISE` in lib/plans.ts), one-time and cumulative —
-  /// they never expire or reset on renewal, unlike `currentPeriodEnd`.
-  extraSeats Int @default(0)
-
-  /// Null until the first successful payment. Compared against `now()` at
-  /// read time by `hasActiveSubscription` rather than swept by a job.
-  currentPeriodEnd DateTime?
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  payments Payment[]
-
-  @@index([status])
-}
-
 /// What a `Payment` was for. `ExtraSeats` carries `seats` instead of `plan`
 /// below — exactly one of the two is set, the same "one of a pair" shape this
 /// schema uses elsewhere (e.g. `Employee.managerId`/`managerAccountId`),
@@ -2624,46 +2216,4 @@ enum PaymentStatus {
   Created
   Paid
   Failed
-}
-
-/// One Razorpay order, and what it bought (Plan: Razorpay billing). Kept as a
-/// real history — like `TaskTimeEntry`, rows are never edited except the one
-/// status transition from `Created` — so a company's billing history and a
-/// failed/abandoned checkout are both visible, not just the current
-/// `Subscription` snapshot.
-model Payment {
-  id String @id @default(cuid())
-
-  companyId String
-  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
-
-  subscriptionId String
-  subscription   Subscription @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
-
-  purpose PaymentPurpose
-  /// `PlanSubscription` only.
-  plan    SubscriptionPlan?
-  /// `ExtraSeats` only — how many seats this order bought.
-  seats   Int?
-
-  /// Minor units (paise), like every other money column in this schema
-  /// (`Project.value`, `Request.amount`) — never a float.
-  amount   Int
-  currency String @default("INR")
-
-  /// Razorpay's own ids. `razorpayOrderId` is written when the order is
-  /// created and is this row's natural key for `POST /api/billing/verify` to
-  /// look itself up by; the other two are null until the payment completes.
-  razorpayOrderId   String  @unique
-  razorpayPaymentId String?
-  razorpaySignature String?
-
-  status PaymentStatus @default(Created)
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  @@index([companyId])
-  @@index([subscriptionId])
-  @@index([status])
 }

@@ -341,4 +341,14 @@
   :focus-visible {
     @apply outline-ring outline-2 outline-offset-2;
   }
+
+  /* Hide scrollbar for sidebar */
+  .scrollbar-hidden::-webkit-scrollbar {
+    display: none;
+  }
+
+  .scrollbar-hidden {
+    -ms-overflow-style: none; /* IE 10+ */
+    scrollbar-width: none;
+  }
 }

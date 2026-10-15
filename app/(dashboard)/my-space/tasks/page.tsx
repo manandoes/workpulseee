@@ -6,6 +6,7 @@ import { MY_TASK_BUCKETS, myTaskBucket, type MyTaskBucket } from "@/lib/tasks";
 import { EmptyState, PageHeader } from "@/components/dashboard/page-header";
 import { TaskGroup } from "@/components/my-space/my-tasks";
 import { MyTasksStats } from "@/components/my-space/my-tasks-stats";
+import { EisenhowerMatrixButton } from "@/components/eisenhower/eisenhower-my-tasks-button";
 
 export const metadata: Metadata = { title: "My Tasks" };
 
@@ -40,6 +41,7 @@ export default async function MyTasksPage() {
       <PageHeader
         title="My Tasks"
         description="Everything assigned to you — what's late, due today, in progress, coming up and done."
+        action={<EisenhowerMatrixButton />}
       />
 
       {tasks.length === 0 ? (
