@@ -205,7 +205,7 @@ export default async function DashboardLayout({ children }: LayoutProps<"/">) {
           </div>
 
           <div className="flex flex-col gap-3">
-            <BrandMark className="px-1.5" />
+            <BrandMark className="px-1.5 w-full" />
             <SignOutButton labelClassName="hidden group-hover:inline-block" />
           </div>
         </aside>

@@ -11,9 +11,9 @@ export function BrandMark({ className }: { className?: string }) {
       <Image
         src="/Powered.png"
         alt="WorkPulse"
-        width={120}
-        height={32}
-        className="h-auto w-auto max-w-30 object-contain"
+        width={400}
+        height={80}
+        className="h-auto w-full object-contain"
         priority
       />
     </span>
