@@ -45,3 +45,6 @@ yarn-error.log*
 next-env.d.ts
 
 /lib/generated/prisma
+
+# local npm cache (never commit)
+/tmpnpm-cache/

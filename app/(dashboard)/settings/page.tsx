@@ -36,6 +36,7 @@ import { EmailSettingsForm } from "@/components/dashboard/email-settings-form";
 import { EmailTemplateForm } from "@/components/dashboard/email-template-form";
 import { WhatsAppSettingsForm } from "@/components/dashboard/whatsapp-settings-form";
 import { MessagingSettingsForm } from "@/components/dashboard/messaging-settings-form";
+import { FeedbackRecipientSettingsForm } from "@/components/dashboard/feedback-recipient-settings-form";
 import { SalarySlipList } from "@/components/payroll/salary-slip-list";
 import { loadEmailTemplates } from "@/lib/email-template-data";
 import { loadFileSummaries } from "@/lib/files-data";
@@ -80,6 +81,7 @@ export default async function SettingsPage() {
       googleChatEnabled: true,
       googleChatConnectedByEmail: true,
       googleChatConnectedAt: true,
+      feedbackRecipients: true,
     },
   });
 
@@ -224,6 +226,26 @@ export default async function SettingsPage() {
               }
               emailFromAddress={company.emailFromAddress}
               emailApiKeySet={company.emailApiKeyEncrypted !== null}
+            />
+          </CardContent>
+        </Card>
+      ) : null}
+
+      {canManageBranding(actor) ? (
+        <Card>
+          <CardContent className="flex flex-col gap-4 py-2">
+            <div className="flex flex-col gap-1">
+              <h2 className="text-h3 text-brand-brown font-semibold">
+                Feedback recipients
+              </h2>
+              <p className="text-text-secondary text-meta">
+                Who receives email notifications when users submit feedback or
+                enhancement suggestions via the floating dialog. Defaults to
+                info@automovalabs.tech when left blank.
+              </p>
+            </div>
+            <FeedbackRecipientSettingsForm
+              feedbackRecipients={company.feedbackRecipients}
             />
           </CardContent>
         </Card>

@@ -29,6 +29,7 @@ import { EisenhowerTopBarButton } from "@/components/eisenhower/eisenhower-top-b
 import { Avatar } from "@/components/dashboard/avatar";
 import { ModeToggle } from "@/components/dashboard/mode-toggle";
 import { BreakOverlay } from "@/components/attendance/break-overlay";
+import { FeedbackFAB } from "@/components/feedback/feedback-fab";
 import { Toaster } from "@/components/ui/sonner";
 
 /**
@@ -299,6 +300,7 @@ export default async function DashboardLayout({ children }: LayoutProps<"/">) {
               : null
           }
         />
+        <FeedbackFAB />
       </div>
     </TimeZoneProvider>
   );
