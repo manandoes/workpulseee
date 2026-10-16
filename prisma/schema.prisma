@@ -47,6 +47,9 @@ model Company {
   /// GoogleCalendarConnection. Editable by Owner only
   /// (`canManageEmailSettings`) at `/settings`.
   emailProvider                   String?
+  /// Email addresses to receive feedback/enhancement submissions from users/employees.
+  /// Comma-separated list; defaults to `info@automovalabs.tech` when empty.
+  feedbackRecipients              String?
   /// When the working day is expected to end, as minutes from local midnight
   /// (1080 = 18:00), and the zone that "local" means. Together they are the
   /// baseline `lib/attendance.ts`'s `resolveLogoutNudge` counts from: an

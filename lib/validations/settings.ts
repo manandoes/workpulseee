@@ -219,3 +219,25 @@ export const messagingSettingsSchema = z.object({
 });
 
 export type MessagingSettingsInput = z.infer<typeof messagingSettingsSchema>;
+
+/**
+ * Owner-only feedback recipient settings (Plan: software feedback button) —
+ * the comma-separated email addresses that receive user-submitted feedback
+ * via the floating dialog (`app/api/feedback/route.ts`).
+ *
+ * `emailRecipient` is optional and blank means "use the global default";
+ * the form never sends a value until the owner types one, so this mirrors
+ * the same convention as `emailApiKey`.
+ */
+export const feedbackRecipientSettingsSchema = z.object({
+  feedbackRecipients: z
+    .string()
+    .trim()
+    .max(500, "Keep this under 500 characters")
+    .optional()
+    .or(z.literal("")),
+});
+
+export type FeedbackRecipientSettingsInput = z.infer<
+  typeof feedbackRecipientSettingsSchema
+>;
