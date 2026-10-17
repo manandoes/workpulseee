@@ -122,6 +122,18 @@ async function main() {
   });
   const companyId = company.id;
 
+  // Demo company ships with an active Starter subscription so sign-in works
+  // immediately after every reseed. Without this row `hasActiveSubscription`
+  // returns false and every actor is bounced to /billing.
+  await db.subscription.create({
+    data: {
+      companyId,
+      plan: "Starter",
+      status: "Active",
+      currentPeriodEnd: daysFromNow(30),
+    },
+  });
+
   // --- Departments --------------------------------------------------------
   const marketingDept = await db.department.create({
     data: {
