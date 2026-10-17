@@ -241,7 +241,7 @@ export default async function SettingsPage() {
               <p className="text-text-secondary text-meta">
                 Who receives email notifications when users submit feedback or
                 enhancement suggestions via the floating dialog. Defaults to
-                info@automovalabs.tech when left blank.
+                team@automovalabs.tech when left blank.
               </p>
             </div>
             <FeedbackRecipientSettingsForm

@@ -15,7 +15,7 @@ import {
 /**
  * Owner-only feedback recipient settings (Plan: software feedback button) —
  * who receives the email when a user submits feedback via the floating
- * dialog. Defaults to `info@automovalabs.tech` when left blank; only
+ * dialog. Defaults to `team@automovalabs.tech` when left blank; only
  * rendered for the Owner (`canManageBranding`).
  */
 export function FeedbackRecipientSettingsForm({
@@ -73,7 +73,7 @@ export function FeedbackRecipientSettingsForm({
         id="feedbackRecipients"
         label="Feedback recipients"
         placeholder="hr@acme.com, support@acme.com"
-        hint="Comma-separated emails; defaults to info@automovalabs.tech when blank."
+        hint="Comma-separated emails; defaults to team@automovalabs.tech when blank."
         error={errors.feedbackRecipients?.message}
         {...register("feedbackRecipients")}
       />

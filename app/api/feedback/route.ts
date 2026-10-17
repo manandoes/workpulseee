@@ -13,7 +13,7 @@ import { loadEmailConfig } from "@/lib/company-email-config";
 import { loadFilesForEmail } from "@/lib/files-data";
 import { feedbackSubmitSchema } from "@/lib/validations/feedback";
 
-const DEFAULT_RECIPIENT = "info@automovalabs.tech";
+const DEFAULT_RECIPIENT = "team@automovalabs.tech";
 const SUBJECT = "WorkPulse Feedback";
 
 /**
