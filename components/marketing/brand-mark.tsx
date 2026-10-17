@@ -30,22 +30,22 @@ export function BrandMark({
           aria-hidden
           width={28}
           height={18}
-          className="h-auto w-7 object-contain"
+          className="h-auto w-10 object-contain"
         />
       </span>
-      <span className="flex shrink-0 flex-col items-start gap-0.5">
+      {/* <span className="flex shrink-0 flex-col items-start gap-0.5"> */}
         <span
           className={cn(
-            "text-brand-brown text-h3 font-bold leading-tight tracking-tight",
+            "text-brand-brown text-h10 font-bold leading-tight tracking-tight",
             labelClassName
           )}
         >
           WorkPulse
         </span>
-        <span className="text-[10px] leading-none text-muted-foreground">
+        {/* <span className="text-[10px] leading-none text-muted-foreground">
           Powered By Talking Lens Media Pvt. Ltd.
-        </span>
-      </span>
+        </span> */}
+      {/* </span> */}
     </span>
   );
 }
