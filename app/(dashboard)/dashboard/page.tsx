@@ -12,8 +12,6 @@ import {
   recalcCompanyAlerts,
   type LoadedAlert,
 } from "@/lib/alert-data";
-import { formatMoney, formatPercent } from "@/lib/format";
-import { performanceBandLabel } from "@/lib/performance";
 import {
   canViewTasks,
   DASHBOARD_MODE_COOKIE,
@@ -21,9 +19,9 @@ import {
 } from "@/lib/permissions";
 import { loadOpenBreak, loadOpenSession } from "@/lib/attendance-data";
 import { PageHeader } from "@/components/dashboard/page-header";
-import { MetricTile } from "@/components/dashboard/metric-tile";
 import { WorkloadHeatmap } from "@/components/dashboard/workload-heatmap";
 import { AlertsPanel } from "@/components/dashboard/alerts-panel";
+import { DashboardMetricButtons } from "@/components/dashboard/dashboard-metric-buttons";
 import { AttendanceWidget } from "@/components/attendance/attendance-widget";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -143,55 +141,20 @@ export default async function DashboardPage() {
       </Card>
 
       {mode === "hrms" ? (
-        <div className="grid grid-cols-2 gap-4 sm:grid-cols-3">
-          <MetricTile
-            label="Active employees"
-            value={String(metrics.activeEmployees)}
-          />
-          <MetricTile
-            label="Pending approvals"
-            value={String(metrics.pendingApprovalsCount)}
-          />
-          <MetricTile
-            label="Reimbursements pending"
-            value={formatMoney(
-              metrics.reimbursementSummary.total,
-              company.currency
-            )}
-            sublabel={`${metrics.reimbursementSummary.count} request${metrics.reimbursementSummary.count === 1 ? "" : "s"}`}
-          />
-        </div>
+        <DashboardMetricButtons
+          actor={actor}
+          metrics={metrics}
+          currency={company.currency}
+          now={new Date()}
+        />
       ) : metrics.delivery ? (
         <>
-          <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
-            <MetricTile
-              label="Active projects"
-              value={String(metrics.delivery.activeProjects)}
-            />
-            <MetricTile
-              label="Task completion"
-              value={formatPercent(metrics.delivery.taskCompletionPercent)}
-            />
-            <MetricTile
-              label="Overdue tasks"
-              value={String(metrics.delivery.overdueTasksCount)}
-            />
-            <MetricTile
-              label="Performance snapshot"
-              value={
-                metrics.delivery.performanceSnapshot
-                  ? metrics.delivery.performanceSnapshot.averageScore.toFixed(1)
-                  : "—"
-              }
-              sublabel={
-                metrics.delivery.performanceSnapshot
-                  ? performanceBandLabel(
-                      metrics.delivery.performanceSnapshot.band
-                    )
-                  : "Not enough data yet"
-              }
-            />
-          </div>
+          <DashboardMetricButtons
+            actor={actor}
+            metrics={metrics}
+            currency={company.currency}
+            now={new Date()}
+          />
 
           <section className="mt-8 flex flex-col gap-3">
             <h2 className="text-h2 text-brand-brown font-semibold">
