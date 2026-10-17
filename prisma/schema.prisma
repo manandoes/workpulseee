@@ -47,9 +47,6 @@ model Company {
   /// GoogleCalendarConnection. Editable by Owner only
   /// (`canManageEmailSettings`) at `/settings`.
   emailProvider                   String?
-  /// Email addresses to receive feedback/enhancement submissions from users/employees.
-  /// Comma-separated list; defaults to `info@automovalabs.tech` when empty.
-  feedbackRecipients              String?
   /// When the working day is expected to end, as minutes from local midnight
   /// (1080 = 18:00), and the zone that "local" means. Together they are the
   /// baseline `lib/attendance.ts`'s `resolveLogoutNudge` counts from: an
@@ -102,6 +99,11 @@ model Company {
   googleChatConnectedByEmail      String?
   /// When the company-level Google Chat connection was established.
   googleChatConnectedAt           DateTime?
+  /// Comma-separated email addresses that receive user-submitted feedback
+  /// (Plan: software feedback button). Null falls back to the global default
+  /// hardcoded in `lib/feedback.ts`. Editable by Owner only
+  /// (`canManageBranding`) at /settings.
+  feedbackRecipients              String?
   alerts                          Alert[]
   announcements                   Announcement[]
   applicationAnswers              ApplicationAnswer[]
@@ -344,8 +346,8 @@ model Employee {
   salarySlips              SalarySlip[]
   uploadedFiles            StoredFile[]              @relation("StoredFileUploadedByEmployee")
   assignedTasks            Task[]                    @relation("TaskAssignee")
-  taskTimeEntries          TaskTimeEntry[]
   matrixEntries            TaskMatrix[]              @relation("TaskMatrixEmployee")
+  taskTimeEntries          TaskTimeEntry[]
 
   @@unique([companyId, employeeCode])
   @@unique([companyId, companyEmail])
@@ -1820,26 +1822,20 @@ model Payment {
 }
 
 model TaskMatrix {
-  id String @id @default(cuid())
-
-  companyId String
-  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
-
+  id                  String          @id @default(cuid())
+  companyId           String
   /// Polymorphic recipient: either an Employee or a CompanyAccount, never both.
   recipientEmployeeId String?
-  recipientEmployee   Employee? @relation("TaskMatrixEmployee", fields: [recipientEmployeeId], references: [id], onDelete: Cascade)
-
-  recipientAccountId String?
+  recipientAccountId  String?
+  taskId              String
+  quadrant            String
+  sortOrder           Int             @default(0)
+  createdAt           DateTime        @default(now())
+  updatedAt           DateTime        @updatedAt
+  company             Company         @relation(fields: [companyId], references: [id], onDelete: Cascade)
   recipientAccount    CompanyAccount? @relation("TaskMatrixAccount", fields: [recipientAccountId], references: [id], onDelete: Cascade)
-
-  taskId String
-  task   Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
-
-  quadrant  String
-  sortOrder Int @default(0)
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  recipientEmployee   Employee?       @relation("TaskMatrixEmployee", fields: [recipientEmployeeId], references: [id], onDelete: Cascade)
+  task                Task            @relation(fields: [taskId], references: [id], onDelete: Cascade)
 
   @@unique([recipientEmployeeId, taskId])
   @@unique([recipientAccountId, taskId])
