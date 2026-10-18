@@ -1,134 +1,92 @@
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
+import {
+  apiError,
+  serverError,
+} from "@/lib/api";
 import { sendEmail } from "@/lib/mailer";
+import { contactSubmitSchema } from "@/lib/validations/contact";
+import { rateLimit } from "@/lib/rate-limit";
 
-const RECIPIENT = "team@automovalabs.tech";
-const SUBJECT_PREFIX = "WorkPulse Contact";
+const CONTACT_SUBJECT = "WorkPulse Contact Form Submission";
+const DEFAULT_RECIPIENT = "team@automovalabs.tech";
 
-type ContactPayload = {
-  name: string;
-  email: string;
-  subject: string;
-  message: string;
-};
+// 5 submissions per IP per hour.
+const RATE_LIMIT = 5;
+const RATE_WINDOW_MS = 60 * 60 * 1000;
 
-const CONTACT_SCHEMA = {
-  name: { type: "string", minLength: 1, maxLength: 200 },
-  email: { type: "string", format: "email", maxLength: 254 },
-  subject: { type: "string", minLength: 1, maxLength: 200 },
-  message: { type: "string", minLength: 1, maxLength: 5000 },
-};
+/** Reads per-request headers so the endpoint is never prerendered. */
+export const dynamic = "force-dynamic";
 
 /**
- * POST /api/contact — public contact form submission.
+ * POST /api/contact — submit a contact form message from the public
+ * marketing site (no authentication required).
  *
- * Delivers the message to the WorkPulse team inbox via the existing mailer.
- * No authentication is required; rate-limiting is left to the hosting layer
- * (Vercel) for now.
+ * Anyone may submit; no file attachments are supported in the current UI.
  */
 export async function POST(request: NextRequest) {
+  // Rate-limit by IP so bots can't exhaust email budget.
+  const ip = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim()
+    ?? request.headers.get("x-real-ip")
+    ?? request.headers.get("cf-connecting-ip")
+    ?? "unknown";
+  const rateKey = `contact:${ip}`;
+  const limit = rateLimit(rateKey, RATE_LIMIT, RATE_WINDOW_MS);
+  if (!limit.allowed) {
+    const retryAfter = Math.ceil(RATE_WINDOW_MS / 1000);
+    return new NextResponse(
+      JSON.stringify({
+        error: "Too many messages — please try again later.",
+        code: "rate_limited",
+      }),
+      {
+        status: 429,
+        headers: {
+          "Retry-After": String(retryAfter),
+          "Content-Type": "application/json",
+        },
+      }
+    );
+  }
+
   let payload: unknown;
   try {
     payload = await request.json();
   } catch {
-    return NextResponse.json(
-      { error: "Expected a JSON body." },
-      { status: 400 }
-    );
+    return apiError("Expected a JSON body.", 400, "invalid_json");
   }
 
-  const parsed = safeParseContact(payload);
-  if (!parsed.ok) {
-    return NextResponse.json(
-      { error: "Validation failed", details: parsed.reason },
-      { status: 400 }
-    );
+  const parsed = contactSubmitSchema.safeParse(payload);
+  if (!parsed.success) {
+    // For public endpoint, we don't want to leak validation details
+    return apiError("Invalid form data", 400, "invalid_input");
   }
 
   const { name, email, subject, message } = parsed.data;
+  const recipient = DEFAULT_RECIPIENT;
 
   const text = [
+    `Contact Form Submission`,
     `From: ${name} <${email}>`,
     `Subject: ${subject}`,
     "",
     message,
-    "",
-    "---",
-    `Submitted from ${request.headers.get("x-forwarded-for") ?? request.url}`,
   ].join("\n");
 
+  // Use global email config since this is a public form
   const result = await sendEmail(
-    {
-      to: RECIPIENT,
-      subject: `${SUBJECT_PREFIX}: ${subject}`,
-      text,
-    },
-    undefined // use global mailer config (env vars)
+    { to: recipient, subject: CONTACT_SUBJECT, text, attachments: [] },
+    null // Use global config (fallback to env vars)
   );
 
   if (!result.delivered) {
-    console.error("[contact] Email delivery failed", {
-      to: RECIPIENT,
-      reason: result.reason,
-    });
-    return NextResponse.json(
-      { error: "Message could not be sent. Please try again later." },
-      { status: 500 }
+    return serverError(
+      {
+        route: "POST /api/contact",
+      },
+      new Error(`Contact form send failed: ${result.reason}`)
     );
   }
 
-  return NextResponse.json({ ok: true });
-}
-
-function safeParseContact(value: unknown):
-  | { ok: true; data: ContactPayload }
-  | { ok: false; reason: string } {
-  if (value === null || value === undefined || typeof value !== "object") {
-    return { ok: false, reason: "Invalid payload" };
-  }
-
-  const obj = value as Record<string, unknown>;
-
-  const name = obj.name;
-  const email = obj.email;
-  const subject = obj.subject;
-  const message = obj.message;
-
-  if (
-    typeof name !== "string" ||
-    name.trim().length < 1 ||
-    name.trim().length > 200
-  ) {
-    return { ok: false, reason: "name is required (1–200 characters)" };
-  }
-  if (
-    typeof email !== "string" ||
-    !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())
-  ) {
-    return { ok: false, reason: "A valid email address is required" };
-  }
-  if (
-    typeof subject !== "string" ||
-    subject.trim().length < 1 ||
-    subject.trim().length > 200
-  ) {
-    return { ok: false, reason: "subject is required (1–200 characters)" };
-  }
-  if (
-    typeof message !== "string" ||
-    message.trim().length < 1 ||
-    message.trim().length > 5000
-  ) {
-    return { ok: false, reason: "message is required (1–5000 characters)" };
-  }
-
-  return {
-    ok: true,
-    data: {
-      name: name.trim(),
-      email: email.trim(),
-      subject: subject.trim(),
-      message: message.trim(),
-    },
-  };
+  return NextResponse.json({ success: true });
 }

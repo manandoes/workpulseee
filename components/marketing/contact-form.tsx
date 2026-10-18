@@ -36,7 +36,13 @@ export function ContactForm() {
       });
 
       if (!res.ok) {
-        throw new Error("Something went wrong. Please try again.");
+        const body = await res.json().catch(() => null);
+        if (res.status === 429) {
+          throw new Error(
+            "You've sent too many messages — please wait a moment before trying again."
+          );
+        }
+        throw new Error(body?.error ?? "Something went wrong. Please try again.");
       }
 
       setState("sent");
