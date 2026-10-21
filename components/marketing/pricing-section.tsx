@@ -29,7 +29,7 @@ const PLANS = [
   {
     name: PLAN_CONFIG.Starter.name,
     upToEmployees: PLAN_CONFIG.Starter.maxEmployees,
-    price: { INR: PLAN_CONFIG.Starter.priceLabel, USD: "$25" },
+    price: { INR: PLAN_CONFIG.Starter.priceLabel, USD: "$50" },
     description: "For small teams putting their operations in one place.",
     features: [
       "Up to 10 employees",
@@ -43,8 +43,8 @@ const PLANS = [
   {
     name: PLAN_CONFIG.Growth.name,
     upToEmployees: PLAN_CONFIG.Growth.maxEmployees,
-    price: { INR: PLAN_CONFIG.Growth.priceLabel, USD: "$40" },
-    originalPrice: { INR: "₹4,000", USD: "$45" },
+    price: { INR: PLAN_CONFIG.Growth.priceLabel, USD: "$80" },
+    originalPrice: { INR: "₹8,000", USD: "$90" },
     description: "For growing teams that need workload and performance visibility.",
     features: [
       "Up to 20 employees",
@@ -59,8 +59,8 @@ const PLANS = [
   {
     name: PLAN_CONFIG.Scale.name,
     upToEmployees: PLAN_CONFIG.Scale.maxEmployees,
-    price: { INR: PLAN_CONFIG.Scale.priceLabel, USD: "$75" },
-    originalPrice: { INR: "₹10,000", USD: "$125" },
+    price: { INR: PLAN_CONFIG.Scale.priceLabel, USD: "$150" },
+    originalPrice: { INR: "₹20,000", USD: "$250" },
     description: "For larger agencies with custom process and security needs.",
     features: [
       "Up to 50 employees",

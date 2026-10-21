@@ -21,20 +21,20 @@ export const PLAN_CONFIG: Record<
   Starter: {
     name: "Starter",
     maxEmployees: 10,
-    priceInPaise: 200_000,
-    priceLabel: "₹2,000",
+    priceInPaise: 400_000,
+    priceLabel: "₹4,000",
   },
   Growth: {
     name: "Growth",
     maxEmployees: 20,
-    priceInPaise: 350_000,
-    priceLabel: "₹3,500",
+    priceInPaise: 700_000,
+    priceLabel: "₹7,000",
   },
   Scale: {
     name: "Scale",
     maxEmployees: 50,
-    priceInPaise: 600_000,
-    priceLabel: "₹6,000",
+    priceInPaise: 1_200_000,
+    priceLabel: "₹12,000",
   },
 };
 
